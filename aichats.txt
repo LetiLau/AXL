@@ -1,7 +1,7 @@
 NEW GEM ISTRUCTIONS (base info)
 https://gemini.google.com/app/7c4b01b3b784f376
 
-INITIAL REPO
+INITIAL REPO (info for debug or fedora usage)
 https://gemini.google.com/gem/b7e21080aaec/743935c3f482dd6e
 
 START PROJECT
