@@ -1,0 +1,53 @@
+# A-X-L Global GitIgnore
+
+#IDE and OS
+.vscode/
+*.swp
+*~
+Thumbs.db
+.DS_Store
+
+# gbl security
+*.env
+*.keystore
+local.properties
+
+
+# MASTER DOMAIN
+# C/C++ (core_native)
+master/core_native/build/
+master/core_native/CMakeCache.txt
+master/core_native/CMakeFiles/
+master/core_native/Makefile
+master/core_native/compile_commands.json
+*.o
+*.a
+*.so
+*.out
+*.obj
+
+# Android Wrapper (app_wrapper)
+master/app_wrapper/.gradle/
+master/app_wrapper/build/
+master/app_wrapper/app/build/
+master/app_wrapper/captures/
+*.apk
+*.aab
+
+# WebUI Thin Client
+master/webui/node_modules/
+master/webui/dist/
+master/webui/.npm/
+
+
+
+# SLAVE DOMAIN (PC Nodes)
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+slave_nodes/.venv/
+slave_nodes/venv/
+slave_nodes/env/
+pip-log.txt
+pip-delete-this-directory.txtW
