@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(AXL_Core CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF) #NO GNU extensions (massima portabilità)
@@ -10,6 +12,8 @@ set(CORE_SOURCES
     #list of all cpp files
     src/core/EventDispatcher.cpp
     src/core/RingBuffer.cpp
+    src/core/MFCCExtractor.cpp
+    src/WakeWordEngine.cpp
 )
 
 

@@ -50,34 +50,24 @@ namespace axl {
 
     private:
         MFCCConfig config_;
+        
         // KissFFT state for Real-to-Complex transforms
         kiss_fftr_cfg fft_cfg_;
         
-        // Pre-computed tables
+        // Pre-computed lookup tables (Questi DEVONO essere 2D: vector di vector)
         std::vector<float> hamming_window_;
-        std::vector<float> mel_filterbank_; // [num_mel_bins][fft_size/2 + 1]
-        
-        // Working memory for the active frame to avoid allocation in the loop
-        std::vector<float> frame_buffer_;
-        std::vector<float> power_spectrum_;
-
-
-        /*usage of kissFFT*/
-        // KissFFT specific output buffer (Complex numbers: Real and Imaginary pairs)
-        std::vector<float> complex_fft_out_;
-        
-        // Pre-computed DCT-II matrix for MFCC compression [num_ceps][num_mel_bins]
+        std::vector<std::vector<float>> mel_filterbank_; 
         std::vector<std::vector<float>> dct_matrix_;
         
-        // Internal initialization stages
-        void initializeMelFilterbank();
-        void initializeDCTMatrix();
-        /*end*/
+        // Contiguous working memory for the active pipeline
+        std::vector<float> frame_buffer_;
+        std::vector<float> power_spectrum_;
+        std::vector<float> complex_fft_out_;
 
-        
-        // Pipeline stages
+        // Pipeline stages (Dichiarati rigorosamente UNA sola volta)
         void initializeHammingWindow();
         void initializeMelFilterbank();
+        void initializeDCTMatrix();
         void applyPreEmphasisAndWindow(const float* input_frame);
     };
 
