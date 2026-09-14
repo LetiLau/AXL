@@ -27,9 +27,13 @@ master/core_native/compile_commands.json
 *.obj
 
 # Android Wrapper (app_wrapper)
+master/app_wrapper/local.properties
 master/app_wrapper/.gradle/
+master/app_wrapper/.gradle_boot/
 master/app_wrapper/build/
 master/app_wrapper/app/build/
+master/app_wrapper/app/.cxx/
+master/app_wrapper/app/*.bak
 master/app_wrapper/captures/
 *.apk
 *.aab
@@ -50,4 +54,4 @@ slave_nodes/.venv/
 slave_nodes/venv/
 slave_nodes/env/
 pip-log.txt
-pip-delete-this-directory.txtW
+pip-delete-this-directory.txt

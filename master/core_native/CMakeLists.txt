@@ -40,47 +40,37 @@ file(GLOB_RECURSE CORE_SOURCES "src/core/*.cpp")
 
 
 
+# ... [Impostazioni iniziali e FetchContent di KissFFT] ...
+
+# Raccogliamo tutto il core indipendente dall'OS
+file(GLOB_RECURSE CORE_SOURCES "src/core/*.cpp")
+
 if(ANDROID)
-    message(STATUS "[A-X-L] Target OS: Android NDK. Building JNI Shared Library.")
+    message(STATUS "[A-X-L] Cross-compiling Core for Android NDK (arm64-v8a)")
     
-    set(JNI_SOURCES
-        src/jni/axl_bridge.cpp
-    )
+    # Aggiungiamo esplicitamente il file del bridge JNI
+    set(JNI_SOURCES "src/jni/JniBridge.cpp")
     
-    #.so library for Kotlin
+    # Creiamo la libreria condivisa .so che la JVM caricherà
     add_library(axl_native SHARED ${CORE_SOURCES} ${JNI_SOURCES})
     
-    #include position (<axl/...>)
-    target_include_directories(axl_native PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    
-    #Android essential native libraries (logcat)
+    # Cerchiamo la libreria di logging nativa di Android (per android/log.h)
     find_library(log-lib log)
-    target_link_libraries(axl_native ${log-lib})
+    
+    # Linkiamo tutto: il logger Android e il motore matematico KissFFT
+    target_link_libraries(axl_native ${log-lib} kissfft)
+    target_include_directories(axl_native PRIVATE ${kissfft_SOURCE_DIR})
+
+    # A-X-L FIX: Necessario affinché JniBridge.cpp trovi <axl/AxlCore.hpp>
+    target_include_directories(axl_native PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 else()
-    message(STATUS "[A-X-L] Target OS: Linux/Fedora. Building Test Executable.")
+    message(STATUS "[A-X-L] Compiling Standalone Core for Fedora Host")
     
-    #terminal test entry point
-    set(TEST_SOURCES "tests/main_test.cpp")
+    # Il tuo target di test esistente
+    add_executable(axl_test_bus tests/main_test.cpp ${CORE_SOURCES})
     
-    #executable
-    add_executable(axl_test_bus ${CORE_SOURCES} ${TEST_SOURCES})
-    
-    # Risolve i percorsi per gli header senza usare path relativi osceni
-    target_include_directories(axl_test_bus PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    
-    # Link ai thread POSIX necessari per l'Event Dispatcher asincrono su Linux
     find_package(Threads REQUIRED)
-    target_link_libraries(axl_test_bus Threads::Threads)
-    
-    #optimization
-    target_compile_options(axl_test_bus PRIVATE -Wall -Wextra -Wpedantic -O3)
-    
-    ######ATTTENZIONE MANCA QUESTO PEZZO NELL'IF DI ANDROID ALTRIMENTI NON SI USA FFT
-    # LINKING: Aggiungiamo kissfft. Il compilatore lo tratterà come codice nativo.
     target_link_libraries(axl_test_bus Threads::Threads kissfft)
-    
-    # Aggiungiamo l'include directory di KissFFT per poter usare <kiss_fftr.h>
     target_include_directories(axl_test_bus PRIVATE ${kissfft_SOURCE_DIR})
-
 endif()

@@ -17,11 +17,43 @@ I can tell him if he can trust anybody or just the persons he has "saved" in the
 
 
 
+# far partire l'emulatore
+Errore di sintassi banale. `list` non è un binario del tuo OS, è un parametro di `avdmanager`. Hai semplicemente omesso l'eseguibile.
+
+1. **Verifica l'AVD:**
+Esegui il comando corretto per confermare la registrazione del device virtuale:
+
+```bash
+avdmanager list avd
+
+```
+
+
+2. **Avvia l'Emulatore:** Background process.
+Lancia l'istanza forzando l'accelerazione KVM. La `&` finale è cruciale per sganciare il processo, permettendoti di usare lo stesso terminale per la build di Gradle.
+
+```bash
+emulator -avd AXL_Emu -accel on -no-snapshot-load &
+
+```
+
+
+3. **Verifica il bridge ADB:**
+Attendi qualche secondo che la GUI dell'emulatore si avvii, poi verifica che il demone lo abbia agganciato.
+
+```bash
+adb devices
+
+```
+
+L'output deve confermare la presenza di `emulator-5554 device`.
 
 
 
 
 
+# x
+attenzione alla versione XML per UI in kiosk mode
 
 
 

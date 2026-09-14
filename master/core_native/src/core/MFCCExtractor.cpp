@@ -1,9 +1,14 @@
 #include "axl/MFCCExtractor.hpp"
 #include "kiss_fftr.h"
-#include <numbers> //math constant
+//#include <numbers> //math constant --> not used cuz made gradle crash
 #include <cmath>
 #include <stdexcept>
 #include <algorithm>
+
+//defining PI
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 namespace axl {
 
@@ -57,7 +62,7 @@ MFCCExtractor::~MFCCExtractor() {
 void MFCCExtractor::initializeHammingWindow() {
     hamming_window_.resize(config_.frame_size_samples);
     for (std::size_t i = 0; i < config_.frame_size_samples; ++i) {
-        hamming_window_[i] = 0.54f - 0.46f * std::cos((2.0f * std::numbers::pi_v<float> * i) / (config_.frame_size_samples - 1));
+        hamming_window_[i] = 0.54f - 0.46f * std::cos((2.0f * M_PI * i) / (config_.frame_size_samples - 1));
     }
 }
 
@@ -103,7 +108,7 @@ void MFCCExtractor::initializeDCTMatrix() {
     
     for (std::size_t i = 0; i < config_.num_ceps; ++i) {
         for (std::size_t j = 0; j < config_.num_mel_bins; ++j) {
-            dct_matrix_[i][j] = normalizer * std::cos(std::numbers::pi_v<float> * i * (j + 0.5f) / config_.num_mel_bins);
+            dct_matrix_[i][j] = normalizer * std::cos(M_PI * i * (j + 0.5f) / config_.num_mel_bins);
         }
     }
 }
@@ -133,7 +138,7 @@ std::size_t MFCCExtractor::compute(const float* audio_window, std::size_t num_sa
     for (std::size_t f = 0; f < num_frames; ++f) {
         const float* current_frame_ptr = audio_window + (f * config_.hop_size_samples);
 
-        // 1. Time-domain shastd::numbers::pi_v<float>ng
+        // 1. Time-domain shaM_PIng
         applyPreEmphasisAndWindow(current_frame_ptr);
 
         // 2. Fast Fourier Transform
