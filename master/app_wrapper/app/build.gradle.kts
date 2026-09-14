@@ -5,35 +5,49 @@ plugins {
 
 android {
     namespace = "com.axl.core"
-    compileSdk = 34
+    compileSdk = 34 // O la versione target che stai usando
 
     defaultConfig {
         applicationId = "com.axl.core"
-        minSdk = 28
+        minSdk = 28 // Galaxy A33 supporta tranquillamente versioni recenti
         targetSdk = 34
-        
+
+        // 1. Vincolo ABI: Compila C++ SOLO per il target fisico (A33)
+        ndk {
+            abiFilters.add("arm64-v8a")
+        }
+
+        // 2. Parametri diretti a CMake
         externalNativeBuild {
             cmake {
-                arguments += "-DANDROID=TRUE"
-                // Supporto duale: Galaxy A33 (ARM) ed Emulatore Fedora (x86_64)
-                abiFilters += listOf("arm64-v8a", "x86_64")
+                // Impone lo standard C++20 e abilita le ottimizzazioni di Clang
+                cppFlags("-std=c++20", "-O3", "-flto")
+                // Usa la libreria standard C++ statica per evitare dipendenze a runtime mancanti
+                arguments("-DANDROID_STL=c++_static") 
             }
         }
     }
 
-    // A-X-L FIX: AGP 8.1.0 richiede strettamente Java 17
+    // 3. Orchestrazione: Punta al tuo CMakeLists.txt fuori dalla cartella app
+    externalNativeBuild {
+        cmake {
+            // Path relativo da 'app_wrapper/app/' a 'core_native/'
+            path("../../core_native/CMakeLists.txt")
+            version = "3.22.1" // Assicurati di avere questa versione SDK in Android Studio
+        }
+    }
+
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    externalNativeBuild {
-        cmake {
-            // A-X-L FIX: Path corretto (app/ -> app_wrapper/ -> master/core_native)
-            path = file("../../core_native/CMakeLists.txt")
-            version = "3.22.1"
-        }
+    kotlinOptions {
+        jvmTarget = "17"
     }
+
+
 }
 
 dependencies {

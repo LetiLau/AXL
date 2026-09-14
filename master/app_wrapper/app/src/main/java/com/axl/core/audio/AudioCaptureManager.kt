@@ -28,7 +28,7 @@ class AudioCaptureManager {
     // Perfectly feeds our 25ms MFCC window requirements without stalling.
     private val CHUNK_SIZE = 1024
     private val shortBuffer = ShortArray(CHUNK_SIZE)
-    private val floatBuffer = FloatArray(CHUNK_SIZE)
+    // ELIMINATO: private val floatBuffer = FloatArray(CHUNK_SIZE)
 
     @SuppressLint("MissingPermission") // Le autorizzazioni verranno gestite dalla UI
     fun start() {
@@ -68,13 +68,9 @@ class AudioCaptureManager {
             val readResult = audioRecord?.read(shortBuffer, 0, CHUNK_SIZE) ?: 0
             
             if (readResult > 0) {
-                // Hot path: Convert int16 (Short) to float [-1.0f, 1.0f] required by C++ DSP
-                for (i in 0 until readResult) {
-                    floatBuffer[i] = shortBuffer[i] / 32768.0f
-                }
-                
-                // Fire and forget into the native realm
-                NativeBridge.pushAudioChunk(floatBuffer, readResult)
+                // Fire and forget into the native realm.
+                // Il cast a float e l'allocazione vettoriale avvengono in C++ (JniBridge.cpp)
+                NativeBridge.pushAudioChunk(shortBuffer, readResult)
                 
             } else if (readResult < 0) {
                 Log.e(TAG, "AudioRecord read error code: $readResult")

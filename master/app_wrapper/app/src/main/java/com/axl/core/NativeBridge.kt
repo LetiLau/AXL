@@ -24,16 +24,22 @@ object NativeBridge {
      * Bootstraps the C++ native engine.
      * @param modelPath Absolute path to the TFLite model on the Android filesystem.
      */
-    external fun initEngine(modelPath: String)
+    // external fun initEngine(modelPath: String)
+    @JvmStatic
+    external fun initCore(assetPath: String): Boolean
 
     /**
      * High-frequency audio ingestion endpoint.
      * Must be called from a dedicated background thread (e.g., AudioRecord loop).
      */
-    external fun pushAudioChunk(audioData: FloatArray, size: Int)
+    @JvmStatic
+    external fun pushAudioChunk(pcmData: ShortArray, lenght: Int)
 
     /**
      * Routes commands from the Android OS or Web UI to the C++ Event Bus.
      */
-    external fun enqueueCommand(actionId: Int, payload: String)
+    //external fun enqueueCommand(actionId: Int, payload: String)
+
+    @JvmStatic
+    external fun shutdown()
 }

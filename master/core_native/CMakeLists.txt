@@ -58,9 +58,12 @@ if(ANDROID)
     find_library(log-lib log)
     
     # Linkiamo tutto: il logger Android e il motore matematico KissFFT
-    target_link_libraries(axl_native ${log-lib} kissfft)
-    target_include_directories(axl_native PRIVATE ${kissfft_SOURCE_DIR})
+    target_link_libraries(axl_native 
+        ${log-lib} 
+        kissfft
+    )
 
+    target_include_directories(axl_native PRIVATE ${kissfft_SOURCE_DIR})
     # A-X-L FIX: Necessario affinché JniBridge.cpp trovi <axl/AxlCore.hpp>
     target_include_directories(axl_native PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
