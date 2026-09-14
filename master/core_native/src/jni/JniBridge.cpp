@@ -73,12 +73,12 @@
 #include <jni.h>
 #include <string>
 #include <vector>
-#include <android/log.h>
+#include "axl/Logger.hpp" //now using the log universal header 
 #include "axl/AxlCore.hpp"
 
 #define TAG "AXL_CORE"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+// #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+// #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 extern "C" {
 

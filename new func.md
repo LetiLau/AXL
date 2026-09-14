@@ -15,38 +15,12 @@ I can tell him if he can trust anybody or just the persons he has "saved" in the
 **Come si istruisce con la tua voce (Enrollment):** Non addestreremo un modello neurale specifico per te. Useremo il **Few-Shot Enrollment**. Quando costruiremo la UI, aggiungeremo un pulsante "Enroll Owner". Premendolo, Kotlin invierà un comando (es. `cmd 98`) al C++, poi tu dirai la wake-word 3 volte. Il C++ estrarrà i 3 tensori `[128]`, ne calcolerà la media e salverà questo singolo vettore sul filesystem dell'A33 (es. `trusted_users.bin`). A ogni avvio successivo, `AxlCore` leggerà questo file e caricherà il tuo _Speaker Embedding_ in memoria.
 
 
-
-
-# far partire l'emulatore
-Errore di sintassi banale. `list` non è un binario del tuo OS, è un parametro di `avdmanager`. Hai semplicemente omesso l'eseguibile.
-
-1. **Verifica l'AVD:**
-Esegui il comando corretto per confermare la registrazione del device virtuale:
-
-```bash
-avdmanager list avd
-
-```
-
-
-2. **Avvia l'Emulatore:** Background process.
-Lancia l'istanza forzando l'accelerazione KVM. La `&` finale è cruciale per sganciare il processo, permettendoti di usare lo stesso terminale per la build di Gradle.
-
-```bash
-emulator -avd AXL_Emu -accel on -no-snapshot-load &
-
-```
-
-
-3. **Verifica il bridge ADB:**
-Attendi qualche secondo che la GUI dell'emulatore si avvii, poi verifica che il demone lo abbia agganciato.
-
-```bash
-adb devices
-
-```
-
-L'output deve confermare la presenza di `emulator-5554 device`.
+# running su A33
+ adb shell am start -n com.axl.core/.MainActivity
+# installing on A33
+adb install -r -t app/build/outputs/apk/debug/app-debug.apk
+# logcat su altro terminale per testing
+adb logcat -c && adb logcat -v color | grep -E "AXL_MAIN|AXL_NATIVE|AXL_KOTLIN|AXL_AUDIO|AndroidRuntime|CRASH"
 
 
 
