@@ -7,6 +7,27 @@
 //dedicated namespace with the whole code inside
 namespace axl {
 
+    // //state system and event system
+    // enum class EventType {
+    //     WAKE_WORD_DETECTED,
+    //     COMMAND_RECORDING_START,
+    //     COMMAND_RECORDING_STOP,
+    //     SYSTEM_ERROR
+    // };
+
+    // enum class SystemState {
+    //     STATE_SLEEP,
+    //     STATE_COMMAND_LISTENING,
+    //     STATE_PROCESSING,
+    //     STATE_EXECUTING
+    // };
+
+    // struct Event {
+    //     EventType type;
+    //     void* payload; // optional: pointer for more data (ex. confidence)
+    // };
+
+
     //payload data structures
     struct AudioBufferEvent {
         const float* raw_data;

@@ -74,8 +74,8 @@ AXL/
 
 
 
-attenzione manifest non lo avevo ancora scritto potrebbe essere incompleto?
-
 in mainactivity
 // TODO: Initialize WebView for the UI
-// TODO: Add NativeBridge.shutdown() to elegantly kill POSIX threads
+// TODO: Add NativeBridge.shutdown() to elegantly kill POSIX threads (manca?)
+// TODO: Avvia routing audio verso socket/API per l'elaborazione del comando ????
+// TODO: azioni asincrone di sistema (es. aprire socket, settare timer)

@@ -13,7 +13,8 @@ set(CORE_SOURCES
     src/core/EventDispatcher.cpp
     src/core/RingBuffer.cpp
     src/core/MFCCExtractor.cpp
-    src/WakeWordEngine.cpp
+    src/core/WakeWordEngine.cpp
+    src/core/AxlCore.cpp
 )
 
 
@@ -35,15 +36,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(kissfft)
 
-# Aggiorniamo la variabile CORE_SOURCES per assicurarci che non ci siano problemi
-file(GLOB_RECURSE CORE_SOURCES "src/core/*.cpp")
-
-
-
-# ... [Impostazioni iniziali e FetchContent di KissFFT] ...
-
 # Raccogliamo tutto il core indipendente dall'OS
-file(GLOB_RECURSE CORE_SOURCES "src/core/*.cpp")
+#file(GLOB_RECURSE CORE_SOURCES "src/core/*.cpp") #sovrascrive la lista manuale dei file --> causa danni
+
 
 if(ANDROID)
     message(STATUS "[A-X-L] Cross-compiling Core for Android NDK (arm64-v8a)")

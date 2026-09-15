@@ -1,4 +1,5 @@
 #include "axl/WakeWordEngine.hpp"
+#include "axl/EventDispatcher.hpp"
 #include <cmath>
 #include <numeric>
 #include <iostream>
@@ -86,5 +87,6 @@ InferenceResult WakeWordEngine::process(const std::vector<float>& mfcc_tensor) {
 
     return result;
 }
+
 
 }//namespace axl

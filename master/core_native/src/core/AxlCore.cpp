@@ -53,6 +53,10 @@ void AxlCore::init(const std::string& model_path) {
 
     dispatcher_->start();
     is_initialized_ = true;
+
+    // Start background inference loop
+    keep_inferring_ = true;
+    inference_thread_ = std::thread(&AxlCore::inferenceLoop, this);
     
     //std::cout << "[AXL-CORE] Neural pipeline active and listening.\n";
     LOGI("Neural pipeline active and listening.");
@@ -62,6 +66,13 @@ void AxlCore::shutdown() {
     if (is_initialized_) {
         //std::cout << "[AXL-CORE] Initiating subsystem shutdown...\n";
         LOGI("[AXL-CORE] Initiating subsystem shutdown...\n");
+        // Stop inference thread safely
+        keep_inferring_ = false;
+        inference_cv_.notify_one(); // Wake it up if it's sleeping
+        if (inference_thread_.joinable()) {
+            inference_thread_.join();
+        }
+
         dispatcher_->stop();
         is_initialized_ = false;
     }
@@ -69,15 +80,34 @@ void AxlCore::shutdown() {
 
 void AxlCore::pushAudioChunk(const float* pcm_data, std::size_t size) {
     if (!is_initialized_) return;
-    dispatcher_->enqueue(Event(AudioBufferEvent{pcm_data, size}));
+    //dispatcher_->enqueue(Event(AudioBufferEvent{pcm_data, size}));
+    
+    // Scrittura sincrona e thread-safe. Zero event overhead.
+    audio_buffer_->push(pcm_data, size);
+
+    // Controlliamo se abbiamo accumulato abbastanza dati per innescare l'inferenza
+    {
+        std::lock_guard<std::mutex> lock(inference_mutex_);
+        new_samples_accumulated_ += size;
+    }
+
+    if (new_samples_accumulated_ >= STRIDE_SIZE) {
+        inference_cv_.notify_one(); // Sveglia il thread AI
+    }
 }
 
 void AxlCore::enqueueCommand(uint32_t action_id, const std::string& payload) {
     if (!is_initialized_) return;
-    dispatcher_->enqueue(Event(CommandEvent{action_id, payload}));
+    //dispatcher_->enqueue(Event(CommandEvent{action_id, payload}));
+    
+    // Da espandere. Per ora il comando 99 (Inference Manuale) è obsoleto
+    // in quanto la rete neurale gira in background. Lo terremo per debug.
 }
 
 void AxlCore::handleCoreEvents(const Event& event) {
+    //cmd 98 and 99 are obsolete -->
+    // TODO: azioni asincrone di sistema (es. aprire socket, settare timer)
+
     std::visit([this](auto&& arg) {
         using T = std::decay_t<decltype(arg)>;
         
@@ -106,19 +136,6 @@ void AxlCore::handleCoreEvents(const Event& event) {
                     mfcc_extractor_->compute(window.data(), 16000, mfcc_features);
                     
                     InferenceResult result = neural_engine_->process(mfcc_features);
-                    
-                    // std::cout << "--- [INFERENCE RESULT] ---\n";
-                    // std::cout << "Trigger: " << (result.is_wake_word_detected ? "DETECTED" : "NEGATIVE") 
-                    //           << " | Conf: " << result.trigger_confidence << "\n";
-                    // std::cout << "Speaker Distance: " << result.speaker_match_distance << "\n";
-                    // std::cout << "Identity: " << (result.is_authorized_user ? "ROOT_USER" : "UNKNOWN_ENTITY") << "\n";
-                    // std::cout << "--------------------------\n";
-
-                    // LOGI("--- [INFERENCE RESULT] ---\n");
-                    // LOGI("Trigger: ", (result.is_wake_word_detected ? "DETECTED" : "NEGATIVE"), " | Conf: ", result.trigger_confidence, "\n");
-                    // LOGI("Speaker Distance: ", result.speaker_match_distance, "\n");
-                    // LOGI("Identity: ", (result.is_authorized_user ? "ROOT_USER" : "UNKNOWN_ENTITY"), "\n");
-                    // LOGI("--------------------------\n");
 
                     LOGI("--- [INFERENCE RESULT] ---");
                     LOGI("Trigger: %s | Conf: %.2f", 
@@ -139,6 +156,62 @@ void AxlCore::handleCoreEvents(const Event& event) {
             }
         }
     }, event.payload);
+}
+
+void AxlCore::inferenceLoop() {
+    // Pre-allocazione per non scomodare mai il memory allocator nel ciclo vitale (zero leak)
+    std::vector<float> window(WINDOW_SIZE, 0.0f);
+    std::vector<float> mfcc_features;
+
+    while (keep_inferring_) {
+        // --- 1. Sincronizzazione ed Attesa ---
+        {
+            std::unique_lock<std::mutex> lock(inference_mutex_);
+            inference_cv_.wait(lock, [this] {
+                return (new_samples_accumulated_ >= STRIDE_SIZE) || !keep_inferring_;
+            });
+
+            if (!keep_inferring_) break;
+            
+            // Consuma lo stride e abbassa il counter
+            new_samples_accumulated_ -= STRIDE_SIZE;
+        }
+
+        // --- 2. Estrazione dati dal RingBuffer ---
+        try {
+            audio_buffer_->getRecentWindow(window.data(), WINDOW_SIZE);
+        } catch (const std::out_of_range&) {
+            // Avviene solo nei primi istanti di vita, quando il RingBuffer non 
+            // ha ancora accumulato WINDOW_SIZE (16000) campioni[cite: 7]. Ignoriamo e continuiamo a raccogliere.
+            continue; 
+        }
+
+        // --- 3. Pipeline Neurale (Zero Allocation) ---
+        mfcc_extractor_->compute(window.data(), WINDOW_SIZE, mfcc_features);
+        InferenceResult result = neural_engine_->process(mfcc_features);
+
+        // --- 4. Risoluzione e Trigger ---
+        if (result.is_wake_word_detected) {
+            LOGI("[AXL-NEURAL] WAKE WORD DETECTED! Conf: %.2f", result.trigger_confidence);
+            
+            if (result.is_authorized_user) {
+                 LOGI("[AXL-NEURAL] Identity confirmed: MASTER. Distance: %.4f", result.speaker_match_distance);
+                 
+                 // 5. Invia segnale all'EventDispatcher per attivare l'UI / Nodi Python
+                 // axl::Event trigger_event{axl::EventType::WAKE_WORD_DETECTED, ...};
+                 // dispatcher_->enqueue(trigger_event);
+
+                 // Debounce hardware: Evita loop di rilevamento continuo svuotando lo storico[cite: 7]
+                 audio_buffer_->reset(); 
+                 
+                 // Reset the sample tracker safely
+                 std::lock_guard<std::mutex> lock(inference_mutex_);
+                 new_samples_accumulated_ = 0;
+            } else {
+                 LOGI("[AXL-NEURAL] Identity REJECTED (Intruder). Distance: %.4f", result.speaker_match_distance);
+            }
+        }
+    }
 }
 
 }//namespace axl

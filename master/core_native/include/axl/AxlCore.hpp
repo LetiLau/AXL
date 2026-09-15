@@ -3,6 +3,10 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 #include "axl/EventDispatcher.hpp"
 #include "axl/RingBuffer.hpp"
 #include "axl/MFCCExtractor.hpp"
@@ -26,8 +30,8 @@ namespace axl {
         // Delete copy/move semantics to enforce Singleton property
         AxlCore(const AxlCore&) = delete;
         AxlCore& operator=(const AxlCore&) = delete;
-        AxlCore(AxlCore&&) = delete;
-        AxlCore& operator=(AxlCore&&) = delete;
+        // AxlCore(AxlCore&&) = delete;
+        // AxlCore& operator=(AxlCore&&) = delete;
 
         /**
          * @brief Initializes the core subsystems. Must be called once at boot.
@@ -64,7 +68,24 @@ namespace axl {
 
         // Configuration
         MFCCConfig mfcc_cfg_;
-        bool is_initialized_;
+        //bool is_initialized_;
+        std::atomic<bool> is_initialized_;
+
+
+        // --- Continuous Inference Multithreading ---
+        std::thread inference_thread_;
+        std::atomic<bool> keep_inferring_;
+        std::mutex inference_mutex_;
+        std::condition_variable inference_cv_;
+        std::size_t new_samples_accumulated_;
+        
+        static constexpr std::size_t WINDOW_SIZE = 16000; // 1 secondo @ 16kHz
+        static constexpr std::size_t STRIDE_SIZE = 4000;  // Analisi ogni 250ms
+
+        /**
+         * @brief Core worker loop for Neural Inference. Sleeps when idle.
+         */
+        void inferenceLoop();
 
         /**
          * @brief Internal event handler attached to the Dispatcher.
