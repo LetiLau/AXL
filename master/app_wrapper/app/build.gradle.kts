@@ -58,4 +58,7 @@ dependencies {
     
     // UI (se usi layout XML standard anziché Compose per il Kiosk mode)
     implementation("com.google.android.material:material:1.11.0")
+
+    // Sincronizza la versione con quella del .so scaricato in third_party
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
 }

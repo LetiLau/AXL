@@ -40,35 +40,56 @@ FetchContent_MakeAvailable(kissfft)
 #file(GLOB_RECURSE CORE_SOURCES "src/core/*.cpp") #sovrascrive la lista manuale dei file --> causa danni
 
 
+# --- TENSORFLOW LITE INTEGRATION ---
+set(TFLITE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tflite")
+
 if(ANDROID)
-    message(STATUS "[A-X-L] Cross-compiling Core for Android NDK (arm64-v8a)")
+    message(STATUS "[A-X-L] Linking prebuilt Android TFLite (arm64-v8a)")
     
-    # Aggiungiamo esplicitamente il file del bridge JNI
+    # 1. Definisce la libreria precompilata fornita dal file .so
+    add_library(tflite SHARED IMPORTED)
+    set_target_properties(tflite PROPERTIES
+        IMPORTED_LOCATION "${TFLITE_DIR}/lib/android/arm64-v8a/libtensorflowlite_jni.so"
+    )
+    
     set(JNI_SOURCES "src/jni/JniBridge.cpp")
-    
-    # Creiamo la libreria condivisa .so che la JVM caricherà
     add_library(axl_native SHARED ${CORE_SOURCES} ${JNI_SOURCES})
     
-    # Cerchiamo la libreria di logging nativa di Android (per android/log.h)
     find_library(log-lib log)
     
-    # Linkiamo tutto: il logger Android e il motore matematico KissFFT
+    # 2. Linka TFLite e gli header
     target_link_libraries(axl_native 
         ${log-lib} 
         kissfft
+        tflite
     )
 
+    target_include_directories(axl_native PUBLIC 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${TFLITE_DIR}/include
+    )
     target_include_directories(axl_native PRIVATE ${kissfft_SOURCE_DIR})
-    # A-X-L FIX: Necessario affinché JniBridge.cpp trovi <axl/AxlCore.hpp>
-    target_include_directories(axl_native PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 else()
-    message(STATUS "[A-X-L] Compiling Standalone Core for Fedora Host")
+    message(STATUS "[A-X-L] Linking System TFLite for Fedora Host")
     
-    # Il tuo target di test esistente
     add_executable(axl_test_bus tests/main_test.cpp ${CORE_SOURCES})
     
     find_package(Threads REQUIRED)
-    target_link_libraries(axl_test_bus Threads::Threads kissfft)
+    
+    # 3. Su Fedora usiamo il path di sistema (dnf install tensorflow-lite-devel)
+    # Se vuoi usare il .so nella cartella linux/, cambia questo blocco come per ANDROID
+    find_library(TFLITE_LIB tensorflow-lite REQUIRED)
+    
+    target_link_libraries(axl_test_bus 
+        Threads::Threads 
+        kissfft
+        ${TFLITE_LIB}
+    )
+    
+    target_include_directories(axl_test_bus PUBLIC 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${TFLITE_DIR}/include 
+    )
     target_include_directories(axl_test_bus PRIVATE ${kissfft_SOURCE_DIR})
 endif()

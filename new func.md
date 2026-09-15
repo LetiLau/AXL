@@ -37,19 +37,23 @@ directories lists
 AXL/
 ├── master/                      # Dominio A33
 │   ├── app_wrapper/             # Progetto Android (Kotlin/Gradle)
-│   │   ├── src/main/java/...    
-│   │   └── build.gradle.kts     # Punterà al CMakeLists del core
+│   │   ├── app/src/main/
+│   │   │            ├─ assets   #contiene dummy_model.tflite (che non ho capito che fa)
+│   │   │            ├─ java/come/axl/core #contiene androidmanifest.xml
+│   │   │                              ├─ audio #contiene audioCaptureManager.kt, mainactivity.kt, nativebridge.kt
+│   │   │                              ├─ utils #contiene asset helper
+│   │   └── build.gradle.kts     # Punterà al CMakeLists del core (dentro ci sono anche altri vari file gradle es gradlewrapper)
 │   ├── core_native/             # Il VERO cervello (C/C++ puro)
 │   │   ├── include/             # Header pubblici (interfacce, struct)
 │   │   │   └── axl/             # Namespace directory (es. axl/EventDispatcher.hpp)
 │   │   ├── src/                 # Implementazioni (.cpp)
-│   │   │   ├── core/            # Logica di business (Eventi, DSP)
+│   │   │   ├── core/            # Logica di business (Eventi, DSP) --> file .cpp
 │   │   │   └── jni/             # Binding Android-specifici (compilati solo su NDK)
 │   │   ├── tests/               # Entry point per i test su Fedora (main_test.cpp)
 │   │   └── CMakeLists.txt       # Il file di orchestrazione
 │   └── webui/                   # Thin Client HTML/CSS/JS servito in locale
 │
-├── slave_nodes/                 # Demoni Python (PC Fedora/Windows)
+├── slave_nodes/                 # Demoni Python (PC Fedora/Windows, vuoto per ora)
 │   ├── src/
 │   │   └── main.py
 │   └── requirements.txt
@@ -70,6 +74,23 @@ AXL/
             └── java/com/axl/core/
                 ├── NativeBridge.kt
                 └── MainActivity.kt
+
+
+
+AXL/master/core_native/
+├── third_party/
+│   └── tflite/
+│       ├── include/            # Header ufficiali (tensorflow/lite/ e flatbuffers/)
+│       └── lib/
+│           ├── android/
+│           │   └── arm64-v8a/
+│           │       └── libtensorflowlite_jni.so  # Estratto dall'.aar
+│           └── linux/
+│               └── libtensorflowlite.so          # Da /usr/lib64/ (Fedora)
+├── include/
+├── src/
+├── tests/
+└── CMakeLists.txt
 
 
 

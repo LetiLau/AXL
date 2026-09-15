@@ -6,15 +6,21 @@
 #include <stdexcept>
 #include <algorithm>
 
+
+#include "tensorflow/lite/interpreter.h"
+#include "tensorflow/lite/model.h"
+#include "tensorflow/lite/kernels/register.h"
+
 // ========================================================================
 // MOCK TYPES FOR TFLITE
 // ========================================================================
 // Since we are mocking the neural engine and not linking the real TFLite headers,
 // we must define these dummy classes so std::unique_ptr has a complete type to destroy.
-namespace tflite {
-    class FlatBufferModel {};
-    class Interpreter {};
-}
+
+// namespace tflite {
+//     class FlatBufferModel {};
+//     class Interpreter {};
+// }
 
 namespace axl {
 
