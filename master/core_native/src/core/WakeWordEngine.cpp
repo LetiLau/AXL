@@ -7,9 +7,10 @@
 #include <algorithm>
 
 
-#include "tensorflow/lite/interpreter.h"
-#include "tensorflow/lite/model.h"
 #include "tensorflow/lite/kernels/register.h"
+// #include "tensorflow/lite/interpreter.h"
+// #include "tensorflow/lite/model.h"
+
 
 // ========================================================================
 // MOCK TYPES FOR TFLITE
@@ -26,16 +27,26 @@ namespace axl {
 
 // Fix: Initializer list now strictly matches the declaration order in the Header
 WakeWordEngine::WakeWordEngine(const std::string& model_path, float speaker_threshold)
-    : model_(nullptr), interpreter_(nullptr), speaker_threshold_(speaker_threshold) {
+    : speaker_threshold_(speaker_threshold) {
     
     std::cout << "[AXL-NEURAL] Initializing WakeWord Engine (MOCK MODE).\n";
     std::cout << "[AXL-NEURAL] Target model: " << model_path << "\n";
     std::cout << "[AXL-NEURAL] Verification threshold set to: " << speaker_threshold_ << "\n";
+
+    // Allocazione delle opzioni per testare l'export dei simboli dal linker
+    options_ = TfLiteInterpreterOptionsCreate();
+    TfLiteInterpreterOptionsSetNumThreads(options_, 1);
 }
 
 WakeWordEngine::~WakeWordEngine() {
-    // Unique pointers will now safely destroy the dummy TFLite objects.
+    // Ordine di distruzione inverso per prevenire Dangling Pointers
+    if (interpreter_) TfLiteInterpreterDelete(interpreter_);
+    if (options_) TfLiteInterpreterOptionsDelete(options_);
+    if (model_) TfLiteModelDelete(model_);
+    
+    std::cout << "[AXL-NEURAL] TFLite resources freed.\n";
 }
+
 
 void WakeWordEngine::setOwnerEmbedding(const std::vector<float>& reference_embedding) {
     owner_embedding_ = reference_embedding;
@@ -64,7 +75,8 @@ float WakeWordEngine::calculateCosineDistance(const float* out_embedding, std::s
     float cosine_similarity = dot_product / (std::sqrt(norm_a) * std::sqrt(norm_b));
     cosine_similarity = std::max(-1.0f, std::min(1.0f, cosine_similarity));
     
-    return 1.0f - cosine_similarity;
+    // return 1.0f - cosine_similarity;
+    return 1.0f;
 }
 
 InferenceResult WakeWordEngine::process(const std::vector<float>& mfcc_tensor) {
@@ -73,8 +85,14 @@ InferenceResult WakeWordEngine::process(const std::vector<float>& mfcc_tensor) {
     }
 
     InferenceResult result;
+    // result.trigger_confidence = 0.95f;
+    // result.is_wake_word_detected = (result.trigger_confidence > 0.80f);
+    // result.speaker_match_distance = 1.0f;
+    // result.is_authorized_user = false;
     result.trigger_confidence = 0.95f;
-    result.is_wake_word_detected = (result.trigger_confidence > 0.80f);
+    result.is_wake_word_detected = true;
+    result.speaker_match_distance = 1.0f;
+    result.is_authorized_user = false;
 
     constexpr std::size_t EMBEDDING_SIZE = 128;
     std::vector<float> mock_output_embedding(EMBEDDING_SIZE, 0.1f);

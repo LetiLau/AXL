@@ -100,3 +100,25 @@ in mainactivity
 // TODO: Add NativeBridge.shutdown() to elegantly kill POSIX threads (manca?)
 // TODO: Avvia routing audio verso socket/API per l'elaborazione del comando ????
 // TODO: azioni asincrone di sistema (es. aprire socket, settare timer)
+
+
+
+
+
+## Reminder: correggere bug pk cmake non trova tensorflowlite
+L'errore `Could not find TFLITE_LIB` su Fedora è banale: `find_library` sta cercando il file `.so` nei percorsi standard di sistema (`/usr/lib64`), ma la libreria installata tramite DNF potrebbe chiamarsi `libtensorflow-lite.so` (con il trattino) invece di `libtensorflowlite.so`.
+
+Puoi tranquillamente ignorarlo per ora. Quando torneremo su Linux, modificheremo `CMakeLists.txt` per puntare staticamente a `third_party/tflite/lib/linux/libtensorflowlite.so` esattamente come abbiamo fatto per Android, bypassando completamente il gestore di pacchetti di sistema.
+
+
+
+
+
+# SISTEMA I BUG DI BUILD PER INIZIARE IL MODULO B DELLA CHAT
+https://gemini.google.com/gem/b7e21080aaec/2d6e6faeae184995
+
+
+
+#### nota errori log
+09-16 12:02:12.438 31210 31251 I AXL_NATIVE: [AXL-NEURAL] Identity REJECTED (Intruder). Distance: 1.0000
+09-16 12:02:12.498 32343 32343 D DIAGMON_SDK[605068][oi0yad25xb] : CRASH_LOG_PATH : /data/user/0/com.samsung.android.providers.contacts/exception/diagmon.log

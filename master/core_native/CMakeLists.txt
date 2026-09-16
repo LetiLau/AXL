@@ -73,6 +73,12 @@ if(ANDROID)
 else()
     message(STATUS "[A-X-L] Linking System TFLite for Fedora Host")
     
+    # Definiamo la libreria condivisa precompilata anche per l'host Linux
+    add_library(tflite SHARED IMPORTED)
+    set_target_properties(tflite PROPERTIES
+        IMPORTED_LOCATION "${TFLITE_DIR}/lib/linux/libtensorflowlite.so"
+    )
+    
     add_executable(axl_test_bus tests/main_test.cpp ${CORE_SOURCES})
     
     find_package(Threads REQUIRED)

@@ -4,12 +4,19 @@
 #include <string>
 #include <cstdint>
 #include <memory>
+// L'API C garantisce simboli visibili e ABI stabile nella libtensorflowlite_jni.so
+#include "tensorflow/lite/c/c_api.h"
 
-// Forward declaration to hide TFLite headers from the rest of the project
-namespace tflite {
-    class FlatBufferModel;
-    class Interpreter;
-}
+
+// // Forward declaration to hide TFLite headers from the rest of the project
+// namespace tflite {
+//     class FlatBufferModel;
+//     class Interpreter;
+// }
+
+// #include "tensorflow/lite/model.h"
+// #include "tensorflow/lite/interpreter.h"
+
 
 namespace axl {
 
@@ -54,8 +61,13 @@ namespace axl {
         void setOwnerEmbedding(const std::vector<float>& reference_embedding);
 
     private:
-        std::unique_ptr<tflite::FlatBufferModel> model_;
-        std::unique_ptr<tflite::Interpreter> interpreter_;
+        // std::unique_ptr<tflite::FlatBufferModel> model_;
+        // std::unique_ptr<tflite::Interpreter> interpreter_;
+        
+        // C API Pointers
+        TfLiteModel* model_ = nullptr;
+        TfLiteInterpreterOptions* options_ = nullptr;
+        TfLiteInterpreter* interpreter_ = nullptr;
         
         std::vector<float> owner_embedding_;
         float speaker_threshold_;
