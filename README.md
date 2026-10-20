@@ -16,7 +16,9 @@ And also
 
 ## Architectural and Coding Info
 The project is vibe-coded : ) and designed to run in an old pc with Debian 12 LTS.
-*Note: It will work anyway in a Windows PC $\rightarrow$ see below*
+
+*Note: It will work anyway in a Windows PC --> see below*
+
 I'll use an old Lenovo ThinkPad:
 - Intel i5 4300U .. 
 - integrated GPU ..
