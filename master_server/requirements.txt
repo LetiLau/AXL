@@ -1,0 +1,23 @@
+# Core Network & Async Engine
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+websockets>=12.0
+pydantic>=2.7.0
+
+# Numerical & Audio Processing
+numpy>=1.26.0,<2.0.0
+soundfile>=0.12.1
+
+# Edge Inference Engines (x86_64 CPU AVX2)
+onnxruntime>=1.18.0
+openwakeword>=0.6.0
+sherpa-onnx>=1.10.0
+
+# Cloud Cognition
+google-genai>=0.1.1
+
+# Local TTS Engine
+piper-tts>=1.2.0
+
+# Development & Mocking (Audio Loopback test)
+sounddevice>=0.4.6

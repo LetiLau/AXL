@@ -1,0 +1,47 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# IDE & Tooling
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Large Models & Weights (ONNX, Piper models, reference voice embeddings)
+master_server/models/*.onnx
+master_server/models/*.onnx.json
+master_server/models/*.tflite
+master_server/models/*.bin
+*.npy
+!master_server/models/.gitkeep
+
+# Android Build artifacts & Gradle caches
+android_kiosk/.gradle/
+android_kiosk/build/
+android_kiosk/*/build/
+android_kiosk/local.properties
+android_kiosk/*.apk
+android_kiosk/*.aab
+android_kiosk/.cxx/
+
+# Logs & Temporary files
+*.log
+*.tmp
+*.wav
+
+# Personal files from user
+directory_list.md
