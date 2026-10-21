@@ -53,3 +53,6 @@ A-X-L operates strictly over local network sockets (Raw PCM streaming and JSON c
   - Both the laptop (running Master + Local Slave in Standalone Mode) and the Galaxy A33 connect to this private AP.
   - Zero router port-forwarding, zero AP-isolation issues, sub-millisecond local latency, and seamless cellular passthrough for Gemini API calls.
 
+
+## How to setUp
+.venv in master_server to install master requirements
