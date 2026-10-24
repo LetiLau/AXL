@@ -17,7 +17,7 @@ And also
 - *Distrust:* Reacts to strangers via local voice recognition (Speaker Verification).
 
 #### Overview
-[setUp and progress Diary](#How-to-_setUp_-and-*progress-Diary*)
+[setUp and progress Diary](#How-to-setUp-and-progress-Diary)
 
 ## Architectural and Coding Info
 The project is vibe-coded : ) and designed to run in an old pc with Debian 12 LTS.
