@@ -17,6 +17,8 @@ And also
 - *Distrust:* Reacts to strangers via local voice recognition (Speaker Verification).
 
 #### Overview
+See the links below to read specific part of `README.md`.
+[Architectural and Coding Info](#Architectural-and-Coding-Info)
 [setUp and progress Diary](#How-to-setUp-and-progress-Diary)
 
 ## Architectural and Coding Info
@@ -60,6 +62,10 @@ A-X-L operates strictly over local network sockets (Raw PCM streaming and JSON c
 
 
 ## How to _setUp_ and *progress Diary*
+#### ToDo
+The `ToDo.md` file present inside the reposotory is the list of phases I went through. I decided to leave it as a specific description of the files I created.
+Sorry it's in Italian I needed it that way.
+ 
 #### Python virtual environment to not mess with dependencies
 .venv in master_server to install master requirements (command to activate .venv --> `source .venv/bin/activate`)
 
