@@ -94,10 +94,6 @@ async def health_check():
 
 @app.websocket("/ws/audio")
 async def audio_websocket_endpoint(websocket: WebSocket):
-    """
-    Primary ingestion channel for raw PCM16 streaming.
-    Pushes data to circular ring buffer and triggers real-time VAD.
-    """
     connected = await stream_manager.connect(websocket)
     if not connected:
         logger.warning("Rejected duplicate streaming connection attempt.")
@@ -108,7 +104,6 @@ async def audio_websocket_endpoint(websocket: WebSocket):
     logger.info(f"Audio stream source connected from {client_host}")
 
     frames_received = 0
-    speech_frames_count = 0
 
     try:
         while True:
@@ -116,19 +111,31 @@ async def audio_websocket_endpoint(websocket: WebSocket):
             if len(data) % 2 != 0:
                 continue
 
-            # 1. Update historical rolling buffer
             stream_manager.audio_buffer.write(data)
             frames_received += 1
 
-            # 2. Process real-time Voice Activity Detection
             if stream_manager.pipeline:
-                vad_result = stream_manager.pipeline.ingest_frame(data)
-                if vad_result and vad_result["is_speech"]:
-                    speech_frames_count += 1
-                    # Telemetry report when human speech is active
-                    if speech_frames_count % 15 == 0:  # Every ~300ms of sustained speech
-                        prob = vad_result["speech_prob"]
-                        logger.info(f"[VAD ACTIVE] Voice detected | Prob: {prob:.2f}")
+                vad_meta = stream_manager.pipeline.ingest_frame(data)
+                if vad_meta:
+                    prob = vad_meta["speech_prob"]
+
+                    # 1. Trigger istantaneo al fronte di salita
+                    if vad_meta["speech_started"]:
+                        logger.info(f"[VAD EVENT] >>> SPEECH DETECTED (prob: {prob:.3f})")
+
+                    # 2. Trigger istantaneo al fronte di discesa
+                    elif vad_meta["speech_ended"]:
+                        logger.info(f"[VAD EVENT] <<< SILENCE DETECTED (prob: {prob:.3f})")
+
+                    # 3. Log vocale continuativo (ogni ~200ms mentre parli)
+                    elif vad_meta["is_speech"] and frames_received % 10 == 0:
+                        logger.info(f"[VAD ACTIVE] Voice ongoing | prob: {prob:.3f}")
+
+            # Heartbeat esplicito a livello INFO ogni ~2 secondi (100 frames)
+            if frames_received % 100 == 0 and stream_manager.pipeline:
+                curr_prob = stream_manager.pipeline.last_speech_prob
+                state_str = "SPEECH" if stream_manager.pipeline.is_speech_active else "IDLE"
+                logger.info(f"[STREAM STATUS] Frames: {frames_received:06d} | State: {state_str} | VAD prob: {curr_prob:.4f}")
 
     except WebSocketDisconnect:
         logger.info(f"Audio source disconnected cleanly: {client_host}")

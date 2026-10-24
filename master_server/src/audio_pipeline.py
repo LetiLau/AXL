@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 import numpy as np
 import onnxruntime as ort
 
@@ -10,7 +10,7 @@ logger = logging.getLogger("AXL-AudioPipeline")
 class SileroVAD:
     """
     Inference wrapper for Silero VAD v5 ONNX model.
-    Optimized for low-latency sequential CPU execution (x86_64 AVX2).
+    Enforces the mandatory 64-sample rolling context window (576 input samples at 16kHz).
     """
 
     def __init__(self, model_path: Path, threshold: float = 0.5, sample_rate: int = 16000):
@@ -19,9 +19,10 @@ class SileroVAD:
 
         self.sample_rate = sample_rate
         self.threshold = threshold
-        self.window_size_samples = 512  # 32ms at 16kHz for Silero v5
+        self.window_size_samples = 512
+        # Silero v5 architectural requirement: 64 samples for 16kHz (32 samples for 8kHz)
+        self.context_size = 64 if sample_rate == 16000 else 32
 
-        # Restrict execution thread pool for low-power dual-core CPU target
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 1
         opts.inter_op_num_threads = 1
@@ -34,94 +35,97 @@ class SileroVAD:
             providers=["CPUExecutionProvider"],
         )
 
-        # Introspect model inputs dynamically
-        self.input_names = [inp.name for inp in self.session.get_inputs()]
+        input_names = [inp.name for inp in self.session.get_inputs()]
+        self.input_name = next(name for name in input_names if "input" in name)
+        self.state_name = next(name for name in input_names if "state" in name)
+        self.sr_name = next(name for name in input_names if "sr" in name)
         self.output_names = [out.name for out in self.session.get_outputs()]
 
-        # Initial hidden state tensor: shape [2, batch_size=1, 128]
-        self._state = np.zeros((2, 1, 128), dtype=np.float32)
-        self._sr_tensor = np.array(self.sample_rate, dtype=np.int64)
+        self.reset_state()
 
     def reset_state(self) -> None:
-        """Zeroes recurrent neural memory."""
-        self._state.fill(0.0)
+        """Zeroes recurrent neural memory and rolling context."""
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._context = np.zeros((1, self.context_size), dtype=np.float32)
+        self._sr_tensor = np.array(self.sample_rate, dtype=np.int64)
 
     def process_window(self, samples_float32: np.ndarray) -> float:
         """
-        Executes inference on exactly 512 float32 normalized samples [-1.0, 1.0].
-        Returns speech probability p in range [0.0, 1.0].
+        Runs inference on 512 float32 samples.
+        Concatenates rolling context: input shape becomes [1, 576].
         """
         if len(samples_float32) != self.window_size_samples:
             raise ValueError(f"Expected {self.window_size_samples} samples, received {len(samples_float32)}")
 
-        # Reshape to [batch_size=1, samples=512]
-        input_data = np.expand_dims(samples_float32, axis=0)
+        # Reshape current audio chunk to [1, 512]
+        x = np.expand_dims(samples_float32, axis=0)
+
+        # Concatenate 64 context samples to the left -> [1, 576]
+        x_with_context = np.concatenate([self._context, x], axis=1)
 
         ort_inputs = {
-            self.input_names[0]: input_data,
-            self.input_names[1]: self._state,
-            self.input_names[2]: self._sr_tensor,
+            self.input_name: x_with_context,
+            self.state_name: self._state,
+            self.sr_name: self._sr_tensor,
         }
 
         outputs = self.session.run(self.output_names, ort_inputs)
-        
-        # Silero returns [probability, next_state]
-        speech_prob = float(outputs[0][0][0])
+
+        speech_prob = float(outputs[0].flatten()[0])
         self._state = outputs[1]
+        
+        # Preserve trailing 64 samples as context for the subsequent window
+        self._context = x[:, -self.context_size:]
 
         return speech_prob
 
 
 class AudioPipeline:
     """
-    DSP orchestration pipeline: PCM byte chunking, Silero VAD evaluation,
-    and downstream feature dispatching.
+    Audio stream ingestion and VAD state machine.
     """
 
     def __init__(self, models_dir: Path, vad_threshold: float = 0.5):
         vad_path = models_dir / "silero_vad.onnx"
         self.vad = SileroVAD(vad_path, threshold=vad_threshold)
-        
-        # Audio accumulator: bridge 320-sample inputs to 512-sample VAD windows
+
         self._residual_buffer = bytearray()
-        self._vad_window_bytes = 512 * 2  # 512 samples * 2 bytes (int16)
-        
-        # Operational telemetry
+        self._vad_window_bytes = 512 * 2  # 1024 bytes (512 samples int16)
+
         self.is_speech_active = False
         self.last_speech_prob = 0.0
 
     def reset(self) -> None:
-        """Clears residual accumulator and recurrent states on client reconnect."""
         self._residual_buffer.clear()
         self.vad.reset_state()
         self.is_speech_active = False
         self.last_speech_prob = 0.0
 
-    def ingest_frame(self, pcm_bytes: bytes) -> Optional[Dict[str, float]]:
-        """
-        Ingests variable or 640-byte raw PCM chunks.
-        Evaluates VAD whenever 512 samples (1024 bytes) are aggregated.
-        Returns detection metadata dict or None if insufficient window.
-        """
+    def ingest_frame(self, pcm_bytes: bytes) -> Optional[Dict[str, Any]]:
         self._residual_buffer.extend(pcm_bytes)
 
-        latest_meta = None
+        result = None
         while len(self._residual_buffer) >= self._vad_window_bytes:
-            # Extract exactly 512 samples
             window_bytes = self._residual_buffer[:self._vad_window_bytes]
             del self._residual_buffer[:self._vad_window_bytes]
 
-            # Convert to float32 [-1.0, 1.0] without copy bloat
             samples_int16 = np.frombuffer(window_bytes, dtype=np.int16)
             samples_float32 = samples_int16.astype(np.float32) / 32768.0
 
             prob = self.vad.process_window(samples_float32)
             self.last_speech_prob = prob
+
+            previous_state = self.is_speech_active
             self.is_speech_active = prob >= self.vad.threshold
 
-            latest_meta = {
+            speech_started = not previous_state and self.is_speech_active
+            speech_ended = previous_state and not self.is_speech_active
+
+            result = {
                 "speech_prob": prob,
                 "is_speech": self.is_speech_active,
+                "speech_started": speech_started,
+                "speech_ended": speech_ended,
             }
 
-        return latest_meta
+        return result
