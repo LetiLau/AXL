@@ -16,7 +16,7 @@ As a proud Italian student I decided to make A-X-L bilingual so it speaks both ð
 And also
 - *Distrust:* Reacts to strangers via local voice recognition (Speaker Verification).
 
-####  -
+#### Overview
 [setUp and progress Diary](#How-to-_setUp_-and-*progress-Diary*)
 
 ## Architectural and Coding Info
