@@ -18,7 +18,9 @@ And also
 
 #### Overview
 See the links below to read specific part of `README.md`.
+
 [Architectural and Coding Info](#Architectural-and-Coding-Info)
+
 [setUp and progress Diary](#How-to-setUp-and-progress-Diary)
 
 ## Architectural and Coding Info
