@@ -5,6 +5,8 @@
 It's a hybrid AI personal assistant.
 It has the personality of a loyal, high-tech robotic dog, combined with the sarcastic efficiency of *Tony Stark*'s systems.
 
+As a proud Italian student I decided to make A-X-L bilingual so it speaks both 🇮🇹Italian and 🇬🇧English.
+
 
 #### Meaning of the acronym
 - *Adaptive:* Chooses whether to process locally (privacy/latency) or in the cloud (Gemini Pro/Flash).
@@ -13,6 +15,9 @@ It has the personality of a loyal, high-tech robotic dog, combined with the sarc
 
 And also
 - *Distrust:* Reacts to strangers via local voice recognition (Speaker Verification).
+
+####  -
+[setUp and progress Diary](#How-to-_setUp_-and-*progress-Diary*)
 
 ## Architectural and Coding Info
 The project is vibe-coded : ) and designed to run in an old pc with Debian 12 LTS.
@@ -54,5 +59,30 @@ A-X-L operates strictly over local network sockets (Raw PCM streaming and JSON c
   - Zero router port-forwarding, zero AP-isolation issues, sub-millisecond local latency, and seamless cellular passthrough for Gemini API calls.
 
 
-## How to setUp
-.venv in master_server to install master requirements
+## How to _setUp_ and *progress Diary*
+#### Python virtual environment to not mess with dependencies
+.venv in master_server to install master requirements (command to activate .venv --> `source .venv/bin/activate`)
+
+#### Models used
+In the repository there is the directory `/master_server/models` which contains only a `.gitkeep` file. This because I din't want to push inside the GitHub all the models I used in the code.
+
+The user can easly download them by running `dowload_models.py` in the specific virtual environment (.venv) he must create inside `master_server`.
+
+List of the models for `master_server`
+- Silero VAD v5 (`silero_vad.onnx`): Gatekeeper and energy profiling
+- openWakeWord (`*.onnx`): _Keyword Spotting_ (KWS) text-dependent
+- CAM++ Speaker Verification (`wespeaker_en_voxceleb_CAM++_LM.onnx`): _Speaker Verification_ (Distrust)
+- Piper TTS (`it_IT-riccardo-x_low.onnx` and `en_GB-alan-low.onnx`): Local neural Acoustic & Waveform Synthesis
+
+#### OS system libraries
+I made the entire project in Fedora Linux.
+I used the library `portaudio` specific for Fedora and correlated Linux distro to manage audio input and output in real time.
+If you are in my same situation install it to test the code by yourself.
+If you already have it no problem the command will update to last version or tell you it's ok.
+``` bash
+#Fedora and correlated distribution
+sudo dnf install -y portaudio
+```
+
+#### Testing
+The `master_server/tools` directory contains the file `test_mic_client.py`. I have used it to test the system before I made the Kotlin app to record the audio.
