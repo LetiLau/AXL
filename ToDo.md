@@ -82,7 +82,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 
 13. **Servizio Audio Bidirezionale (`AudioStreamService.kt`):** Implementazione di un *Foreground Service* con `OkHttp WebSocket`:
-* Thread 1: Legge da `AudioRecord` e invia byte binari al ThinkPad.
+* Thread 1: Legge da `AudioRecord` e invia byte binari al ThinkPad --> cambiare in caso da test_mic_client.py al nuovo nel master?.
 * Thread 2: Riceve byte binari dal ThinkPad e li scrive direttamente su `AudioTrack` per far parlare A-X-L dal telefono.
 
 
