@@ -1,8 +1,10 @@
 import logging
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import numpy as np
 import onnxruntime as ort
+from openwakeword.model import Model as OWWModel
 
 logger = logging.getLogger("AXL-AudioPipeline")
 
@@ -20,7 +22,6 @@ class SileroVAD:
         self.sample_rate = sample_rate
         self.threshold = threshold
         self.window_size_samples = 512
-        # Silero v5 architectural requirement: 64 samples for 16kHz (32 samples for 8kHz)
         self.context_size = 64 if sample_rate == 16000 else 32
 
         opts = ort.SessionOptions()
@@ -44,23 +45,15 @@ class SileroVAD:
         self.reset_state()
 
     def reset_state(self) -> None:
-        """Zeroes recurrent neural memory and rolling context."""
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
         self._context = np.zeros((1, self.context_size), dtype=np.float32)
         self._sr_tensor = np.array(self.sample_rate, dtype=np.int64)
 
     def process_window(self, samples_float32: np.ndarray) -> float:
-        """
-        Runs inference on 512 float32 samples.
-        Concatenates rolling context: input shape becomes [1, 576].
-        """
         if len(samples_float32) != self.window_size_samples:
             raise ValueError(f"Expected {self.window_size_samples} samples, received {len(samples_float32)}")
 
-        # Reshape current audio chunk to [1, 512]
         x = np.expand_dims(samples_float32, axis=0)
-
-        # Concatenate 64 context samples to the left -> [1, 576]
         x_with_context = np.concatenate([self._context, x], axis=1)
 
         ort_inputs = {
@@ -70,62 +63,160 @@ class SileroVAD:
         }
 
         outputs = self.session.run(self.output_names, ort_inputs)
-
         speech_prob = float(outputs[0].flatten()[0])
         self._state = outputs[1]
-        
-        # Preserve trailing 64 samples as context for the subsequent window
         self._context = x[:, -self.context_size:]
 
         return speech_prob
 
 
-class AudioPipeline:
+class WakeWordDetector:
     """
-    Audio stream ingestion and VAD state machine.
+    openWakeWord wrapper operating on strict 1280-sample chunks (80ms).
     """
 
-    def __init__(self, models_dir: Path, vad_threshold: float = 0.5):
-        vad_path = models_dir / "silero_vad.onnx"
-        self.vad = SileroVAD(vad_path, threshold=vad_threshold)
+    def __init__(self, models_dir: Path, threshold: float = 0.35):
+        self.threshold = threshold
+        self.custom_model_path = models_dir / "axl.onnx"
 
-        self._residual_buffer = bytearray()
-        self._vad_window_bytes = 512 * 2  # 1024 bytes (512 samples int16)
+        if self.custom_model_path.exists():
+            model_target = str(self.custom_model_path)
+            logger.info(f"Loading custom wake-word model: {self.custom_model_path.name}")
+        else:
+            model_target = "hey_jarvis"
+            logger.info(f"Custom 'axl.onnx' not found. Active model: hey_jarvis (threshold: {threshold})")
 
-        self.is_speech_active = False
-        self.last_speech_prob = 0.0
+        self.oww = OWWModel(
+            wakeword_models=[model_target],
+            inference_framework="onnx",
+        )
+        self.model_key = list(self.oww.models.keys())[0]
 
     def reset(self) -> None:
-        self._residual_buffer.clear()
-        self.vad.reset_state()
-        self.is_speech_active = False
+        self.oww.reset()
+
+    def predict(self, pcm16_chunk: np.ndarray) -> float:
+        """
+        Executes prediction on exactly 1280 int16 samples.
+        """
+        prediction = self.oww.predict(pcm16_chunk)
+        return float(prediction.get(self.model_key, 0.0))
+
+
+class AudioPipeline:
+    """
+    Multi-rate Audio Ingestion & State Machine:
+    - Silero VAD window: 512 samples (32ms)
+    - openWakeWord window: 1280 samples (80ms)
+    """
+
+    STATE_IDLE = "IDLE"
+    STATE_COLLECTING_COMMAND = "COLLECTING_COMMAND"
+
+    def __init__(
+        self,
+        models_dir: Path,
+        vad_threshold: float = 0.5,
+        wakeword_threshold: float = 0.35,
+        silence_hangover_sec: float = 0.7,
+    ):
+        self.vad = SileroVAD(models_dir / "silero_vad.onnx", threshold=vad_threshold)
+        self.wakeword = WakeWordDetector(models_dir, threshold=wakeword_threshold)
+
+        self.silence_hangover_sec = silence_hangover_sec
+
+        # Dual decoupled accumulators
+        self._vad_residual = bytearray()
+        self._vad_window_bytes = 512 * 2  # 1024 bytes
+
+        self._ww_residual = bytearray()
+        self._ww_window_bytes = 1280 * 2  # 2560 bytes (80ms)
+
+        # Operational telemetry & FSM
+        self.state = self.STATE_IDLE
         self.last_speech_prob = 0.0
+        self.last_speech_timestamp = 0.0
+        self.command_start_sample = 0
+        self.total_samples_ingested = 0
 
-    def ingest_frame(self, pcm_bytes: bytes) -> Optional[Dict[str, Any]]:
-        self._residual_buffer.extend(pcm_bytes)
+    def reset(self) -> None:
+        self._vad_residual.clear()
+        self._ww_residual.clear()
+        self.vad.reset_state()
+        self.wakeword.reset()
+        self.state = self.STATE_IDLE
+        self.last_speech_prob = 0.0
+        self.last_speech_timestamp = 0.0
+        self.command_start_sample = 0
+        self.total_samples_ingested = 0
 
-        result = None
-        while len(self._residual_buffer) >= self._vad_window_bytes:
-            window_bytes = self._residual_buffer[:self._vad_window_bytes]
-            del self._residual_buffer[:self._vad_window_bytes]
+    def ingest_frame(self, pcm_bytes: bytes) -> List[Dict[str, Any]]:
+        self._vad_residual.extend(pcm_bytes)
+        self._ww_residual.extend(pcm_bytes)
 
-            samples_int16 = np.frombuffer(window_bytes, dtype=np.int16)
+        n_samples = len(pcm_bytes) // 2
+        self.total_samples_ingested += n_samples
+        events = []
+        now = time.monotonic()
+
+        # --- Stage 1: Silero VAD (512 samples) ---
+        while len(self._vad_residual) >= self._vad_window_bytes:
+            window = self._vad_residual[:self._vad_window_bytes]
+            del self._vad_residual[:self._vad_window_bytes]
+
+            samples_int16 = np.frombuffer(window, dtype=np.int16)
             samples_float32 = samples_int16.astype(np.float32) / 32768.0
 
             prob = self.vad.process_window(samples_float32)
             self.last_speech_prob = prob
+            is_speech = prob >= self.vad.threshold
 
-            previous_state = self.is_speech_active
-            self.is_speech_active = prob >= self.vad.threshold
+            if is_speech:
+                self.last_speech_timestamp = now
 
-            speech_started = not previous_state and self.is_speech_active
-            speech_ended = previous_state and not self.is_speech_active
+        # --- Stage 2: openWakeWord Streaming (1280 samples / 80ms) ---
+        while len(self._ww_residual) >= self._ww_window_bytes:
+            chunk = self._ww_residual[:self._ww_window_bytes]
+            del self._ww_residual[:self._ww_window_bytes]
 
-            result = {
-                "speech_prob": prob,
-                "is_speech": self.is_speech_active,
-                "speech_started": speech_started,
-                "speech_ended": speech_ended,
-            }
+            samples_int16 = np.frombuffer(chunk, dtype=np.int16)
+            ww_score = self.wakeword.predict(samples_int16)
 
-        return result
+            # Telemetria dello score se supera il rumore di fondo
+            if ww_score > 0.15:
+                events.append({
+                    "event": "WAKEWORD_PROBE",
+                    "score": ww_score,
+                    "model": self.wakeword.model_key,
+                })
+
+            if self.state == self.STATE_IDLE:
+                if ww_score >= self.wakeword.threshold:
+                    self.state = self.STATE_COLLECTING_COMMAND
+                    # Includi ~1.5 secondi di pre-roll per catturare sia la wake-word sia l'inizio del comando
+                    self.command_start_sample = max(0, self.total_samples_ingested - 24000)
+                    events.append({
+                        "event": "WAKEWORD_TRIGGER",
+                        "score": ww_score,
+                        "model": self.wakeword.model_key,
+                    })
+
+        # --- Stage 3: End-of-Speech & Command Finalization ---
+        if self.state == self.STATE_COLLECTING_COMMAND:
+            silence_duration = now - self.last_speech_timestamp
+            if silence_duration >= self.silence_hangover_sec:
+                captured_samples = self.total_samples_ingested - self.command_start_sample
+                events.append({
+                    "event": "COMMAND_COMPLETE",
+                    "start_sample": self.command_start_sample,
+                    "total_samples": captured_samples,
+                })
+                # Notifica esplicita di rilascio stato
+                events.append({
+                    "event": "SILENCE_RESET",
+                    "silence_sec": silence_duration,
+                })
+                self.state = self.STATE_IDLE
+                self.wakeword.reset()
+
+        return events

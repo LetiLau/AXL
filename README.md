@@ -95,3 +95,32 @@ sudo dnf install -y portaudio
 
 #### Testing
 The `master_server/tools` directory contains the file `test_mic_client.py`. I have used it to test the system before I made the Kotlin app to record the audio.
+
+#### Technical Mechanism
+##### WakeWord and command detection
+`Note: The wakeWord is` _AXL_ `pronunced as `**"ÀK-səl"**` or `**"ÀK-s'l"**` without the 'e'.`
+The flow operates via a state accumulator with time hysteresis:
+1. **Idle Condition (`IDLE`):** Silero VAD discards frames. The `openWakeWord` engine **does not perform any inferences**, preserving CPU cycles on the i5-4300U.
+2. **VAD Activation (`SPEECH_START`):**
+   - The speech start time offset is recorded in the `RingBuffer` (with ~300ms of audio pre-roll to avoid clipping the consonant attack).
+   - The audio flows to `openWakeWord`.
+3. **Activate the wake word:**
+   - The network recognizes _"AXL"_ while the user is still speaking the sentence.
+   - The system enters the `COLLECTING_COMMAND` state.
+4. **Speech Ending (`SPEECH_END` with Hangover):**
+   - As soon as Silero detects continuous silence for a tolerance window (e.g., **600–700 ms**, to avoid truncations on physiological pauses between words), the utterance is formally closed.
+   - The server extracts the entire PCM block (from the beginning of the sentence to the end of the silence) from the `RingBuffer`: the audio array contains both the voice for Speaker Verification and the complete payload ready for Gemini.
+
+##### Speaker Verification
+Using the `wespeaker_en_voxceleb_CAM++_LM.onnx` model downloaded as `models/speaker_id.onnx`. 
+The model extracts L2-normalized embedding vectors on which we apply Cosine Similarity: 
+$$\text{Similarity}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}{\Vert{}\mathbf{u}\Vert{}_2 \Vert{}\mathbf{v}\Vert{}_2}$$
+- $\ge 0.65$: Owner confirmed.
+- $< 0.65$: Stranger detected / Alert.
+
+#### Enrolling Owner
+The diretory `master_server/models/profiles` it's not pushed inside the GitHub repo as contains `.npy` files generated with the voice of the owner and friends A-X-L recognizes as not strangers.
+To create your own `owner.npy` file run in your `master_server` `.venv`
+``` bash
+python tools/enroll_voice.py
+```
