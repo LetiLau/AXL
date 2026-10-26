@@ -10,6 +10,7 @@ import uvicorn
 
 from audio_pipeline import AudioPipeline
 from audio_utils import pcm_to_wav_bytes
+from brain_gemini import GeminiBrain
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
 
@@ -32,11 +33,12 @@ class StreamManager:
         self.audio_buffer = AudioRingBuffer(capacity_seconds=10.0, sample_rate=16000)
         self.pipeline: Optional[AudioPipeline] = None
         self.verifier: Optional[SpeakerVerifier] = None
+        self.brain: Optional[GeminiBrain] = None
         self.active_client: Optional[WebSocket] = None
         self._lock = asyncio.Lock()
 
     def initialize_pipeline(self):
-        logger.info("Initializing neural DSP, wake-word, and speaker verification...")
+        logger.info("Initializing neural DSP, wake-word, speaker verification, and Gemini brain...")
         self.pipeline = AudioPipeline(
             models_dir=MODELS_DIR,
             vad_threshold=0.5,
@@ -45,7 +47,8 @@ class StreamManager:
             max_command_duration_sec=10.0,
         )
         self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
-        logger.info("A-X-L Acoustic Front-End & Biometrics Ready.")
+        self.brain = GeminiBrain()
+        logger.info("A-X-L Acoustic Front-End, Biometrics & Gemini Brain Ready.")
 
     async def connect(self, websocket: WebSocket) -> bool:
         async with self._lock:
@@ -87,20 +90,24 @@ class StreamManager:
 
         if is_owner:
             logger.info(
-                f">>> [AUTH GRANTED] Identity: OWNER | Score: {sim_score:.3f} | Forwarding to Step 8 (Gemini) <<<"
+                f">>> [AUTH GRANTED] Identity: OWNER | Score: {sim_score:.3f} | Forwarding to Gemini Brain <<<"
             )
         else:
             logger.warning(
-                f">>> [AUTH REJECTED] Identity: STRANGER | Score: {sim_score:.3f} | Flagging is_stranger=True <<<"
+                f">>> [AUTH REJECTED] Identity: STRANGER | Score: {sim_score:.3f} | Distrust Protocol Engaged <<<"
             )
 
-        # Context structure ready for Step 8:
-        # payload = {
-        #     "audio_wav": wav_bytes,
-        #     "duration_sec": duration_sec,
-        #     "is_stranger": not is_owner,
-        #     "similarity_score": sim_score
-        # }
+        # 3. Cognitive Brain Processing (Multimodal WAV + Function Calling)
+        is_stranger = not is_owner
+        if self.brain:
+            result = await self.brain.process_utterance(
+                wav_bytes=wav_bytes,
+                is_stranger=is_stranger,
+                duration_sec=duration_sec,
+                similarity_score=sim_score,
+            )
+            logger.info(f">>> [A-X-L SPEAKS]: \"{result.get('text_response')}\" <<<")
+            # Step 9 Placeholder: Send result['text_response'] to Piper TTS engine
 
 
 stream_manager = StreamManager()

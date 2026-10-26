@@ -155,3 +155,31 @@ and same thing in `initialize_pipeline` function in `src/main.py`
 #Your value get from calibrate_speaker.py
 self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
 ```
+
+#### Environment Variables & API Keys (`.env`)
+To protect private credentials and API keys, the file `master_server/.env` is strictly untracked by Git via `.gitignore`.
+A template file `master_server/.env.example` is available in the repository.
+
+To configure your environment:
+1. Create `master_server/.env` (or copy from `.env.example`).
+2. Add your Google AI Studio API key:
+```env
+GEMINI_API_KEY=AIzaSy...
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_PRO_MODEL=gemini-3.1-pro-preview
+```
+
+#### Phase 3: Cognitive Brain & Dynamic Tools (`brain_gemini.py` & `commands.py`)
+In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabilities:
+- **Multimodal Audio Ingestion:** The in-memory WAV buffer generated after VAD End-of-Speech is dispatched directly to Gemini (`google-genai` SDK) without any disk I/O latency.
+- **Native Automatic Function Calling (AFC):** All system actions are neatly registered in `master_server/src/commands.py`:
+  - `set_timer(duration_seconds, label)`
+  - `set_alarm(time_str, label)`
+  - `get_system_status()`
+  - `media_control(action, target)`
+  - `execute_slave_command(command, target)`
+  Gemini automatically invokes the right function based on natural language intent and wraps the result in A-X-L's witty tone.
+- **Biometric Distrust Integration:** The speaker identity evaluated by CAM++ (`is_stranger` flag) is injected into the cognitive prompt:
+  - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
+  - If **Stranger**: A-X-L enters distrust mode, barking or sarcastically refusing to execute sensitive commands or access personal data.
+- **Dynamic Model Escalation:** Standard interactions run on ultra-low-latency flash models (`gemini-3.5-flash`), with transparent escalation to Pro models (`gemini-3.1-pro-preview`) when deep programming or complex reasoning is requested.
