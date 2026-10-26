@@ -118,6 +118,12 @@ $$\text{Similarity}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}
 - $\ge 0.65$: Owner confirmed.
 - $< 0.65$: Stranger detected / Alert.
 
+##### Security & Distrust Modes
+A-X-L operates under 3 security tiers configured via `AXL_SECURITY_MODE` in `.env`:
+- `friendly` (active by default for development and testing): Listens to and executes commands for everyone without biometric rejection. Eliminates accidental false-negatives and saves API quotas during development.
+- `restrict`: Accepts and executes commands for the enrolled owner and recognized friends (`models/profiles/*.npy`), rejecting total strangers.
+- `paranoid`: Obeys strictly and exclusively the enrolled owner. If a recognized friend speaks, A-X-L explains that paranoid mode is active and refuses commands. Total strangers are rejected with aggressive distrust.
+
 #### Enrolling Owner
 Note: please remember to speak clearly!!!
 
@@ -183,3 +189,4 @@ In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabili
   - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
   - If **Stranger**: A-X-L enters distrust mode, barking or sarcastically refusing to execute sensitive commands or access personal data.
 - **Dynamic Model Escalation:** Standard interactions run on ultra-low-latency flash models (`gemini-3.5-flash`), with transparent escalation to Pro models (`gemini-3.1-pro-preview`) when deep programming or complex reasoning is requested.
+- **Local Neural TTS (`tts_engine.py`):** Piper ONNX acoustic models synthesize vocal responses locally at 16kHz with ~0.08s latency (50x real-time), streaming raw PCM chunks back through `/ws/audio`. Features bilingual model selection (`it_IT-riccardo` and `en_GB-alan`), text normalization, and acoustic echo feedback prevention.

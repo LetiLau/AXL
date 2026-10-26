@@ -13,6 +13,7 @@ from audio_utils import pcm_to_wav_bytes
 from brain_gemini import GeminiBrain
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
+from tts_engine import PiperTTSEngine
 
 THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
 
@@ -34,21 +35,24 @@ class StreamManager:
         self.pipeline: Optional[AudioPipeline] = None
         self.verifier: Optional[SpeakerVerifier] = None
         self.brain: Optional[GeminiBrain] = None
+        self.tts: Optional[PiperTTSEngine] = None
         self.active_client: Optional[WebSocket] = None
+        self.is_speaking: bool = False
         self._lock = asyncio.Lock()
 
     def initialize_pipeline(self):
-        logger.info("Initializing neural DSP, wake-word, speaker verification, and Gemini brain...")
+        logger.info("Initializing neural DSP, wake-word, speaker verification, Gemini brain, and Piper TTS...")
         self.pipeline = AudioPipeline(
             models_dir=MODELS_DIR,
-            vad_threshold=0.5,
+            vad_threshold=0.4,
             wakeword_threshold=0.35,
-            silence_hangover_sec=0.8,
+            silence_hangover_sec=0.5,
             max_command_duration_sec=10.0,
         )
         self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
         self.brain = GeminiBrain()
-        logger.info("A-X-L Acoustic Front-End, Biometrics & Gemini Brain Ready.")
+        self.tts = PiperTTSEngine(models_dir=MODELS_DIR)
+        logger.info("A-X-L Full Pipeline (Acoustic + Biometrics + Brain + TTS) Ready.")
 
     async def connect(self, websocket: WebSocket) -> bool:
         async with self._lock:
@@ -59,6 +63,8 @@ class StreamManager:
             self.audio_buffer.clear()
             if self.pipeline:
                 self.pipeline.reset()
+            if self.brain:
+                self.brain.reset_session()
             return True
 
     async def disconnect(self, websocket: WebSocket):
@@ -83,31 +89,60 @@ class StreamManager:
         wav_bytes = pcm_to_wav_bytes(pcm_samples, sample_rate=16000)
         logger.info(f"[WAV PACKAGING] In-memory WAV generated: {len(wav_bytes)} bytes (0 disk I/O)")
 
+        # Save last captured utterance for easy acoustic debugging (ignored by git)
+        try:
+            debug_wav_path = BASE_DIR / "debug_last_utterance.wav"
+            with open(debug_wav_path, "wb") as f_debug:
+                f_debug.write(wav_bytes)
+        except Exception:
+            pass
+
         # 2. Biometric Verification executed in thread pool to prevent loop latency spikes
-        is_owner, sim_score, identity = await asyncio.to_thread(
+        is_authorized, sim_score, identity = await asyncio.to_thread(
             self.verifier.verify, pcm_samples
         )
 
-        if is_owner:
+        sec_mode = self.verifier.security_mode if self.verifier else "friendly"
+        if is_authorized:
             logger.info(
-                f">>> [AUTH GRANTED] Identity: OWNER | Score: {sim_score:.3f} | Forwarding to Gemini Brain <<<"
+                f">>> [AUTH GRANTED] Identity: {identity.upper()} | Score: {sim_score:.3f} | Mode: {sec_mode} <<<"
             )
         else:
             logger.warning(
-                f">>> [AUTH REJECTED] Identity: STRANGER | Score: {sim_score:.3f} | Distrust Protocol Engaged <<<"
+                f">>> [AUTH REJECTED] Identity: {identity.upper()} | Score: {sim_score:.3f} | Mode: {sec_mode} <<<"
             )
 
         # 3. Cognitive Brain Processing (Multimodal WAV + Function Calling)
-        is_stranger = not is_owner
+        is_stranger = not is_authorized
         if self.brain:
             result = await self.brain.process_utterance(
                 wav_bytes=wav_bytes,
                 is_stranger=is_stranger,
                 duration_sec=duration_sec,
                 similarity_score=sim_score,
+                identity=identity,
+                security_mode=sec_mode,
             )
-            logger.info(f">>> [A-X-L SPEAKS]: \"{result.get('text_response')}\" <<<")
-            # Step 9 Placeholder: Send result['text_response'] to Piper TTS engine
+            transcript = result.get("transcript", "Unknown")
+            vocal_reply = result.get("text_response", "")
+            logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
+            logger.info(f">>> [A-X-L SPEAKS]: \"{vocal_reply}\" <<<")
+
+            # 4. Neural Text-To-Speech Synthesis & Streaming via WebSocket
+            if vocal_reply and self.tts and self.active_client:
+                logger.info("[TTS STREAM] Synthesizing and streaming response to client...")
+                self.is_speaking = True
+                try:
+                    async for audio_chunk in self.tts.synthesize_stream(vocal_reply):
+                        if self.active_client:
+                            await self.active_client.send_bytes(audio_chunk)
+                    logger.info("[TTS STREAM] Vocal response fully delivered.")
+                except Exception as exc:
+                    logger.error(f"[TTS STREAM ERROR] Failed sending audio: {exc}")
+                finally:
+                    # Small grace period (200ms) before re-enabling mic listening to absorb room decay
+                    await asyncio.sleep(0.2)
+                    self.is_speaking = False
 
 
 stream_manager = StreamManager()
@@ -153,6 +188,10 @@ async def audio_websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_bytes()
             if len(data) % 2 != 0:
+                continue
+
+            # Inhibit audio ingestion while A-X-L is speaking to prevent acoustic feedback loop
+            if stream_manager.is_speaking:
                 continue
 
             stream_manager.audio_buffer.write(data)

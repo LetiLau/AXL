@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
 A-X-L Hardware-in-the-Loop Audio Mock Client.
-Captures low-latency 16kHz PCM16 Mono audio and streams it to the Master Server.
+Full-duplex audio peripheral:
+- Captures low-latency 16kHz PCM16 Mono audio from microphone and streams to Master.
+- Receives neural TTS audio stream from Master and plays it through local speakers.
 """
 
 import argparse
 import asyncio
 import math
 import sys
+from typing import Optional
+
 import numpy as np
 import sounddevice as sd
 import websockets
@@ -32,24 +36,62 @@ def calculate_dbfs(pcm_chunk: bytes) -> float:
 
 def render_vu_meter(db: float, width: int = 20) -> str:
     """Renders a simple ASCII peak/RMS bar."""
-    # Scale from [-60 dBFS, 0 dBFS] to [0, width]
     clamped = max(-60.0, min(0.0, db))
     filled = int(((clamped + 60.0) / 60.0) * width)
     bar = "=" * filled + " " * (width - filled)
     return f"[{bar}] {db:5.1f} dBFS"
 
 
-async def audio_sender(ws_url: str, device_index: int | None = None) -> None:
-    """Main async streaming engine."""
+def play_audio_pcm(pcm_bytes: bytes, device_index: Optional[int] = None) -> None:
+    """
+    Plays received 16kHz PCM16 Mono audio through local output device,
+    resampling cleanly to the device's native rate if required (e.g. 48kHz).
+    """
+    if not pcm_bytes:
+        return
+
+    samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+    target_sr = 16000
+    try:
+        dev_idx = device_index if device_index is not None else sd.default.device[1]
+        dev_info = sd.query_devices(dev_idx)
+        target_sr = int(dev_info["default_samplerate"])
+    except Exception:
+        target_sr = 48000
+
+    if target_sr == 48000:
+        samples = np.repeat(samples, 3)
+    elif target_sr != 16000:
+        ratio = target_sr / 16000.0
+        new_len = int(len(samples) * ratio)
+        samples = np.interp(
+            np.linspace(0, len(samples), new_len, endpoint=False),
+            np.arange(len(samples)),
+            samples,
+        )
+
+    try:
+        sd.play(samples, samplerate=target_sr, device=device_index)
+        sd.wait()
+    except Exception as exc:
+        sys.stderr.write(f"\n[AUDIO PLAYBACK ERROR] {exc}\n")
+
+
+async def audio_client(
+    ws_url: str,
+    input_device: Optional[int] = None,
+    output_device: Optional[int] = None,
+) -> None:
+    """Main bidirectional streaming engine."""
     loop = asyncio.get_running_loop()
-    audio_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=100)
+    mic_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=100)
 
     def audio_callback(indata, frames, time_info, status):
         """Hardware callback from PortAudio execution thread."""
         if status:
             sys.stderr.write(f"\n[ALSA/PortAudio Warning] {status}\n")
-        # Direct zero-copy slice to loop thread-safe enqueue
-        loop.call_soon_threadsafe(audio_queue.put_nowait, bytes(indata))
+        loop.call_soon_threadsafe(mic_queue.put_nowait, bytes(indata))
 
     print(f"Connecting to A-X-L Master at: {ws_url}")
     try:
@@ -59,33 +101,57 @@ async def audio_sender(ws_url: str, device_index: int | None = None) -> None:
             ping_interval=10,
             ping_timeout=5,
         ) as websocket:
-            print("[CONNECTED] Link established. Starting raw audio capture...")
-            print(f"Format: {SAMPLE_RATE}Hz, Mono, 16-bit PCM | Frame Size: {EXPECTED_FRAME_BYTES} bytes (20ms)\n")
+            print("[CONNECTED] Link established. Starting full-duplex audio stream...")
+            print(f"Format: {SAMPLE_RATE}Hz, Mono, 16-bit PCM | Frame: {EXPECTED_FRAME_BYTES} bytes (20ms)\n")
 
-            # Initialize input stream
-            stream = sd.RawInputStream(
+            # Initialize mic input stream
+            mic_stream = sd.RawInputStream(
                 samplerate=SAMPLE_RATE,
                 blocksize=BLOCK_SIZE,
-                device=device_index,
+                device=input_device,
                 channels=CHANNELS,
                 dtype=DTYPE,
                 callback=audio_callback,
             )
 
-            with stream:
+            async def send_worker():
                 frames_sent = 0
                 while True:
-                    # Non-blocking dequeue
-                    pcm_frame = await audio_queue.get()
+                    pcm_frame = await mic_queue.get()
                     await websocket.send(pcm_frame)
                     frames_sent += 1
 
-                    # Telemetry & VU-meter every 10 frames (200ms)
                     if frames_sent % 10 == 0:
                         db = calculate_dbfs(pcm_frame)
                         meter = render_vu_meter(db)
                         sys.stdout.write(f"\rStreaming active | Frames: {frames_sent:06d} | Mic: {meter}")
                         sys.stdout.flush()
+
+            async def receive_worker():
+                while True:
+                    first_chunk = await websocket.recv()
+                    if isinstance(first_chunk, bytes):
+                        # Gather all consecutive chunks of the incoming vocal utterance
+                        chunks = [first_chunk]
+                        while True:
+                            try:
+                                next_chunk = await asyncio.wait_for(websocket.recv(), timeout=0.15)
+                                if isinstance(next_chunk, bytes):
+                                    chunks.append(next_chunk)
+                            except asyncio.TimeoutError:
+                                break
+
+                        full_speech = b"".join(chunks)
+                        duration_sec = len(full_speech) / 32000.0
+                        sys.stdout.write(
+                            f"\n>>> [A-X-L SPEAKING] Playing vocal response ({duration_sec:.2f}s) <<<\n"
+                        )
+                        sys.stdout.flush()
+
+                        await asyncio.to_thread(play_audio_pcm, full_speech, output_device)
+
+            with mic_stream:
+                await asyncio.gather(send_worker(), receive_worker())
 
     except ConnectionRefusedError:
         print(f"\n[ERROR] Connection refused. Is master_server running at {ws_url}?")
@@ -94,33 +160,36 @@ async def audio_sender(ws_url: str, device_index: int | None = None) -> None:
     except asyncio.CancelledError:
         pass
     except Exception as exc:
-        print(f"\n[ERROR] Streaming loop crashed: {exc}")
+        print(f"\n[ERROR] Audio loop crashed: {exc}")
 
 
-def list_microphones() -> None:
-    """Utility to list available audio input devices."""
-    print("Available Audio Input Devices:")
+def list_devices() -> None:
+    """Utility to list available audio input and output devices."""
+    print("Available Audio Devices:")
     devices = sd.query_devices()
     for idx, dev in enumerate(devices):
-        if dev["max_input_channels"] > 0:
-            print(f"  [{idx}] {dev['name']} (Inputs: {dev['max_input_channels']}, Default SR: {int(dev['default_samplerate'])}Hz)")
+        in_ch = dev["max_input_channels"]
+        out_ch = dev["max_output_channels"]
+        sr = int(dev["default_samplerate"])
+        print(f"  [{idx}] {dev['name']} (Inputs: {in_ch}, Outputs: {out_ch}, Default SR: {sr}Hz)")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="A-X-L Micro-Client Testbench")
+    parser = argparse.ArgumentParser(description="A-X-L Micro-Client Testbench (Full-Duplex)")
     parser.add_argument("--host", type=str, default="localhost", help="Master server hostname or IP")
     parser.add_argument("--port", type=int, default=8000, help="Master server WebSocket port")
-    parser.add_argument("--device", type=int, default=None, help="Audio input device index")
-    parser.add_argument("--list-devices", action="store_true", help="List audio input devices and exit")
+    parser.add_argument("--device", type=int, default=None, help="Audio input (microphone) device index")
+    parser.add_argument("--output-device", type=int, default=None, help="Audio output (speaker) device index")
+    parser.add_argument("--list-devices", action="store_true", help="List audio devices and exit")
     args = parser.parse_args()
 
     if args.list_devices:
-        list_microphones()
+        list_devices()
         sys.exit(0)
 
     ws_url = f"ws://{args.host}:{args.port}/ws/audio"
     try:
-        asyncio.run(audio_sender(ws_url, args.device))
+        asyncio.run(audio_client(ws_url, args.device, args.output_device))
     except KeyboardInterrupt:
         print("\n[STOP] Capture terminated cleanly by user.")
 

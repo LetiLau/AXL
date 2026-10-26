@@ -207,8 +207,11 @@ class AudioPipeline:
             silence_duration = now - self.last_speech_timestamp
             command_duration = now - self.command_start_timestamp
 
-            # Condition A: Standard 800ms silence closure
-            silence_triggered = silence_duration >= self.silence_hangover_sec
+            # Condition A: Silence closure with post-wakeword grace window (>= 0.8s total duration)
+            silence_triggered = (
+                silence_duration >= self.silence_hangover_sec
+                and command_duration >= 0.8
+            )
             # Condition B: Safety timeout guardrail
             timeout_triggered = command_duration >= self.max_command_duration_sec
 

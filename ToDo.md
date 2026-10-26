@@ -69,8 +69,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 7. [x] **End-of-Speech & Bufferizzazione Comando:** Logica che accumula l'audio parlato dopo la wake-word finché Silero VAD non rileva 800ms di silenzio continuo (fine frase).
 8. [x] **Integrazione Gemini Multimodal:** Invio del buffer audio grezzo (convertito in WAV in-memory) + contesto (`is_stranger`, telemetria Slave) a Gemini tramite SDK (`google-genai`). Implementazione di *Automatic Function Calling* con modulo `commands.py` modulare, gestione diffidenza biometrica e prompt di personalità A-X-L.
-9.  **Sintesi Vocale Locale (Piper TTS):** Configurazione di Piper in `tts_engine.py` per convertire la risposta testuale di Gemini in uno stream PCM e rispedirlo indietro sullo stesso WebSocket `/ws/audio` verso il client.
-"""Integrazione del chunking del testo e della pipeline DSP in memoria (`scipy.signal`) per dare alla voce generata da Piper il timbro da "cane robot / Jarvis" prima di trasmetterla. ???"""
+9. [x] **Sintesi Vocale Locale (Piper TTS):** Configurazione di Piper in `tts_engine.py` per convertire la risposta testuale di Gemini in uno stream PCM e rispedirlo indietro sullo stesso WebSocket `/ws/audio` verso il client. Supporto bilingue (italiano ed inglese), text normalization e protezione dal loop acustico (echo feedback).
 
 #### FASE 4: Il Visore Web e i Nodi Esecutivi (Slave)
 
@@ -94,7 +93,15 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 15. **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
 
+---
+
+#### NOTE FUTURE & OTTIMIZZAZIONI POST-SVILUPPO
+- [ ] **Ottimizzazione Riconoscimento Vocale (Speaker Verification):** 
+  - Migliorare l'acquisizione dell'enrollment (multi-take a distanze diverse e con rumore ambientale) e tarare la soglia di Cosine Similarity per evitare falsi positivi/negativi quando si parla piano o vicino al microfono.
+  - Testare modelli alternativi (es. 3D-Speaker o modelli più resilienti) dopo lo sviluppo dell'app Kotlin.
+- [x] **Tre Modalità di Sicurezza e Diffidenza (Security Modes):**
+  - `friendly` (attiva di default per sviluppo e test): A-X-L ascolta ed esegue i comandi di chiunque, eliminando rifiuti accidentali e risparmiando chiamate/quote API.
+  - `restrict`: A-X-L ascolta ed esegue ordini solo per l'Owner e gli amici registrati nei profili (`models/profiles/*.npy`), respingendo gli estranei.
+  - `paranoid`: A-X-L obbedisce solo ed esclusivamente all'Owner registrato; se parla un amico, rifiuta spiegando che è in modalità paranoica.
 
 
-#### PLUS pk non so in che fase va fatto
-Tutti i comandi tipo (sveglia, calendario, dimmi chi sei, spotify, volume.......) vanno in un commands.py così da non dover cambiare sempre grandi pezzi del master

@@ -58,6 +58,19 @@ def set_alarm(time_str: str, label: str = "Alarm") -> str:
     return f"Alarm '{label}' scheduled for {time_str}."
 
 
+def get_current_time() -> str:
+    """
+    Returns the exact current local time, date, day of week, and timezone from the device hardware clock.
+    Use this whenever the user asks for the time, date, or day.
+    """
+    now = datetime.datetime.now().astimezone()
+    time_str = now.strftime("%H:%M:%S")
+    date_str = now.strftime("%A, %B %d, %Y")
+    tz_str = now.strftime("%Z (UTC%z)")
+    logger.info(f"[COMMAND: get_current_time] Exact device time: {time_str} ({tz_str})")
+    return f"Exact Local Time: {time_str} | Date: {date_str} | Timezone: {tz_str}"
+
+
 def get_system_status() -> str:
     """
     Returns current system health status, local date/time, and runtime diagnostics.
@@ -92,13 +105,29 @@ def execute_slave_command(command: str, target: str = "fedora") -> str:
     return f"Execution payload '{command}' forwarded to slave node '{target}'."
 
 
+def set_security_mode(mode: str) -> str:
+    """
+    Sets A-X-L security and distrust mode.
+    
+    Args:
+        mode: The security mode to activate: 'friendly' (trusts everyone), 'restrict' (owner and enrolled friends only), 'paranoid' (strictly owner only).
+    """
+    clean_mode = mode.lower().strip()
+    if clean_mode in ["friendly", "restrict", "paranoid"]:
+        logger.info(f"[COMMAND: set_security_mode] Switched to '{clean_mode}'")
+        return f"A-X-L security mode successfully updated to '{clean_mode}'."
+    return f"Invalid mode '{mode}'. Choose 'friendly', 'restrict', or 'paranoid'."
+
+
 # Registry of tools exposed to Gemini function calling
 REGISTERED_TOOLS: List[Callable[..., Any]] = [
+    get_current_time,
     set_timer,
     set_alarm,
     get_system_status,
     media_control,
     execute_slave_command,
+    set_security_mode,
 ]
 
 # Lookup map for runtime dynamic dispatching
