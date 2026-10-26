@@ -7,6 +7,9 @@ import sherpa_onnx
 logger = logging.getLogger("AXL-SpeakerID")
 
 
+THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
+
+
 class SpeakerVerifier:
     """
     Speaker verification engine powered by sherpa-onnx and CAM++ embedding model.
@@ -16,7 +19,7 @@ class SpeakerVerifier:
     def __init__(
         self,
         models_dir: Path,
-        threshold: float = 0.65,
+        threshold: float = THRESHOLD_VAR,
         owner_profile_name: str = "owner.npy",
     ):
         self.threshold = threshold

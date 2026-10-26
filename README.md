@@ -119,8 +119,39 @@ $$\text{Similarity}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}
 - $< 0.65$: Stranger detected / Alert.
 
 #### Enrolling Owner
+Note: please remember to speak clearly!!!
+
 The diretory `master_server/models/profiles` it's not pushed inside the GitHub repo as contains `.npy` files generated with the voice of the owner and friends A-X-L recognizes as not strangers.
 To create your own `owner.npy` file run in your `master_server` `.venv`
 ``` bash
 python tools/enroll_voice.py
+```
+The script let the user decide if he wants to create hi personal `.npy` model in italian, english or both languages, so A-X-L will recognizes the owner regardless of the language he speaks.
+Then running 
+``` bash
+python tools/calibrate_speaker.py
+```
+the user is able to get the right value for `threshold` var in the `SpeakerVerifier`'s `__init__` constructor.
+``` python
+##--- LIBRARIES import-----
+THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
+
+class SpeakerVerifier:
+    """
+    Speaker verification engine powered by sherpa-onnx and CAM++ embedding model.
+    Evaluates Cosine Similarity against enrolled voice profiles.
+    """
+
+    def __init__(
+        self,
+        models_dir: Path,
+        threshold: float = THRESHOLD_VAR,
+        owner_profile_name: str = "owner.npy",
+    ):
+### --- REST OF THE CODE... ---
+```
+and same thing in `initialize_pipeline` function in `src/main.py`
+``` python
+#Your value get from calibrate_speaker.py
+self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
 ```

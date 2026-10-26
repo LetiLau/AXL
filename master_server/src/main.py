@@ -13,6 +13,8 @@ from audio_utils import pcm_to_wav_bytes
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
 
+THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [%(name)s]: %(message)s",
@@ -42,7 +44,7 @@ class StreamManager:
             silence_hangover_sec=0.8,
             max_command_duration_sec=10.0,
         )
-        self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=0.65)
+        self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
         logger.info("A-X-L Acoustic Front-End & Biometrics Ready.")
 
     async def connect(self, websocket: WebSocket) -> bool:
