@@ -96,18 +96,17 @@ class WakeWordDetector:
         self.oww.reset()
 
     def predict(self, pcm16_chunk: np.ndarray) -> float:
-        """
-        Executes prediction on exactly 1280 int16 samples.
-        """
         prediction = self.oww.predict(pcm16_chunk)
         return float(prediction.get(self.model_key, 0.0))
 
 
 class AudioPipeline:
     """
-    Multi-rate Audio Ingestion & State Machine:
+    Multi-rate Audio Ingestion & FSM:
     - Silero VAD window: 512 samples (32ms)
     - openWakeWord window: 1280 samples (80ms)
+    - End-of-Speech: 800ms sustained silence hangover
+    - Guardrail watchdog: 10s maximum command duration
     """
 
     STATE_IDLE = "IDLE"
@@ -118,24 +117,26 @@ class AudioPipeline:
         models_dir: Path,
         vad_threshold: float = 0.5,
         wakeword_threshold: float = 0.35,
-        silence_hangover_sec: float = 0.7,
+        silence_hangover_sec: float = 0.8,
+        max_command_duration_sec: float = 10.0,
     ):
         self.vad = SileroVAD(models_dir / "silero_vad.onnx", threshold=vad_threshold)
         self.wakeword = WakeWordDetector(models_dir, threshold=wakeword_threshold)
 
         self.silence_hangover_sec = silence_hangover_sec
+        self.max_command_duration_sec = max_command_duration_sec
 
-        # Dual decoupled accumulators
         self._vad_residual = bytearray()
         self._vad_window_bytes = 512 * 2  # 1024 bytes
 
         self._ww_residual = bytearray()
-        self._ww_window_bytes = 1280 * 2  # 2560 bytes (80ms)
+        self._ww_window_bytes = 1280 * 2  # 2560 bytes
 
-        # Operational telemetry & FSM
+        # State tracking
         self.state = self.STATE_IDLE
         self.last_speech_prob = 0.0
         self.last_speech_timestamp = 0.0
+        self.command_start_timestamp = 0.0
         self.command_start_sample = 0
         self.total_samples_ingested = 0
 
@@ -147,6 +148,7 @@ class AudioPipeline:
         self.state = self.STATE_IDLE
         self.last_speech_prob = 0.0
         self.last_speech_timestamp = 0.0
+        self.command_start_timestamp = 0.0
         self.command_start_sample = 0
         self.total_samples_ingested = 0
 
@@ -174,7 +176,7 @@ class AudioPipeline:
             if is_speech:
                 self.last_speech_timestamp = now
 
-        # --- Stage 2: openWakeWord Streaming (1280 samples / 80ms) ---
+        # --- Stage 2: openWakeWord Streaming (1280 samples) ---
         while len(self._ww_residual) >= self._ww_window_bytes:
             chunk = self._ww_residual[:self._ww_window_bytes]
             del self._ww_residual[:self._ww_window_bytes]
@@ -182,7 +184,6 @@ class AudioPipeline:
             samples_int16 = np.frombuffer(chunk, dtype=np.int16)
             ww_score = self.wakeword.predict(samples_int16)
 
-            # Telemetria dello score se supera il rumore di fondo
             if ww_score > 0.15:
                 events.append({
                     "event": "WAKEWORD_PROBE",
@@ -190,32 +191,48 @@ class AudioPipeline:
                     "model": self.wakeword.model_key,
                 })
 
-            if self.state == self.STATE_IDLE:
-                if ww_score >= self.wakeword.threshold:
-                    self.state = self.STATE_COLLECTING_COMMAND
-                    # Includi ~1.5 secondi di pre-roll per catturare sia la wake-word sia l'inizio del comando
-                    self.command_start_sample = max(0, self.total_samples_ingested - 24000)
-                    events.append({
-                        "event": "WAKEWORD_TRIGGER",
-                        "score": ww_score,
-                        "model": self.wakeword.model_key,
-                    })
+            if self.state == self.STATE_IDLE and ww_score >= self.wakeword.threshold:
+                self.state = self.STATE_COLLECTING_COMMAND
+                self.command_start_timestamp = now
+                # Include 1.5s pre-roll (24000 samples) to ensure the wake-word & onset are fully captured
+                self.command_start_sample = max(0, self.total_samples_ingested - 24000)
+                events.append({
+                    "event": "WAKEWORD_TRIGGER",
+                    "score": ww_score,
+                    "model": self.wakeword.model_key,
+                })
 
-        # --- Stage 3: End-of-Speech & Command Finalization ---
+        # --- Stage 3: End-of-Speech & Guardrail Watchdog Evaluation ---
         if self.state == self.STATE_COLLECTING_COMMAND:
             silence_duration = now - self.last_speech_timestamp
-            if silence_duration >= self.silence_hangover_sec:
+            command_duration = now - self.command_start_timestamp
+
+            # Condition A: Silence closure with post-wakeword grace window (>= 0.8s total duration)
+            silence_triggered = (
+                silence_duration >= self.silence_hangover_sec
+                and command_duration >= 0.8
+            )
+            # Condition B: Safety timeout guardrail
+            timeout_triggered = command_duration >= self.max_command_duration_sec
+
+            if silence_triggered or timeout_triggered:
                 captured_samples = self.total_samples_ingested - self.command_start_sample
+                reason = "silence_eos" if silence_triggered else "timeout_guardrail"
+
                 events.append({
                     "event": "COMMAND_COMPLETE",
                     "start_sample": self.command_start_sample,
                     "total_samples": captured_samples,
+                    "trigger_reason": reason,
+                    "command_duration_sec": command_duration,
                 })
-                # Notifica esplicita di rilascio stato
+
                 events.append({
                     "event": "SILENCE_RESET",
                     "silence_sec": silence_duration,
+                    "reason": reason,
                 })
+
                 self.state = self.STATE_IDLE
                 self.wakeword.reset()
 

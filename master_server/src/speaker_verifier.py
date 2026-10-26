@@ -1,10 +1,14 @@
 import logging
+import os
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 import numpy as np
 import sherpa_onnx
 
 logger = logging.getLogger("AXL-SpeakerID")
+
+
+THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
 
 
 class SpeakerVerifier:
@@ -16,7 +20,7 @@ class SpeakerVerifier:
     def __init__(
         self,
         models_dir: Path,
-        threshold: float = 0.65,
+        threshold: float = THRESHOLD_VAR,
         owner_profile_name: str = "owner.npy",
     ):
         self.threshold = threshold
@@ -38,8 +42,21 @@ class SpeakerVerifier:
         )
         self.extractor = sherpa_onnx.SpeakerEmbeddingExtractor(config)
         self.enrolled_profiles: Dict[str, np.ndarray] = {}
+        self.security_mode: str = os.getenv("AXL_SECURITY_MODE", "friendly").lower().strip()
+        logger.info(f"Speaker Verifier active in '{self.security_mode}' security mode.")
 
         self.load_profiles()
+
+    def set_security_mode(self, mode: str) -> str:
+        """
+        Dynamically changes security mode: 'friendly', 'restrict', or 'paranoid'.
+        """
+        clean_mode = mode.lower().strip()
+        if clean_mode in ["friendly", "restrict", "paranoid"]:
+            self.security_mode = clean_mode
+            logger.info(f">>> [SECURITY MODE UPDATED] Active mode: '{self.security_mode}' <<<")
+            return f"Security mode successfully set to '{self.security_mode}'."
+        return f"Unknown security mode '{mode}'. Choose 'friendly', 'restrict', or 'paranoid'."
 
     def load_profiles(self) -> None:
         """Loads all .npy embedding vectors from the profiles directory."""
@@ -79,30 +96,63 @@ class SpeakerVerifier:
 
     def verify(self, pcm16_samples: np.ndarray) -> Tuple[bool, float, str]:
         """
-        Matches speech chunk against enrolled owner.
-        Returns: (is_owner, similarity_score, matched_name)
+        Matches speech chunk against enrolled profiles based on the active security mode.
+        Modes:
+        - 'friendly': Trusts and authorizes every speaker (perfect for development/testing).
+        - 'restrict': Authorizes owner and enrolled friends (*.npy), rejects total strangers.
+        - 'paranoid': Authorizes ONLY the owner. If a friend speaks, identifies them but rejects orders.
+
+        Returns: (is_authorized, similarity_score, matched_identity)
         """
         if "owner" not in self.enrolled_profiles:
-            # Degraded operation: accept by default but raise warning
             return True, 1.0, "unregistered_owner"
 
         embedding = self.extract_embedding(pcm16_samples)
         if embedding is None:
-            # Fallback on truncated audio to avoid blocking the pipeline
-            return False, 0.0, "unknown_too_short"
+            # Fallback on short audio
+            is_auth = (self.security_mode == "friendly")
+            return is_auth, 0.0, ("friendly_guest" if is_auth else "unknown_too_short")
 
-        owner_embedding = self.enrolled_profiles["owner"]
-
-        # Cosine Similarity computation
         norm_a = np.linalg.norm(embedding)
-        norm_b = np.linalg.norm(owner_embedding)
 
-        if norm_a == 0 or norm_b == 0:
-            score = 0.0
+        # Compute cosine similarity across all enrolled profiles
+        scores: Dict[str, float] = {}
+        for name, prof_emb in self.enrolled_profiles.items():
+            norm_b = np.linalg.norm(prof_emb)
+            if norm_a == 0 or norm_b == 0:
+                scores[name] = 0.0
+            else:
+                scores[name] = float(np.dot(embedding, prof_emb) / (norm_a * norm_b))
+
+        owner_score = scores.get("owner", 0.0)
+        best_name, best_score = max(scores.items(), key=lambda item: item[1]) if scores else ("unknown", 0.0)
+
+        if self.security_mode == "friendly":
+            # Friendly mode: authorizes everyone; marks as owner if matched, else friendly_guest
+            is_authorized = True
+            identity = "owner" if owner_score >= self.threshold else (best_name if best_score >= self.threshold else "friendly_guest")
+            reported_score = max(owner_score, best_score)
+
+        elif self.security_mode == "restrict":
+            # Restrict mode: authorizes owner and enrolled friends; rejects strangers
+            is_authorized = (best_score >= self.threshold)
+            identity = best_name if is_authorized else "stranger"
+            reported_score = best_score
+
+        elif self.security_mode == "paranoid":
+            # Paranoid mode: authorizes ONLY the registered owner
+            is_authorized = (owner_score >= self.threshold)
+            if is_authorized:
+                identity = "owner"
+            elif best_name != "owner" and best_score >= self.threshold:
+                identity = f"friend_{best_name}"  # Friend recognized, but not allowed in paranoid mode
+            else:
+                identity = "stranger"
+            reported_score = owner_score
+
         else:
-            score = float(np.dot(embedding, owner_embedding) / (norm_a * norm_b))
+            is_authorized = owner_score >= self.threshold
+            identity = "owner" if is_authorized else "stranger"
+            reported_score = owner_score
 
-        is_owner = score >= self.threshold
-        matched_identity = "owner" if is_owner else "stranger"
-
-        return is_owner, score, matched_identity
+        return is_authorized, reported_score, identity

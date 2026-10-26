@@ -118,9 +118,75 @@ $$\text{Similarity}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}
 - $\ge 0.65$: Owner confirmed.
 - $< 0.65$: Stranger detected / Alert.
 
+##### Security & Distrust Modes
+A-X-L operates under 3 security tiers configured via `AXL_SECURITY_MODE` in `.env`:
+- `friendly` (active by default for development and testing): Listens to and executes commands for everyone without biometric rejection. Eliminates accidental false-negatives and saves API quotas during development.
+- `restrict`: Accepts and executes commands for the enrolled owner and recognized friends (`models/profiles/*.npy`), rejecting total strangers.
+- `paranoid`: Obeys strictly and exclusively the enrolled owner. If a recognized friend speaks, A-X-L explains that paranoid mode is active and refuses commands. Total strangers are rejected with aggressive distrust.
+
 #### Enrolling Owner
+Note: please remember to speak clearly!!!
+
 The diretory `master_server/models/profiles` it's not pushed inside the GitHub repo as contains `.npy` files generated with the voice of the owner and friends A-X-L recognizes as not strangers.
 To create your own `owner.npy` file run in your `master_server` `.venv`
 ``` bash
 python tools/enroll_voice.py
 ```
+The script let the user decide if he wants to create hi personal `.npy` model in italian, english or both languages, so A-X-L will recognizes the owner regardless of the language he speaks.
+Then running 
+``` bash
+python tools/calibrate_speaker.py
+```
+the user is able to get the right value for `threshold` var in the `SpeakerVerifier`'s `__init__` constructor.
+``` python
+##--- LIBRARIES import-----
+THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
+
+class SpeakerVerifier:
+    """
+    Speaker verification engine powered by sherpa-onnx and CAM++ embedding model.
+    Evaluates Cosine Similarity against enrolled voice profiles.
+    """
+
+    def __init__(
+        self,
+        models_dir: Path,
+        threshold: float = THRESHOLD_VAR,
+        owner_profile_name: str = "owner.npy",
+    ):
+### --- REST OF THE CODE... ---
+```
+and same thing in `initialize_pipeline` function in `src/main.py`
+``` python
+#Your value get from calibrate_speaker.py
+self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
+```
+
+#### Environment Variables & API Keys (`.env`)
+To protect private credentials and API keys, the file `master_server/.env` is strictly untracked by Git via `.gitignore`.
+A template file `master_server/.env.example` is available in the repository.
+
+To configure your environment:
+1. Create `master_server/.env` (or copy from `.env.example`).
+2. Add your Google AI Studio API key:
+```env
+GEMINI_API_KEY=AIzaSy...
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_PRO_MODEL=gemini-3.1-pro-preview
+```
+
+#### Phase 3: Cognitive Brain & Dynamic Tools (`brain_gemini.py` & `commands.py`)
+In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabilities:
+- **Multimodal Audio Ingestion:** The in-memory WAV buffer generated after VAD End-of-Speech is dispatched directly to Gemini (`google-genai` SDK) without any disk I/O latency.
+- **Native Automatic Function Calling (AFC):** All system actions are neatly registered in `master_server/src/commands.py`:
+  - `set_timer(duration_seconds, label)`
+  - `set_alarm(time_str, label)`
+  - `get_system_status()`
+  - `media_control(action, target)`
+  - `execute_slave_command(command, target)`
+  Gemini automatically invokes the right function based on natural language intent and wraps the result in A-X-L's witty tone.
+- **Biometric Distrust Integration:** The speaker identity evaluated by CAM++ (`is_stranger` flag) is injected into the cognitive prompt:
+  - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
+  - If **Stranger**: A-X-L enters distrust mode, barking or sarcastically refusing to execute sensitive commands or access personal data.
+- **Dynamic Model Escalation:** Standard interactions run on ultra-low-latency flash models (`gemini-3.5-flash`), with transparent escalation to Pro models (`gemini-3.1-pro-preview`) when deep programming or complex reasoning is requested.
+- **Local Neural TTS (`tts_engine.py`):** Piper ONNX acoustic models synthesize vocal responses locally at 16kHz with ~0.08s latency (50x real-time), streaming raw PCM chunks back through `/ws/audio`. Features bilingual model selection (`it_IT-riccardo` and `en_GB-alan`), text normalization, and acoustic echo feedback prevention.

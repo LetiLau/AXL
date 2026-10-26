@@ -22,23 +22,23 @@ Per massimizzare stabilità e velocità di sviluppo senza sacrificare le perform
 
 ```text
 axl-system/
-├── master_server/               # Gira su ThinkPad Debian 12
-│   ├── models/                  # File .onnx (Silero, openWakeWord, SpeakerID, Piper)
-│   ├── src/
-│   │   ├── main.py              # Entrypoint FastAPI + WebSocket Server
-│   │   ├── audio_pipeline.py    # RingBuffer -> VAD -> WakeWord -> SpeakerID
-│   │   ├── brain_gemini.py      # Client Gemini API + System Prompt (Lore A-X-L)
-│   │   ├── network_router.py    # Dispatcher comandi verso Slave PC e Android
-│   │   └── tts_engine.py        # Wrapper Piper TTS (genera stream PCM di risposta)
-│   ├── web_ui/                  # Il Visore (HTML/CSS/JS con pixel-shifting)
+├── master_server/                # Gira su ThinkPad Debian 12
+│   ├── models/                   # File .onnx (Silero, openWakeWord, SpeakerID, Piper)
+│   ├── src/ 
+│   │   ├── main.py               # Entrypoint FastAPI + WebSocket Server
+│   │   ├── audio_pipeline.py     # RingBuffer -> VAD -> WakeWord -> SpeakerID
+│   │   ├── brain_gemini.py       # Client Gemini API + System Prompt (Lore A-X-L)
+│   │   ├── network_router.py     # Dispatcher comandi verso Slave PC e Android
+│   │   └── tts_engine.py         # Wrapper Piper TTS (genera stream PCM di risposta)
+│   ├── web_ui/                   # Il Visore (HTML/CSS/JS con pixel-shifting)
 │   └── requirements.txt
-├── android_kiosk/               # App Kotlin minimale per Galaxy A33 (NO NDK/JNI)
+├── android_kiosk/                # App Kotlin minimale per Galaxy A33 (NO NDK/JNI)
 │   └── app/src/main/java/com/axl/kiosk/
-│       ├── MainActivity.kt      # WebView Fullscreen + KeepScreenOn
-│       ├── AudioStreamService.kt# Foreground Service: AudioRecord <-> WebSocket
-│       └── IntentExecutor.kt    # Esegue gli OS Intents ricevuti dal ThinkPad
-└── slave_node/                  # Gira su PC Fedora / Windows
-    ├── slave_daemon.py          # FastAPI + psutil + esecuzione script
+│       ├── MainActivity.kt       # WebView Fullscreen + KeepScreenOn
+│       ├── AudioStreamService.kt # Foreground Service: AudioRecord <-> WebSocket
+│       └── IntentExecutor.kt     # Controller nativo: AlarmClock, Calendar, App launcher
+└── slave_node/                   # Gira su PC Fedora / Windows
+    ├── slave_daemon.py           # FastAPI + psutil + esecuzione script
     └── requirements.txt
 
 ```
@@ -51,25 +51,25 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 #### FASE 1: Infrastruttura Base e Ingestione Audio (PC / ThinkPad)
 
-1. **Setup Repo e Ambiente Virtuale:** Creazione della struttura directory, `requirements.txt` (`fastapi`, `uvicorn`, `websockets`, `numpy`, `onnxruntime`, `openwakeword`, `sherpa-onnx`, `google-genai`) e script di download automatico dei modelli `.onnx`.
-2. **Server WebSocket Audio & RingBuffer:** Scrittura di `main.py` con endpoint WebSocket `/ws/audio` che riceve frame binari da 640 byte (20ms di audio a 16kHz 16-bit mono) e li inserisce in un buffer circolare `numpy` thread-safe.
-3. **Client di Test Locale (Simulatore Android):** Scrittura di un piccolo script Python (`test_mic_client.py` usando `sounddevice` o `pyaudio`) per catturare l'audio dal microfono del tuo PC Fedora/Windows e inviarlo al server WebSocket. *(Questo ti permette di sviluppare e testare tutto il Master sul tuo PC senza toccare il telefono).*
+1. [x] **Setup Repo e Ambiente Virtuale:** Creazione della struttura directory, `requirements.txt` (`fastapi`, `uvicorn`, `websockets`, `numpy`, `onnxruntime`, `openwakeword`, `sherpa-onnx`, `google-genai`) e script di download automatico dei modelli `.onnx`.
+2. [x] **Server WebSocket Audio & RingBuffer:** Scrittura di `main.py` con endpoint WebSocket `/ws/audio` che riceve frame binari da 640 byte (20ms di audio a 16kHz 16-bit mono) e li inserisce in un buffer circolare `numpy` thread-safe.
+3. [x] **Client di Test Locale (Simulatore Android):** Scrittura di un piccolo script Python (`test_mic_client.py` usando `sounddevice` o `pyaudio`) per catturare l'audio dal microfono del tuo PC Fedora/Windows e inviarlo al server WebSocket. *(Questo ti permette di sviluppare e testare tutto il Master sul tuo PC senza toccare il telefono).*
 
 #### FASE 2: Pipeline Percettiva Locale (VAD + Wake-Word + Diffidenza)
 
-4. **Filtro Silero VAD:** Integrazione in `audio_pipeline.py` di Silero VAD. Il sistema scarta i frame di silenzio/rumore bianco risparmiando CPU.
-5. **Motore Wake-Word:** Aggancio di `openWakeWord` in cascata al VAD. Quando rileva la keyword, cambia lo stato della macchina a stati finiti (FSM) da `IDLE` a `LISTENING_COMMAND` e invia un evento JSON alla Web UI (es. `{"state": "WAKE"}`).
-6. **Speaker Verification (Sistema di Diffidenza):**
-* Creazione dello script `enroll_voice.py` per registrare 5 secondi della tua voce e salvare il tuo tensore di riferimento (`owner_embedding.npy`).
-* Integrazione di `sherpa-onnx` nella pipeline: mentre parli dopo la wake-word, calcola la *Cosine Similarity* tra l'audio in ingresso e `owner_embedding.npy`. Sotto la soglia (es. `< 0.65`), marca il flag `is_stranger = True`.
+4. [x] **Filtro Silero VAD:** Integrazione in `audio_pipeline.py` di Silero VAD. Il sistema scarta i frame di silenzio/rumore bianco risparmiando CPU.
+5. [x] **Motore Wake-Word:** Aggancio di `openWakeWord` in cascata al VAD. Quando rileva la keyword, cambia lo stato della macchina a stati finiti (FSM) da `IDLE` a `LISTENING_COMMAND` e invia un evento JSON alla Web UI (es. `{"state": "WAKE"}`).
+6. [x] **Speaker Verification (Sistema di Diffidenza):**
+   * Creazione dello script `enroll_voice.py` per registrare 5 secondi della tua voce e salvare il tuo tensore di riferimento (`owner_embedding.npy`).
+   * Integrazione di `sherpa-onnx` nella pipeline: mentre parli dopo la wake-word, calcola la *Cosine Similarity* tra l'audio in ingresso e `owner_embedding.npy`. Sotto la soglia (es. `< 0.65`), marca il flag `is_stranger = True`.
 
 
 
 #### FASE 3: Cervello Cognitivo (Gemini + TTS Locale)
 
-7. **End-of-Speech & Bufferizzazione Comando:** Logica che accumula l'audio parlato dopo la wake-word finché Silero VAD non rileva 800ms di silenzio continuo (fine frase).
-8. **Integrazione Gemini Multimodal:** Invio del buffer audio grezzo (convertito in WAV in-memory) + contesto (`is_stranger`, telemetria Slave) a Gemini 2.0 Flash tramite SDK. Configurazione dei *Structured Outputs* (JSON) o *Function Calling* affinché Gemini restituisca sia la risposta testuale/sarcastica di A-X-L, sia l'eventuale comando da eseguire (`target: "fedora" | "android"`, `action: "..."`).
-9. **Sintesi Vocale Locale (Piper TTS):** Configurazione di Piper in `tts_engine.py` per convertire la risposta testuale di Gemini in uno stream PCM e rispedirlo indietro sullo stesso WebSocket `/ws/audio` verso il client.
+7. [x] **End-of-Speech & Bufferizzazione Comando:** Logica che accumula l'audio parlato dopo la wake-word finché Silero VAD non rileva 800ms di silenzio continuo (fine frase).
+8. [x] **Integrazione Gemini Multimodal:** Invio del buffer audio grezzo (convertito in WAV in-memory) + contesto (`is_stranger`, telemetria Slave) a Gemini tramite SDK (`google-genai`). Implementazione di *Automatic Function Calling* con modulo `commands.py` modulare, gestione diffidenza biometrica e prompt di personalità A-X-L.
+9. [x] **Sintesi Vocale Locale (Piper TTS):** Configurazione di Piper in `tts_engine.py` per convertire la risposta testuale di Gemini in uno stream PCM e rispedirlo indietro sullo stesso WebSocket `/ws/audio` verso il client. Supporto bilingue (italiano ed inglese), text normalization e protezione dal loop acustico (echo feedback).
 
 #### FASE 4: Il Visore Web e i Nodi Esecutivi (Slave)
 
@@ -87,7 +87,23 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 
 14. **WebView Kiosk & Intent Receiver:** Configurazione di `MainActivity.kt` per mostrare la Web UI ospitata sul ThinkPad e ricezione di comandi JSON sul WebSocket per lanciare `Intent` Android (sveglie, apertura app, controlli media).
+""" Dettaglio esplicito delle integrazioni Android native: `AlarmClock` (sveglie/timer), `CalendarContract` (eventi Google) e `AudioManager` (gestione volume/media)."""
 
 #### FASE 6: Deploy su ThinkPad Debian 12
 
 15. **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
+
+---
+
+#### NOTE FUTURE & OTTIMIZZAZIONI POST-SVILUPPO
+- [ ] **Ottimizzazione Riconoscimento Vocale (Speaker Verification):** 
+  - Migliorare l'acquisizione dell'enrollment (multi-take a distanze diverse e con rumore ambientale) e tarare la soglia di Cosine Similarity per evitare falsi positivi/negativi quando si parla piano o vicino al microfono.
+  - Testare modelli alternativi (es. 3D-Speaker o modelli più resilienti) dopo lo sviluppo dell'app Kotlin.
+- [x] **Tre Modalità di Sicurezza e Diffidenza (Security Modes):**
+  - `friendly` (attiva di default per sviluppo e test): A-X-L ascolta ed esegue i comandi di chiunque, eliminando rifiuti accidentali e risparmiando chiamate/quote API.
+  - `restrict`: A-X-L ascolta ed esegue ordini solo per l'Owner e gli amici registrati nei profili (`models/profiles/*.npy`), respingendo gli estranei.
+  - `paranoid`: A-X-L obbedisce solo ed esclusivamente all'Owner registrato; se parla un amico, rifiuta spiegando che è in modalità paranoica.
+- [ ] **Nuova voce**: Trovare un nuovo modello vocale che pronunci le parole in maniera più sensata. Aggiungi suoni di abbaio o ringhio vero
+- [ ] **Antigravity**: Spiega o correggi il codice che ho scritto. correzione (esercizi degli esami, altri progetti...)
+
+
