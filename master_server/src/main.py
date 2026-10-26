@@ -5,9 +5,11 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
+import numpy as np
 import uvicorn
 
 from audio_pipeline import AudioPipeline
+from audio_utils import pcm_to_wav_bytes
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
 
@@ -22,7 +24,7 @@ MODELS_DIR = BASE_DIR / "models"
 
 
 class StreamManager:
-    """Manages audio streaming sessions, pipeline dispatching and speaker verification."""
+    """Manages audio streaming sessions, pipeline dispatching, and background task routing."""
 
     def __init__(self):
         self.audio_buffer = AudioRingBuffer(capacity_seconds=10.0, sample_rate=16000)
@@ -37,7 +39,8 @@ class StreamManager:
             models_dir=MODELS_DIR,
             vad_threshold=0.5,
             wakeword_threshold=0.35,
-            silence_hangover_sec=0.7,
+            silence_hangover_sec=0.8,
+            max_command_duration_sec=10.0,
         )
         self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=0.65)
         logger.info("A-X-L Acoustic Front-End & Biometrics Ready.")
@@ -60,6 +63,42 @@ class StreamManager:
                 if self.pipeline:
                     self.pipeline.reset()
                 logger.info("Active audio source detached.")
+
+    async def handle_completed_command(self, pcm_samples: np.ndarray, reason: str):
+        """
+        Non-blocking background handler for captured utterances.
+        Encapsulates PCM into in-memory WAV and evaluates speaker identity.
+        """
+        duration_sec = len(pcm_samples) / 16000.0
+        logger.info(
+            f"[UTTERANCE DISPATCH] Processing {len(pcm_samples)} samples ({duration_sec:.2f}s) | Trigger: {reason}"
+        )
+
+        # 1. Non-blocking In-Memory WAV packaging
+        wav_bytes = pcm_to_wav_bytes(pcm_samples, sample_rate=16000)
+        logger.info(f"[WAV PACKAGING] In-memory WAV generated: {len(wav_bytes)} bytes (0 disk I/O)")
+
+        # 2. Biometric Verification executed in thread pool to prevent loop latency spikes
+        is_owner, sim_score, identity = await asyncio.to_thread(
+            self.verifier.verify, pcm_samples
+        )
+
+        if is_owner:
+            logger.info(
+                f">>> [AUTH GRANTED] Identity: OWNER | Score: {sim_score:.3f} | Forwarding to Step 8 (Gemini) <<<"
+            )
+        else:
+            logger.warning(
+                f">>> [AUTH REJECTED] Identity: STRANGER | Score: {sim_score:.3f} | Flagging is_stranger=True <<<"
+            )
+
+        # Context structure ready for Step 8:
+        # payload = {
+        #     "audio_wav": wav_bytes,
+        #     "duration_sec": duration_sec,
+        #     "is_stranger": not is_owner,
+        #     "similarity_score": sim_score
+        # }
 
 
 stream_manager = StreamManager()
@@ -101,8 +140,6 @@ async def audio_websocket_endpoint(websocket: WebSocket):
     client_host = websocket.client.host if websocket.client else "unknown"
     logger.info(f"Audio source connected: {client_host}")
 
-    frames_received = 0
-
     try:
         while True:
             data = await websocket.receive_bytes()
@@ -110,7 +147,6 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                 continue
 
             stream_manager.audio_buffer.write(data)
-            frames_received += 1
 
             if stream_manager.pipeline:
                 events = stream_manager.pipeline.ingest_frame(data)
@@ -128,28 +164,19 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                     elif ev_type == "COMMAND_COMPLETE":
                         num_samples = ev["total_samples"]
                         command_audio = stream_manager.audio_buffer.get_last_samples(num_samples)
-                        duration_sec = len(command_audio) / 16000.0
 
-                        logger.info(
-                            f"[COMMAND CAPTURED] Utterance ready: {len(command_audio)} samples ({duration_sec:.2f}s)"
+                        # Delegate execution asynchronously: WebSocket loop remains unblocked
+                        asyncio.create_task(
+                            stream_manager.handle_completed_command(
+                                command_audio, ev["trigger_reason"]
+                            )
                         )
-
-                        # Biometric Speaker Verification (CAM++)
-                        if stream_manager.verifier:
-                            is_owner, score, identity = stream_manager.verifier.verify(command_audio)
-                            if is_owner:
-                                logger.info(
-                                    f">>> [AUTH SUCCESS] Identity: OWNER | Cosine Sim: {score:.3f} (>= {stream_manager.verifier.threshold}) <<<"
-                                )
-                            else:
-                                logger.warning(
-                                    f">>> [SECURITY ALERT] Identity: STRANGER | Cosine Sim: {score:.3f} (< {stream_manager.verifier.threshold}) <<<"
-                                )
 
                     elif ev_type == "SILENCE_RESET":
                         silence_time = ev.get("silence_sec", 0.0)
+                        reason = ev.get("reason", "unknown")
                         logger.info(
-                            f"[PIPELINE] Silence detected ({silence_time:.2f}s) --> State reset to IDLE."
+                            f"[PIPELINE] Reset to IDLE | Silence: {silence_time:.2f}s | Reason: {reason}"
                         )
 
     except WebSocketDisconnect:
@@ -168,3 +195,5 @@ if __name__ == "__main__":
         reload=False, 
         workers=1
     )
+
+    #NOT _WORK

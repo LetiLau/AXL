@@ -22,23 +22,23 @@ Per massimizzare stabilità e velocità di sviluppo senza sacrificare le perform
 
 ```text
 axl-system/
-├── master_server/               # Gira su ThinkPad Debian 12
-│   ├── models/                  # File .onnx (Silero, openWakeWord, SpeakerID, Piper)
-│   ├── src/
-│   │   ├── main.py              # Entrypoint FastAPI + WebSocket Server
-│   │   ├── audio_pipeline.py    # RingBuffer -> VAD -> WakeWord -> SpeakerID
-│   │   ├── brain_gemini.py      # Client Gemini API + System Prompt (Lore A-X-L)
-│   │   ├── network_router.py    # Dispatcher comandi verso Slave PC e Android
-│   │   └── tts_engine.py        # Wrapper Piper TTS (genera stream PCM di risposta)
-│   ├── web_ui/                  # Il Visore (HTML/CSS/JS con pixel-shifting)
+├── master_server/                # Gira su ThinkPad Debian 12
+│   ├── models/                   # File .onnx (Silero, openWakeWord, SpeakerID, Piper)
+│   ├── src/ 
+│   │   ├── main.py               # Entrypoint FastAPI + WebSocket Server
+│   │   ├── audio_pipeline.py     # RingBuffer -> VAD -> WakeWord -> SpeakerID
+│   │   ├── brain_gemini.py       # Client Gemini API + System Prompt (Lore A-X-L)
+│   │   ├── network_router.py     # Dispatcher comandi verso Slave PC e Android
+│   │   └── tts_engine.py         # Wrapper Piper TTS (genera stream PCM di risposta)
+│   ├── web_ui/                   # Il Visore (HTML/CSS/JS con pixel-shifting)
 │   └── requirements.txt
-├── android_kiosk/               # App Kotlin minimale per Galaxy A33 (NO NDK/JNI)
+├── android_kiosk/                # App Kotlin minimale per Galaxy A33 (NO NDK/JNI)
 │   └── app/src/main/java/com/axl/kiosk/
-│       ├── MainActivity.kt      # WebView Fullscreen + KeepScreenOn
-│       ├── AudioStreamService.kt# Foreground Service: AudioRecord <-> WebSocket
-│       └── IntentExecutor.kt    # Esegue gli OS Intents ricevuti dal ThinkPad
-└── slave_node/                  # Gira su PC Fedora / Windows
-    ├── slave_daemon.py          # FastAPI + psutil + esecuzione script
+│       ├── MainActivity.kt       # WebView Fullscreen + KeepScreenOn
+│       ├── AudioStreamService.kt # Foreground Service: AudioRecord <-> WebSocket
+│       └── IntentExecutor.kt     # Controller nativo: AlarmClock, Calendar, App launcher
+└── slave_node/                   # Gira su PC Fedora / Windows
+    ├── slave_daemon.py           # FastAPI + psutil + esecuzione script
     └── requirements.txt
 
 ```
@@ -69,7 +69,9 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 7. **End-of-Speech & Bufferizzazione Comando:** Logica che accumula l'audio parlato dopo la wake-word finché Silero VAD non rileva 800ms di silenzio continuo (fine frase).
 8. **Integrazione Gemini Multimodal:** Invio del buffer audio grezzo (convertito in WAV in-memory) + contesto (`is_stranger`, telemetria Slave) a Gemini 2.0 Flash tramite SDK. Configurazione dei *Structured Outputs* (JSON) o *Function Calling* affinché Gemini restituisca sia la risposta testuale/sarcastica di A-X-L, sia l'eventuale comando da eseguire (`target: "fedora" | "android"`, `action: "..."`).
-9. **Sintesi Vocale Locale (Piper TTS):** Configurazione di Piper in `tts_engine.py` per convertire la risposta testuale di Gemini in uno stream PCM e rispedirlo indietro sullo stesso WebSocket `/ws/audio` verso il client.
+"""Abbandono del parsing JSON manuale. Si usa il **Native Function Calling** dell'SDK `google-genai`. Gemini invoca direttamente tool tipizzati come `set_alarm(time, label)`, `set_timer(seconds)`, `add_calendar_event(title, datetime)` o comandi per Fedora (`execute_fedora_script`)."""" --> mmmm non so poi viene a meno il discorso locale e no? per un timer serve che lo capisca gemini?
+9.  **Sintesi Vocale Locale (Piper TTS):** Configurazione di Piper in `tts_engine.py` per convertire la risposta testuale di Gemini in uno stream PCM e rispedirlo indietro sullo stesso WebSocket `/ws/audio` verso il client.
+"""Integrazione del chunking del testo e della pipeline DSP in memoria (`scipy.signal`) per dare alla voce generata da Piper il timbro da "cane robot / Jarvis" prima di trasmetterla. ???"""
 
 #### FASE 4: Il Visore Web e i Nodi Esecutivi (Slave)
 
@@ -87,7 +89,13 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 
 14. **WebView Kiosk & Intent Receiver:** Configurazione di `MainActivity.kt` per mostrare la Web UI ospitata sul ThinkPad e ricezione di comandi JSON sul WebSocket per lanciare `Intent` Android (sveglie, apertura app, controlli media).
+""" Dettaglio esplicito delle integrazioni Android native: `AlarmClock` (sveglie/timer), `CalendarContract` (eventi Google) e `AudioManager` (gestione volume/media)."""
 
 #### FASE 6: Deploy su ThinkPad Debian 12
 
 15. **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
+
+
+
+#### PLUS pk non so in che fase va fatto
+Tutti i comandi tipo (sveglia, calendario, dimmi chi sei, spotify, volume.......) vanno in un commands.py così da non dover cambiare sempre grandi pezzi del master
