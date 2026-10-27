@@ -16,8 +16,9 @@ sherpa-onnx>=1.10.0
 # Cloud Cognition
 google-genai>=0.1.1
 
-# Local TTS Engine
+# Local & Cloud Neural TTS Engines
 piper-tts>=1.2.0
+edge-tts>=7.0.0
 
 # Development & Mocking (Audio Loopback test)
 sounddevice>=0.4.6

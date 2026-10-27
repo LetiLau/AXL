@@ -170,9 +170,10 @@ To configure your environment:
 1. Create `master_server/.env` (or copy from `.env.example`).
 2. Add your Google AI Studio API key:
 ```env
-GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-3.5-flash
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-flash-lite-latest
 GEMINI_PRO_MODEL=gemini-3.1-pro-preview
+AXL_SECURITY_MODE=friendly
 ```
 
 #### Phase 3: Cognitive Brain & Dynamic Tools (`brain_gemini.py` & `commands.py`)
@@ -189,4 +190,16 @@ In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabili
   - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
   - If **Stranger**: A-X-L enters distrust mode, barking or sarcastically refusing to execute sensitive commands or access personal data.
 - **Dynamic Model Escalation:** Standard interactions run on ultra-low-latency flash models (`gemini-3.5-flash`), with transparent escalation to Pro models (`gemini-3.1-pro-preview`) when deep programming or complex reasoning is requested.
-- **Local Neural TTS (`tts_engine.py`):** Piper ONNX acoustic models synthesize vocal responses locally at 16kHz with ~0.08s latency (50x real-time), streaming raw PCM chunks back through `/ws/audio`. Features bilingual model selection (`it_IT-riccardo` and `en_GB-alan`), text normalization, and acoustic echo feedback prevention.
+- **Hybrid Neural TTS Engine (`tts_engine.py`):** Studio-grade speech synthesis combining Microsoft Edge Neural TTS (**Diego** for Italian with tuned `+10%` pacing and tight conversational cadence) with Piper ONNX (**Bryce** for English with Tony Stark/Jarvis persona). Includes on-device local Piper fallback (**Miro** / **Riccardo**), text normalization, and acoustic echo feedback prevention.
+
+#### Phase 4: Cybernetic Visor & Slave Node Architecture
+Phase 4 introduces visual feedback and workstation orchestration:
+- **Cybernetic Visor Web UI (`master_server/web_ui/`):**
+  - Served directly from FastAPI on `/ui` with real-time state synchronization via WebSocket `/ws/ui`.
+  - Tactical HUD states: `IDLE` (passive surveillance), `LISTENING` (wake-word triggered), `THINKING` (neural cognitive inference), `SPEAKING` (vocal streaming audio visualizer), and `ALERT` (biometric breach / stranger warning).
+  - **AMOLED Pixel-Shifting:** Built-in burn-in protection specifically designed for the Samsung Galaxy A33 Super AMOLED display, periodically shifting UI coordinates and automatically entering subdued power-saving mode during inactivity.
+  - Live subtitles display showing transcribed user queries, A-X-L vocal responses, and speaker biometric verification scores.
+- **Workstation Slave Daemon (`slave_node/slave_daemon.py`):**
+  - Standalone lightweight daemon running on Fedora or Windows workstations on port `8001`.
+  - Exposes real-time hardware telemetry (`psutil`: CPU load, RAM usage, storage, thermal sensors, battery status).
+  - Handles authenticated automation webhooks (`/execute`) for commands like `lock_screen`, `sleep`, `mute`, and application launching triggered by A-X-L.

@@ -26,11 +26,23 @@ MODEL_TARGETS = {
     "it_IT-riccardo-x_low.onnx.json": (
         "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/riccardo/x_low/it_IT-riccardo-x_low.onnx.json"
     ),
+    "it_IT-miro-high.onnx": (
+        "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/miro/high/it_IT-miro-high.onnx"
+    ),
+    "it_IT-miro-high.onnx.json": (
+        "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/miro/high/it_IT-miro-high.onnx.json"
+    ),
     "en_GB-alan-low.onnx": (
         "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/low/en_GB-alan-low.onnx"
     ),
     "en_GB-alan-low.onnx.json": (
         "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/low/en_GB-alan-low.onnx.json"
+    ),
+    "en_US-bryce-medium.onnx": (
+        "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/en_US-bryce-medium.onnx"
+    ),
+    "en_US-bryce-medium.onnx.json": (
+        "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/en_US-bryce-medium.onnx.json"
     ),
 }
 

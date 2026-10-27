@@ -7,7 +7,10 @@ Easily expandable without modifying the core server pipeline.
 import asyncio
 import datetime
 import logging
+import os
 from typing import Any, Callable, Dict, List
+
+import requests
 
 logger = logging.getLogger("AXL-Commands")
 
@@ -98,11 +101,41 @@ def execute_slave_command(command: str, target: str = "fedora") -> str:
     Executes an automation script or system command on a remote slave node (e.g. Fedora or Windows workstation).
     
     Args:
-        command: Command or script identifier to run (e.g. 'lock_screen', 'reboot', 'open_terminal').
+        command: Command or action identifier to run (e.g. 'lock_screen', 'sleep', 'mute', 'open_terminal').
         target: Target slave node (default: 'fedora').
     """
     logger.info(f"[COMMAND: execute_slave_command] Target: '{target}' | Command: '{command}'")
-    return f"Execution payload '{command}' forwarded to slave node '{target}'."
+    slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
+    try:
+        resp = requests.post(f"{slave_url}/execute", json={"command": command, "target": target}, timeout=3.0)
+        if resp.status_code == 200:
+            res_data = resp.json()
+            return f"Slave [{target}]: {res_data.get('message', 'Command executed successfully.')}"
+        else:
+            return f"Slave [{target}] returned error code {resp.status_code}: {resp.text}"
+    except Exception as exc:
+        return f"Unable to reach slave [{target}] at {slave_url}: {exc}"
+
+
+def get_slave_telemetry(target: str = "fedora") -> str:
+    """
+    Retrieves real-time CPU, RAM, and system telemetry from a remote slave node (workstation).
+    """
+    logger.info(f"[COMMAND: get_slave_telemetry] Target: '{target}'")
+    slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
+    try:
+        resp = requests.get(f"{slave_url}/telemetry", timeout=3.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            cpu_usage = data.get("cpu", {}).get("usage_percent", 0)
+            mem = data.get("memory", {})
+            mem_used = mem.get("used_gb", 0)
+            mem_total = mem.get("total_gb", 0)
+            mem_pct = mem.get("percent", 0)
+            return f"Slave [{target}] Telemetry: CPU at {cpu_usage}%, RAM at {mem_pct}% ({mem_used}GB / {mem_total}GB used)."
+        return f"Slave [{target}] responded with status {resp.status_code}."
+    except Exception as exc:
+        return f"Slave node [{target}] is currently offline or unreachable ({exc})."
 
 
 def set_security_mode(mode: str) -> str:
@@ -125,6 +158,7 @@ REGISTERED_TOOLS: List[Callable[..., Any]] = [
     set_timer,
     set_alarm,
     get_system_status,
+    get_slave_telemetry,
     media_control,
     execute_slave_command,
     set_security_mode,

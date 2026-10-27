@@ -2,9 +2,11 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Set
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 import numpy as np
 import uvicorn
 
@@ -37,6 +39,7 @@ class StreamManager:
         self.brain: Optional[GeminiBrain] = None
         self.tts: Optional[PiperTTSEngine] = None
         self.active_client: Optional[WebSocket] = None
+        self.ui_clients: Set[WebSocket] = set()
         self.is_speaking: bool = False
         self._lock = asyncio.Lock()
 
@@ -53,6 +56,38 @@ class StreamManager:
         self.brain = GeminiBrain()
         self.tts = PiperTTSEngine(models_dir=MODELS_DIR)
         logger.info("A-X-L Full Pipeline (Acoustic + Biometrics + Brain + TTS) Ready.")
+
+    async def register_ui(self, websocket: WebSocket):
+        """Registers a connected Web UI client and sends initial state synchronization."""
+        await websocket.accept()
+        self.ui_clients.add(websocket)
+        logger.info(f"UI client attached. Active UI clients: {len(self.ui_clients)}")
+        sec_mode = self.verifier.security_mode if self.verifier else "friendly"
+        state = self.pipeline.state if self.pipeline else "IDLE"
+        ui_state = "LISTENING" if state == "LISTENING_COMMAND" else ("SPEAKING" if self.is_speaking else "IDLE")
+        await websocket.send_json({
+            "type": "INIT",
+            "state": ui_state,
+            "security_mode": sec_mode,
+        })
+
+    async def unregister_ui(self, websocket: WebSocket):
+        """Detaches a Web UI client cleanly."""
+        self.ui_clients.discard(websocket)
+        logger.info(f"UI client detached. Active UI clients: {len(self.ui_clients)}")
+
+    async def broadcast_ui(self, message: dict):
+        """Dispatches an asynchronous state event to all connected Web UI clients."""
+        if not self.ui_clients:
+            return
+        dead_clients = set()
+        for ws in self.ui_clients:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead_clients.add(ws)
+        if dead_clients:
+            self.ui_clients -= dead_clients
 
     async def connect(self, websocket: WebSocket) -> bool:
         async with self._lock:
@@ -112,6 +147,14 @@ class StreamManager:
                 f">>> [AUTH REJECTED] Identity: {identity.upper()} | Score: {sim_score:.3f} | Mode: {sec_mode} <<<"
             )
 
+        # Broadcast biometric verification event to connected HUD visors
+        await self.broadcast_ui({
+            "type": "AUTH_EVENT",
+            "identity": identity,
+            "score": float(sim_score),
+            "authorized": bool(is_authorized),
+        })
+
         # 3. Cognitive Brain Processing (Multimodal WAV + Function Calling)
         is_stranger = not is_authorized
         if self.brain:
@@ -128,10 +171,22 @@ class StreamManager:
             logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
             logger.info(f">>> [A-X-L SPEAKS]: \"{vocal_reply}\" <<<")
 
+            # Broadcast dialogue subtitles to connected HUD visors
+            await self.broadcast_ui({
+                "type": "TRANSCRIPT",
+                "user_text": transcript,
+                "axl_text": vocal_reply,
+            })
+
             # 4. Neural Text-To-Speech Synthesis & Streaming via WebSocket
             if vocal_reply and self.tts and self.active_client:
                 logger.info("[TTS STREAM] Synthesizing and streaming response to client...")
                 self.is_speaking = True
+                await self.broadcast_ui({
+                    "type": "STATE_CHANGE",
+                    "state": "SPEAKING",
+                    "label": "VOCAL TRANSMISSION // STREAMING PCM",
+                })
                 try:
                     async for audio_chunk in self.tts.synthesize_stream(vocal_reply):
                         if self.active_client:
@@ -143,6 +198,10 @@ class StreamManager:
                     # Small grace period (200ms) before re-enabling mic listening to absorb room decay
                     await asyncio.sleep(0.2)
                     self.is_speaking = False
+                    await self.broadcast_ui({
+                        "type": "STATE_CHANGE",
+                        "state": "IDLE",
+                    })
 
 
 stream_manager = StreamManager()
@@ -208,10 +267,20 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                         logger.info(
                             f"\n>>> [WAKEWORD ACTIVATED] Triggered! Model: {ev['model']} | Score: {ev['score']:.3f} <<<\n"
                         )
+                        await stream_manager.broadcast_ui({
+                            "type": "STATE_CHANGE",
+                            "state": "LISTENING",
+                            "score": float(ev["score"]),
+                        })
 
                     elif ev_type == "COMMAND_COMPLETE":
                         num_samples = ev["total_samples"]
                         command_audio = stream_manager.audio_buffer.get_last_samples(num_samples)
+
+                        await stream_manager.broadcast_ui({
+                            "type": "STATE_CHANGE",
+                            "state": "THINKING",
+                        })
 
                         # Delegate execution asynchronously: WebSocket loop remains unblocked
                         asyncio.create_task(
@@ -226,6 +295,10 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                         logger.info(
                             f"[PIPELINE] Reset to IDLE | Silence: {silence_time:.2f}s | Reason: {reason}"
                         )
+                        await stream_manager.broadcast_ui({
+                            "type": "STATE_CHANGE",
+                            "state": "IDLE",
+                        })
 
     except WebSocketDisconnect:
         logger.info(f"Client disconnected cleanly: {client_host}")
@@ -233,6 +306,34 @@ async def audio_websocket_endpoint(websocket: WebSocket):
         logger.error(f"Streaming error: {exc}", exc_info=True)
     finally:
         await stream_manager.disconnect(websocket)
+
+
+@app.websocket("/ws/ui")
+async def ui_websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint serving real-time HUD telemetry and state transitions."""
+    await stream_manager.register_ui(websocket)
+    try:
+        while True:
+            # Keep connection open and accept any incoming commands or heartbeat pings from UI
+            data = await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.warning(f"UI WebSocket client disconnected with notice: {exc}")
+    finally:
+        await stream_manager.unregister_ui(websocket)
+
+
+# Mount Web UI frontend files for browser and Galaxy A33 kiosk access
+WEB_UI_DIR = BASE_DIR / "web_ui"
+if WEB_UI_DIR.exists():
+    app.mount("/ui", StaticFiles(directory=str(WEB_UI_DIR), html=True), name="ui")
+
+
+@app.get("/")
+async def root():
+    """Redirects base URL to the cybernetic Visor Web UI."""
+    return RedirectResponse(url="/ui/")
 
 
 if __name__ == "__main__":
@@ -243,5 +344,3 @@ if __name__ == "__main__":
         reload=False, 
         workers=1
     )
-
-    #NOT _WORK

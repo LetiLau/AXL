@@ -1,0 +1,530 @@
+/* ==========================================================================
+   A-X-L CYBERNETIC VISOR // HUD STYLESHEET
+   Aesthetic: Iron Man HUD / Tactical Cyber-Hound / Deep AMOLED True Black
+   ========================================================================== */
+
+:root {
+    --bg-black: #000000;
+    --cyan-glow: #00f0ff;
+    --cyan-dim: rgba(0, 240, 255, 0.25);
+    --blue-neon: #0088ff;
+    --violet-neural: #b038ff;
+    --green-emerald: #00e676;
+    --red-alert: #ff003b;
+    --red-glow: rgba(255, 0, 59, 0.4);
+    --amber-warn: #ff9900;
+    --text-white: #e0f7fa;
+    --text-muted: #546e7a;
+    --hud-border: rgba(0, 240, 255, 0.2);
+    --font-orbitron: 'Orbitron', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-rajdhani: 'Rajdhani', sans-serif;
+    --font-mono: 'Share Tech Mono', monospace;
+    --hud-shift-x: 0px;
+    --hud-shift-y: 0px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-black);
+    color: var(--text-white);
+    font-family: var(--font-rajdhani);
+    overflow: hidden;
+    position: fixed;
+}
+
+/* ==========================================================================
+   AMOLED PIXEL-SHIFTING BURN-IN PROTECTION WRAPPER
+   Translates smoothly every 60s by +/- 8px to prevent static OLED ghosting
+   ========================================================================== */
+#pixel-shift-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 18px 24px;
+    background-color: var(--bg-black);
+    transform: translate3d(var(--hud-shift-x), var(--hud-shift-y), 0);
+    transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.8s ease;
+    will-change: transform;
+}
+
+/* Dimming in extended idle mode for extra AMOLED life */
+body.hud-subdued #pixel-shift-container {
+    opacity: 0.35;
+    filter: brightness(0.6);
+}
+
+/* ==========================================================================
+   HEADER HUD TELEMETRY BAR
+   ========================================================================== */
+.hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--hud-border);
+    padding-bottom: 12px;
+    position: relative;
+    z-index: 10;
+}
+
+.hud-brand {
+    display: flex;
+    flex-direction: column;
+}
+
+.brand-title {
+    font-family: var(--font-orbitron);
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: 0.35rem;
+    color: var(--cyan-glow);
+    text-shadow: 0 0 10px var(--cyan-glow);
+}
+
+.brand-sub {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.2rem;
+    color: var(--text-muted);
+}
+
+.hud-center-clock {
+    text-align: center;
+}
+
+#clock-time {
+    font-family: var(--font-orbitron);
+    font-size: 1.8rem;
+    font-weight: 700;
+    letter-spacing: 0.15rem;
+    color: var(--text-white);
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+}
+
+#clock-date {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--cyan-glow);
+    letter-spacing: 0.12rem;
+    text-transform: uppercase;
+}
+
+.hud-status-tray {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.badge {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    padding: 4px 10px;
+    border-radius: 2px;
+    letter-spacing: 0.1rem;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+}
+
+.badge-friendly {
+    background: rgba(0, 230, 118, 0.1);
+    color: var(--green-emerald);
+    border-color: rgba(0, 230, 118, 0.4);
+}
+
+.badge-restrict {
+    background: rgba(255, 153, 0, 0.1);
+    color: var(--amber-warn);
+    border-color: rgba(255, 153, 0, 0.4);
+}
+
+.badge-paranoid {
+    background: rgba(255, 0, 59, 0.12);
+    color: var(--red-alert);
+    border-color: rgba(255, 0, 59, 0.5);
+    animation: alert-pulse 1.8s infinite;
+}
+
+.badge-online {
+    background: rgba(0, 240, 255, 0.1);
+    color: var(--cyan-glow);
+    border-color: rgba(0, 240, 255, 0.3);
+}
+
+.badge-offline {
+    background: rgba(255, 23, 68, 0.1);
+    color: var(--red-alert);
+    border-color: rgba(255, 23, 68, 0.4);
+}
+
+#fullscreen-btn {
+    background: transparent;
+    border: 1px solid var(--hud-border);
+    color: var(--cyan-glow);
+    padding: 4px 8px;
+    font-size: 1rem;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#fullscreen-btn:active {
+    background: var(--cyan-dim);
+}
+
+/* ==========================================================================
+   CENTER VISOR STAGE & RETICLE
+   ========================================================================== */
+.visor-stage {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    padding: 10px 0;
+}
+
+.visor-wrapper {
+    position: relative;
+    width: min(80vw, 520px);
+    height: min(80vw, 520px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.three-stage {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: auto;
+    cursor: grab;
+    z-index: 3;
+}
+
+#visor-canvas {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.visor-reticle-overlay {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.bracket {
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    border-color: var(--cyan-glow);
+    opacity: 0.7;
+    transition: all 0.3s ease;
+}
+
+.bracket-tl { top: 0; left: 0; border-top: 2px solid; border-left: 2px solid; }
+.bracket-tr { top: 0; right: 0; border-top: 2px solid; border-right: 2px solid; }
+.bracket-bl { bottom: 0; left: 0; border-bottom: 2px solid; border-left: 2px solid; }
+.bracket-br { bottom: 0; right: 0; border-bottom: 2px solid; border-right: 2px solid; }
+
+.crosshair {
+    position: absolute;
+    background: var(--cyan-dim);
+    opacity: 0.3;
+}
+.crosshair-h {
+    top: 50%;
+    left: 5%;
+    width: 90%;
+    height: 1px;
+    transform: translateY(-50%);
+}
+.crosshair-v {
+    top: 5%;
+    left: 50%;
+    width: 1px;
+    height: 90%;
+    transform: translateX(-50%);
+}
+
+.visor-status-box {
+    position: absolute;
+    bottom: -32px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+}
+
+.state-label {
+    font-family: var(--font-orbitron);
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.2rem;
+    color: var(--cyan-glow);
+    text-shadow: 0 0 8px var(--cyan-glow);
+    transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+
+.state-sub {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* ==========================================================================
+   FOOTER: BIOMETRICS & SUBTITLES
+   ========================================================================== */
+.hud-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-top: 1px solid var(--hud-border);
+    padding-top: 14px;
+    z-index: 10;
+}
+
+.biometric-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 240, 255, 0.03);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+    padding: 8px 14px;
+    border-radius: 2px;
+}
+
+.bio-tag {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bio-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08rem;
+}
+
+.bio-value {
+    font-family: var(--font-orbitron);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.1rem;
+    color: var(--cyan-glow);
+}
+
+.bio-score-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0.5;
+    max-width: 280px;
+}
+
+.bio-bar-bg {
+    flex: 1;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.bio-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--blue-neon), var(--cyan-glow));
+    transition: width 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.auth-idle { color: var(--text-muted); }
+.auth-owner { color: var(--green-emerald); text-shadow: 0 0 6px var(--green-emerald); }
+.auth-friend { color: var(--cyan-glow); text-shadow: 0 0 6px var(--cyan-glow); }
+.auth-stranger { color: var(--red-alert); text-shadow: 0 0 8px var(--red-alert); }
+
+/* Dialogue Panel */
+.dialogue-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.85);
+    border: 1px solid rgba(0, 240, 255, 0.1);
+    padding: 10px 14px;
+    border-radius: 2px;
+    min-height: 72px;
+}
+
+.dialogue-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.speaker-tag {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1rem;
+    min-width: 65px;
+}
+
+.tag-user { color: var(--text-muted); }
+.tag-axl { color: var(--cyan-glow); }
+
+.speech-text {
+    font-family: var(--font-rajdhani);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: 0.03rem;
+    word-break: break-word;
+}
+
+.transcript-text {
+    color: #b0bec5;
+    font-style: italic;
+}
+
+.reply-text {
+    color: #ffffff;
+}
+
+/* ==========================================================================
+   DYNAMIC STATE THEMES & ANIMATIONS
+   ========================================================================== */
+
+/* STATE: LISTENING */
+body.state-listening .bracket {
+    border-color: var(--blue-neon);
+    transform: scale(1.05);
+}
+body.state-listening .state-label {
+    color: var(--blue-neon);
+    text-shadow: 0 0 12px var(--blue-neon);
+}
+
+/* STATE: THINKING */
+body.state-thinking .bracket {
+    border-color: var(--violet-neural);
+}
+body.state-thinking .state-label {
+    color: var(--violet-neural);
+    text-shadow: 0 0 12px var(--violet-neural);
+}
+
+/* STATE: SPEAKING */
+body.state-speaking .bracket {
+    border-color: var(--cyan-glow);
+    animation: bracket-pulse 1s infinite alternate;
+}
+body.state-speaking .state-label {
+    color: var(--cyan-glow);
+    text-shadow: 0 0 14px var(--cyan-glow);
+}
+
+/* STATE: ALERT / STRANGER */
+body.state-alert .bracket {
+    border-color: var(--red-alert);
+    transform: scale(1.08);
+}
+body.state-alert .state-label {
+    color: var(--red-alert);
+    text-shadow: 0 0 16px var(--red-alert);
+    animation: alert-strobe-text 0.5s infinite alternate;
+}
+body.state-alert .bio-bar-fill {
+    background: var(--red-alert) !important;
+}
+
+.alert-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    background: radial-gradient(circle, transparent 60%, rgba(255, 0, 59, 0.35) 100%);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 100;
+}
+
+body.state-alert .alert-overlay {
+    opacity: 1;
+    animation: alert-vignette 0.8s infinite alternate;
+}
+
+@keyframes bracket-pulse {
+    from { opacity: 0.6; }
+    to { opacity: 1; filter: drop-shadow(0 0 6px var(--cyan-glow)); }
+}
+
+@keyframes alert-vignette {
+    from { opacity: 0.3; }
+    to { opacity: 0.8; }
+}
+
+@keyframes alert-strobe-text {
+    from { opacity: 0.7; }
+    to { opacity: 1; filter: drop-shadow(0 0 8px var(--red-alert)); }
+}
+
+@keyframes alert-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* ==========================================================================
+   MOBILE & TABLET RESPONSIVENESS (SAMSUNG GALAXY A33 1080x2400)
+   ========================================================================== */
+@media (max-width: 600px) {
+    #pixel-shift-container {
+        padding: 12px 14px;
+    }
+    .brand-title {
+        font-size: 1.3rem;
+    }
+    #clock-time {
+        font-size: 1.4rem;
+    }
+    .visor-wrapper {
+        width: 280px;
+        height: 280px;
+    }
+    .state-label {
+        font-size: 0.82rem;
+    }
+    .biometric-strip {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+    .bio-score-wrap {
+        width: 100%;
+        max-width: 100%;
+    }
+    .speech-text {
+        font-size: 0.88rem;
+    }
+}

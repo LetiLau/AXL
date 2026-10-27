@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>A-X-L // Cybernetic Visor</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+</head>
+<body class="state-idle">
+    <!-- AMOLED Pure Black Shield & Pixel-Shift Wrapper -->
+    <div id="pixel-shift-container">
+        
+        <!-- Top Tactical Telemetry Bar -->
+        <header class="hud-header">
+            <div class="hud-brand">
+                <div class="brand-title">A-X-L</div>
+                <div class="brand-sub">TACTICAL AI // NODE-01</div>
+            </div>
+
+            <div class="hud-center-clock">
+                <div id="clock-time">00:00:00</div>
+                <div id="clock-date">SYSTEM INITIALIZING</div>
+            </div>
+
+            <div class="hud-status-tray">
+                <div id="sec-mode-badge" class="badge badge-friendly">MODE: FRIENDLY</div>
+                <div id="connection-badge" class="badge badge-offline">WS: OFFLINE</div>
+                <button id="fullscreen-btn" title="Toggle Fullscreen" aria-label="Fullscreen">⛶</button>
+            </div>
+        </header>
+
+        <!-- Main Center Visor Stage -->
+        <main class="visor-stage">
+            <div class="visor-wrapper">
+                
+                <!-- Holographic Cybernetic Core 3D Stage & 2D HUD Canvas -->
+                <div id="three-stage" class="three-stage"></div>
+                <canvas id="visor-canvas" width="600" height="600"></canvas>
+
+                <!-- Tactical Visor Reticles & HUD Brackets -->
+                <div class="visor-reticle-overlay">
+                    <div class="bracket bracket-tl"></div>
+                    <div class="bracket bracket-tr"></div>
+                    <div class="bracket bracket-bl"></div>
+                    <div class="bracket bracket-br"></div>
+                    <div class="crosshair crosshair-h"></div>
+                    <div class="crosshair crosshair-v"></div>
+                </div>
+
+                <!-- Central Status Banner -->
+                <div class="visor-status-box">
+                    <div id="visor-state-label" class="state-label">STANDBY // PASSIVE SURVEILLANCE</div>
+                    <div id="visor-sub-label" class="state-sub">ACOUSTIC ARRAY: ACTIVE (16kHz PCM)</div>
+                </div>
+
+            </div>
+        </main>
+
+        <!-- Biometric Telemetry & Speech Subtitles Tray -->
+        <footer class="hud-footer">
+            
+            <!-- Speaker Biometrics Strip -->
+            <div class="biometric-strip">
+                <div class="bio-tag">
+                    <span class="bio-label">SPEAKER ID:</span>
+                    <span id="bio-identity" class="bio-value">AWAITING AUDIO</span>
+                </div>
+                <div class="bio-score-wrap">
+                    <span class="bio-label">CONFIDENCE:</span>
+                    <div class="bio-bar-bg">
+                        <div id="bio-score-bar" class="bio-bar-fill" style="width: 0%;"></div>
+                    </div>
+                    <span id="bio-score-text" class="bio-value">0.000</span>
+                </div>
+                <div class="bio-tag">
+                    <span class="bio-label">SECURITY:</span>
+                    <span id="bio-auth-status" class="bio-value auth-idle">READY</span>
+                </div>
+            </div>
+
+            <!-- Dialogue Subtitles Panel -->
+            <div class="dialogue-panel">
+                <div class="dialogue-row user-row">
+                    <span class="speaker-tag tag-user">HEARD &gt;</span>
+                    <span id="user-transcript" class="speech-text transcript-text">"Hey Jarvis..."</span>
+                </div>
+                <div class="dialogue-row axl-row">
+                    <span class="speaker-tag tag-axl">A-X-L &gt;</span>
+                    <span id="axl-reply" class="speech-text reply-text">Pronto all'azione, capo. In ascolto sui sensori.</span>
+                </div>
+            </div>
+
+        </footer>
+
+    </div>
+
+    <!-- Alert Audio Strobe Glitch Overlay -->
+    <div id="alert-strobe" class="alert-overlay"></div>
+
+    <!-- Three.js WebGL Engine & glTF Loader for 3D Holographic Wireframe Avatar -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
