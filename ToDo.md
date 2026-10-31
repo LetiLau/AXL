@@ -73,8 +73,14 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 #### FASE 4: Il Visore Web e i Nodi Esecutivi (Slave)
 
-10. [ ] **Web UI (Il Visore):** Creazione dell'interfaccia HTML/JS servita da FastAPI su `/ui` e collegata via WebSocket a `/ws/ui`. Implementazione delle animazioni di stato (Idle, Listening, Thinking, Speaking, Stranger Alert) e del timer CSS/JS per il pixel-shifting anti burn-in.
-11. [ ] **Nodo Slave (Fedora/Windows):** Scrittura di `slave_daemon.py` per esporre telemetria (`psutil`: CPU, RAM, temperature) e ricevere dal Master i webhook per eseguire script o comandi di sistema.
+10. [x] **Web UI (Il Visore):** Creazione dell'interfaccia HTML/JS servita da FastAPI su `/ui` e collegata via WebSocket a `/ws/ui`. Implementazione delle animazioni di stato (Idle, Listening, Thinking, Speaking, Stranger Alert) e del timer CSS/JS per il pixel-shifting anti burn-in.
+    * **Modernizzazione Bottoni & Card Style:** Restyling moderno e arrotondato (`border-radius: 10px`) dei bottoni della barra superiore con supporto intelligente sia per cursore mouse che touch, mantenendo i colori e i font di A-X-L.
+    * **Blocco Unidirezionale Modalità di Sicurezza (`MODE`):** Il pulsante `MODE` è cliccabile solo quando si trova su `FRIENDLY` per permettere di impostare `RESTRICT` o `PARANOID`. Una volta attivata una modalità protetta, il pulsante si blocca (`🔒`) impedendo a estranei di disattivare la verifica vocale dal display.
+    * **Verifica e Switch Modalità di Sicurezza Vocale:** Sincronizzazione completa del comando vocale `set_security_mode` tra Gemini Brain, `commands.py`, `StreamManager` (`speaker_verifier.py`) e Web UI WebSocket: pronunciare "passa in modalità paranoica" o "metti restrict" aggiorna dinamicamente la logica di diffidenza biometrica e la UI in tempo reale.
+    * **Pulsante MUTE Tattico & Vincolo Sblocco Esclusivo da Schermo:** Aggiunto pulsante MUTE moderno direttamente sopra la scritta `SPEAKER ID` nel footer HUD. Supporta il comando vocale ("vai in muto", "silenzio", "disattiva microfono") che arresta l'ingestione dei pacchetti audio a livello WebSocket. **Regola di sicurezza:** la modalità muto può essere disattivata solo ed esclusivamente premendo il pulsante fisico/touch sul display, rendendo impossibile lo sblocco accidentale o non autorizzato a voce.
+    * **Centratura Geometrica Assoluta dell'Orologio:** Utilizzo di posizionamento assoluto (`left: 50%; transform: translateX(-50%)`) per garantire che l'orario rimanga perfettamente e matematicamente al centro della barra superiore, a prescindere dalle larghezze asimmetriche del brand A-X-L a sinistra e dei pulsanti a destra.
+    * **Riquadro Telemetria Moderno (Griglia 2x2 Glassmorphic):** Nuovo design a card arrotondate (`border-radius: 16px-20px`) per CPU, RAM, GPU e ventole, con scomparsa totale alla chiusura, riposizionamento fluido del visore al centro e aggiornamento continuo dei valori (tramite nodo slave, `psutil` locale o fallback dinamico).
+11. [x] **Nodo Slave (Fedora/Windows):** Scrittura di `slave_daemon.py` per esporre telemetria (`psutil`: CPU, RAM, temperature, GPU dedicate/integrate, ventole) e ricevere dal Master i webhook per eseguire script o comandi di sistema. Visualizzazione split-layout HUD in tempo reale sul visore.
 
 #### FASE 5: App Android "Thin Kiosk" (Galaxy A33)
 
@@ -89,9 +95,13 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 14. **WebView Kiosk & Intent Receiver:** Configurazione di `MainActivity.kt` per mostrare la Web UI ospitata sul ThinkPad e ricezione di comandi JSON sul WebSocket per lanciare `Intent` Android (sveglie, apertura app, controlli media).
 """ Dettaglio esplicito delle integrazioni Android native: `AlarmClock` (sveglie/timer), `CalendarContract` (eventi Google) e `AudioManager` (gestione volume/media)."""
 
-#### FASE 6: Deploy su ThinkPad Debian 12
+#### FASE 6: Animazioni Espressive Web UI (Schizzi 2D / Lottie / Avatar)
 
-15. **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
+15. [ ] **Avatar Dinamico A-X-L nel Visore:** Integrazione degli schizzi/animazioni 2D (Lottie / SVG / WebM) nello stage centrale del Visore Web per reagire ai diversi stati e comandi (dorme in Idle, orecchie tese in Listening, ringhio su Stranger, console DJ quando c'è musica, ecc.).
+
+#### FASE 7: Deploy su ThinkPad Debian 12
+
+16. [ ] **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
 
 ---
 

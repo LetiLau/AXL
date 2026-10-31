@@ -7,10 +7,16 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=4.3">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        /* Fallback critico anti-cache per nascondere sempre i pannelli chiusi */
+        [hidden] { display: none !important; }
+        body:not(.telemetry-active) #telemetry-panel { display: none !important; }
+        .mode-selector-popup:not(.open) { display: none !important; }
+    </style>
 </head>
 <body class="state-idle">
     <!-- AMOLED Pure Black Shield & Pixel-Shift Wrapper -->
@@ -29,31 +35,148 @@
             </div>
 
             <div class="hud-status-tray">
-                <div id="sec-mode-badge" class="badge badge-friendly">MODE: FRIENDLY</div>
-                <div id="connection-badge" class="badge badge-offline">WS: OFFLINE</div>
-                <button id="fullscreen-btn" title="Toggle Fullscreen" aria-label="Fullscreen">⛶</button>
+                <button type="button" id="telemetry-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Hardware">TELEM: OFF</button>
+                
+                <div class="mode-badge-wrapper">
+                    <button type="button" id="sec-mode-badge" class="badge badge-friendly mode-unlocked" title="Clicca per impostare Restrict o Paranoid">MODE: FRIENDLY ▾</button>
+                    <div id="mode-selector-popup" class="mode-selector-popup" hidden>
+                        <div class="mode-popup-header">IMPOSTA SICUREZZA (BLOCCO VOCALE):</div>
+                        <button type="button" class="mode-option-btn opt-restrict" data-mode="restrict">🔒 RESTRICT (Owner &amp; Friends)</button>
+                        <button type="button" class="mode-option-btn opt-paranoid" data-mode="paranoid">🚨 PARANOID (Solo Owner)</button>
+                    </div>
+                </div>
+
+                <div id="connection-badge" class="badge badge-offline" title="Stato Connessione WebSocket">WS: OFFLINE</div>
+                <button type="button" id="fullscreen-btn" class="badge badge-icon-btn" title="Schermo Intero" aria-label="Fullscreen">⛶</button>
             </div>
         </header>
 
-        <!-- Main Center Visor Stage -->
-        <main class="visor-stage">
-            <div class="visor-wrapper">
-                
-                <!-- Holographic Cybernetic Core 3D Stage & 2D HUD Canvas -->
-                <div id="three-stage" class="three-stage"></div>
-                <canvas id="visor-canvas" width="600" height="600"></canvas>
-
-                <!-- Tactical Visor Reticles & HUD Brackets -->
-                <div class="visor-reticle-overlay">
-                    <div class="bracket bracket-tl"></div>
-                    <div class="bracket bracket-tr"></div>
-                    <div class="bracket bracket-bl"></div>
-                    <div class="bracket bracket-br"></div>
-                    <div class="crosshair crosshair-h"></div>
-                    <div class="crosshair crosshair-v"></div>
+        <!-- Main Visor Stage (Centered in normal mode, Split Layout in Telemetry Mode) -->
+        <main id="visor-stage" class="visor-stage">
+            
+            <!-- Left Side: Real-Time Hardware Telemetry HUD Panel (Hidden when TELEM: OFF) -->
+            <aside id="telemetry-panel" class="telemetry-panel" hidden>
+                <div class="telem-header">
+                    <div class="telem-title-wrap">
+                        <span class="telem-tag">NODE MONITOR</span>
+                        <h2 class="telem-title">SYSTEM TELEMETRY</h2>
+                    </div>
+                    <div class="telem-header-actions">
+                        <span id="telem-node-badge" class="badge badge-telem-online">NODE: FEDORA // LIVE</span>
+                        <button type="button" id="telem-close-btn" class="telem-icon-btn" title="Chiudi Telemetria">✕</button>
+                    </div>
                 </div>
 
-                <!-- Central Status Banner -->
+                <div class="telem-grid">
+                    <!-- CPU Monitor Card -->
+                    <div class="telem-card">
+                        <div class="telem-card-header">
+                            <span class="telem-card-label">CPU CORE LOAD</span>
+                            <span id="telem-cpu-temp" class="telem-temp-badge">44°C</span>
+                        </div>
+                        <div class="telem-stat-row">
+                            <div class="telem-main-metric">
+                                <span id="telem-cpu-usage" class="telem-val-large">18%</span>
+                            </div>
+                            <div class="telem-sub-metric">
+                                <div class="telem-sub-line">
+                                    <span class="sub-lbl">CLOCK:</span>
+                                    <span id="telem-cpu-freq" class="sub-val">2800 MHz</span>
+                                </div>
+                                <div class="telem-sub-line">
+                                    <span class="sub-lbl">CORES:</span>
+                                    <span id="telem-cpu-cores" class="sub-val">4 Cores</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="telem-meter-track">
+                            <div id="telem-cpu-bar" class="telem-meter-fill" style="width: 18%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- RAM Memory Card -->
+                    <div class="telem-card">
+                        <div class="telem-card-header">
+                            <span class="telem-card-label">MEMORY USAGE</span>
+                            <span id="telem-ram-pct" class="telem-temp-badge">46%</span>
+                        </div>
+                        <div class="telem-stat-row">
+                            <div class="telem-main-metric">
+                                <span id="telem-ram-used" class="telem-val-large">3.7</span>
+                                <span id="telem-ram-total" class="telem-unit">/ 8.0 GB</span>
+                            </div>
+                            <div class="telem-sub-metric">
+                                <div class="telem-sub-line">
+                                    <span class="sub-lbl">FREE:</span>
+                                    <span id="telem-ram-free" class="sub-val">4.3 GB</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="telem-meter-track">
+                            <div id="telem-ram-bar" class="telem-meter-fill" style="width: 46%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- GPU(s) Card (Dedicated and/or Integrated) -->
+                    <div class="telem-card telem-gpu-card">
+                        <div class="telem-card-header">
+                            <span class="telem-card-label">GRAPHICS (GPU)</span>
+                            <span id="telem-gpu-global-temp" class="telem-temp-badge">45°C</span>
+                        </div>
+                        <div id="telem-gpu-list" class="telem-gpu-list">
+                            <div class="telem-gpu-item">
+                                <div class="telem-gpu-top">
+                                    <span class="telem-gpu-name">Intel Integrated Graphics</span>
+                                    <span class="telem-gpu-badge">INTEGRATED // 950 MHz</span>
+                                </div>
+                                <div class="telem-meter-track">
+                                    <div class="telem-meter-fill" style="width: 16%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Fans & Cooling Card -->
+                    <div class="telem-card">
+                        <div class="telem-card-header">
+                            <span class="telem-card-label">COOLING FAN</span>
+                            <span id="telem-fan-status" class="telem-temp-badge">ACTIVE</span>
+                        </div>
+                        <div class="telem-stat-row">
+                            <div class="telem-main-metric">
+                                <span id="telem-fan-rpm" class="telem-val-large">1680</span>
+                                <span class="telem-unit">RPM</span>
+                            </div>
+                            <div class="telem-sub-metric">
+                                <div class="telem-sub-line">
+                                    <span class="sub-lbl">SENSOR:</span>
+                                    <span id="telem-fan-label" class="sub-val">CPU FAN</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Right Side (or Center): Circular A-X-L Core Stage -->
+            <div id="visor-wrapper" class="visor-wrapper">
+                
+                <div class="visor-core-box">
+                    <!-- Holographic Cybernetic Core Visualizer Canvas -->
+                    <canvas id="visor-canvas" width="600" height="600"></canvas>
+
+                    <!-- Tactical Visor Reticles & HUD Brackets -->
+                    <div class="visor-reticle-overlay">
+                        <div class="bracket bracket-tl"></div>
+                        <div class="bracket bracket-tr"></div>
+                        <div class="bracket bracket-bl"></div>
+                        <div class="bracket bracket-br"></div>
+                        <div class="crosshair crosshair-h"></div>
+                        <div class="crosshair crosshair-v"></div>
+                    </div>
+                </div>
+
+                <!-- Central Status Banner ( cleanly positioned below reticle, never overlapping footer ) -->
                 <div class="visor-status-box">
                     <div id="visor-state-label" class="state-label">STANDBY // PASSIVE SURVEILLANCE</div>
                     <div id="visor-sub-label" class="state-sub">ACOUSTIC ARRAY: ACTIVE (16kHz PCM)</div>
@@ -65,6 +188,14 @@
         <!-- Biometric Telemetry & Speech Subtitles Tray -->
         <footer class="hud-footer">
             
+            <!-- Tactical Action Strip with MUTE Button -->
+            <div class="hud-action-strip">
+                <button type="button" id="mute-btn" class="badge badge-mute-btn" title="Disattiva ascolto microfono (Può essere riattivato solo cliccando qui)">
+                    <span id="mute-btn-icon" class="mute-icon">🎙️</span>
+                    <span id="mute-btn-label">MIC: ATTIVO</span>
+                </button>
+            </div>
+
             <!-- Speaker Biometrics Strip -->
             <div class="biometric-strip">
                 <div class="bio-tag">
@@ -103,9 +234,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <!-- Three.js WebGL Engine & glTF Loader for 3D Holographic Wireframe Avatar -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=4.3"></script>
 </body>
 </html>

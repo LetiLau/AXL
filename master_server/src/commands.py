@@ -8,7 +8,7 @@ import asyncio
 import datetime
 import logging
 import os
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
@@ -16,6 +16,30 @@ logger = logging.getLogger("AXL-Commands")
 
 # In-memory mock/active timer tasks store for local tracking
 _ACTIVE_TIMERS: List[asyncio.Task] = []
+
+# Optional listener for real-time UI telemetry events
+_TELEMETRY_LISTENER: Optional[Callable[[Dict[str, Any]], Any]] = None
+
+
+def register_telemetry_listener(callback: Callable[[Dict[str, Any]], Any]):
+    """Registers a listener (e.g. Master StreamManager) to broadcast telemetry events to the Web UI."""
+    global _TELEMETRY_LISTENER
+    _TELEMETRY_LISTENER = callback
+
+
+def notify_telemetry(payload: Dict[str, Any]):
+    """Dispatches a telemetry event to the registered listener if present."""
+    if _TELEMETRY_LISTENER:
+        try:
+            res = _TELEMETRY_LISTENER(payload)
+            if asyncio.iscoroutine(res):
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(res)
+                except RuntimeError:
+                    pass
+        except Exception as exc:
+            logger.debug(f"Telemetry notification dispatch error: {exc}")
 
 
 def set_timer(duration_seconds: int, label: str = "Timer") -> str:
@@ -119,7 +143,8 @@ def execute_slave_command(command: str, target: str = "fedora") -> str:
 
 def get_slave_telemetry(target: str = "fedora") -> str:
     """
-    Retrieves real-time CPU, RAM, and system telemetry from a remote slave node (workstation).
+    Retrieves real-time CPU, RAM, GPU, thermals, and fan telemetry from a remote slave node (workstation),
+    and displays the live telemetry HUD panel on the left of the Visor.
     """
     logger.info(f"[COMMAND: get_slave_telemetry] Target: '{target}'")
     slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
@@ -127,15 +152,79 @@ def get_slave_telemetry(target: str = "fedora") -> str:
         resp = requests.get(f"{slave_url}/telemetry", timeout=3.0)
         if resp.status_code == 200:
             data = resp.json()
-            cpu_usage = data.get("cpu", {}).get("usage_percent", 0)
+            notify_telemetry({"type": "TELEMETRY_MODE", "enabled": True, "data": data, "target": target})
+
+            cpu = data.get("cpu", {})
+            cpu_usage = cpu.get("usage_percent", 0)
+            cpu_temp = cpu.get("temperature_c")
+            if cpu_temp is None:
+                raw_t = data.get("temperatures", {})
+                for k in ["coretemp", "k10temp", "cpu_thermal", "zenpower", "acpitz"]:
+                    if raw_t.get(k):
+                        cpu_temp = raw_t[k][0].get("current")
+                        break
+            temp_str = f" a {cpu_temp}°C" if cpu_temp is not None else ""
+
             mem = data.get("memory", {})
             mem_used = mem.get("used_gb", 0)
             mem_total = mem.get("total_gb", 0)
             mem_pct = mem.get("percent", 0)
-            return f"Slave [{target}] Telemetry: CPU at {cpu_usage}%, RAM at {mem_pct}% ({mem_used}GB / {mem_total}GB used)."
-        return f"Slave [{target}] responded with status {resp.status_code}."
+
+            gpu_str = ""
+            gpus = data.get("gpus", [])
+            if gpus:
+                gpu_parts = []
+                for g in gpus:
+                    if g.get("type") == "dedicated":
+                        g_temp = f" ({g.get('temperature_c')}°C)" if g.get("temperature_c") is not None else ""
+                        gpu_parts.append(f"{g.get('name', 'GPU')} al {g.get('usage_percent', 0)}%{g_temp}")
+                if gpu_parts:
+                    gpu_str = f", {', '.join(gpu_parts)}"
+
+            fan_str = ""
+            fans = data.get("fans", [])
+            if fans and fans[0].get("rpm"):
+                fan_str = f", ventola a {fans[0]['rpm']} RPM"
+
+            return (
+                f"Slave [{target}] Telemetry: CPU al {cpu_usage}%{temp_str}, "
+                f"RAM al {mem_pct}% ({mem_used} su {mem_total} GB){gpu_str}{fan_str}. "
+                f"Pannello telemetrico attivato sul visore."
+            )
+        notify_telemetry({"type": "TELEMETRY_MODE", "enabled": True, "target": target})
+        return f"Slave [{target}] ha risposto con codice {resp.status_code}."
     except Exception as exc:
-        return f"Slave node [{target}] is currently offline or unreachable ({exc})."
+        notify_telemetry({"type": "TELEMETRY_MODE", "enabled": True, "target": target, "error": str(exc)})
+        return f"Il nodo slave [{target}] risulta offline o non raggiungibile ({exc})."
+
+
+def toggle_telemetry_hud(show: bool = True, target: str = "fedora") -> str:
+    """
+    Shows or hides the live hardware telemetry HUD monitor on the left of the Visor screen.
+    Call this when the user asks to see/show/open or hide/close telemetry, system stats, or hardware monitors.
+
+    Args:
+        show: True to show the telemetry monitor panel on the left, False to hide it.
+        target: Target workstation node (default: 'fedora').
+    """
+    logger.info(f"[COMMAND: toggle_telemetry_hud] Show: {show} | Target: '{target}'")
+    if not show:
+        notify_telemetry({"type": "TELEMETRY_MODE", "enabled": False, "target": target})
+        return "Schermata telemetrica chiusa. Visore ripristinato alla visuale classica."
+
+    # If opening, fetch initial telemetry data
+    slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
+    try:
+        resp = requests.get(f"{slave_url}/telemetry", timeout=3.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            notify_telemetry({"type": "TELEMETRY_MODE", "enabled": True, "data": data, "target": target})
+            return f"Telemetria in tempo reale di {target} proiettata a sinistra del visore."
+        notify_telemetry({"type": "TELEMETRY_MODE", "enabled": True, "target": target})
+        return f"Telemetria aperta sul visore, in attesa di risposta dal nodo {target}."
+    except Exception as exc:
+        notify_telemetry({"type": "TELEMETRY_MODE", "enabled": True, "target": target, "error": str(exc)})
+        return f"Pannello telemetria aperto sul visore, ma il nodo [{target}] non risponde al momento."
 
 
 def set_security_mode(mode: str) -> str:
@@ -145,11 +234,54 @@ def set_security_mode(mode: str) -> str:
     Args:
         mode: The security mode to activate: 'friendly' (trusts everyone), 'restrict' (owner and enrolled friends only), 'paranoid' (strictly owner only).
     """
-    clean_mode = mode.lower().strip()
-    if clean_mode in ["friendly", "restrict", "paranoid"]:
-        logger.info(f"[COMMAND: set_security_mode] Switched to '{clean_mode}'")
-        return f"A-X-L security mode successfully updated to '{clean_mode}'."
-    return f"Invalid mode '{mode}'. Choose 'friendly', 'restrict', or 'paranoid'."
+    clean_mode = str(mode).lower().strip()
+    mapping = {
+        "friendly": "friendly",
+        "amichevole": "friendly",
+        "amico": "friendly",
+        "amici": "friendly",
+        "aperta": "friendly",
+        "normale": "friendly",
+        "libera": "friendly",
+        "restrict": "restrict",
+        "restrittiva": "restrict",
+        "ristretta": "restrict",
+        "limitata": "restrict",
+        "sicura": "restrict",
+        "paranoid": "paranoid",
+        "paranoica": "paranoid",
+        "paranoico": "paranoid",
+        "massima": "paranoid",
+        "massima sicurezza": "paranoid",
+    }
+    resolved_mode = mapping.get(clean_mode, clean_mode)
+    if resolved_mode in ["friendly", "restrict", "paranoid"]:
+        logger.info(f"[COMMAND: set_security_mode] Switched to '{resolved_mode}'")
+        os.environ["AXL_SECURITY_MODE"] = resolved_mode
+        notify_telemetry({"type": "SECURITY_MODE", "mode": resolved_mode})
+        labels = {
+            "friendly": "amichevole (Friendly: tutti gli utenti sono autorizzati)",
+            "restrict": "restrittiva (Restrict: autorizzati solo il proprietario e gli amici registrati)",
+            "paranoid": "paranoica (Paranoid: obbedienza esclusiva al proprietario)",
+        }
+        return f"Modalità di sicurezza aggiornata con successo a {labels[resolved_mode]}."
+    return f"Modalità non valida: '{mode}'. Scegli tra 'friendly', 'restrict' o 'paranoid'."
+
+
+def set_mute_mode(enabled: bool = True) -> str:
+    """
+    Activates or deactivates A-X-L mute mode (silences acoustic ingestion).
+    When muted, A-X-L will completely ignore voice input until physically unmuted via the display button.
+    
+    Args:
+        enabled: True to mute, False to unmute.
+    """
+    notify_telemetry({"type": "SET_MUTE", "muted": bool(enabled)})
+    if enabled:
+        logger.info("[COMMAND: set_mute_mode] Mute mode engaged via voice command.")
+        return "Modalità muto attivata. Ho disattivato i microfoni. Potrai riattivarmi solo premendo il pulsante MUTE sullo schermo."
+    logger.info("[COMMAND: set_mute_mode] Mute mode disengaged.")
+    return "Microfoni riattivati."
 
 
 # Registry of tools exposed to Gemini function calling
@@ -159,9 +291,11 @@ REGISTERED_TOOLS: List[Callable[..., Any]] = [
     set_alarm,
     get_system_status,
     get_slave_telemetry,
+    toggle_telemetry_hud,
     media_control,
     execute_slave_command,
     set_security_mode,
+    set_mute_mode,
 ]
 
 # Lookup map for runtime dynamic dispatching

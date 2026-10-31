@@ -185,6 +185,8 @@ In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabili
   - `get_system_status()`
   - `media_control(action, target)`
   - `execute_slave_command(command, target)`
+  - `set_security_mode(mode)` (switches between `friendly`, `restrict`, and `paranoid` distrust profiles)
+  - `set_mute_mode(enabled)` (silences acoustic ingestion until physically unmuted via touchscreen)
   Gemini automatically invokes the right function based on natural language intent and wraps the result in A-X-L's witty tone.
 - **Biometric Distrust Integration:** The speaker identity evaluated by CAM++ (`is_stranger` flag) is injected into the cognitive prompt:
   - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
@@ -199,6 +201,13 @@ Phase 4 introduces visual feedback and workstation orchestration:
   - Tactical HUD states: `IDLE` (passive surveillance), `LISTENING` (wake-word triggered), `THINKING` (neural cognitive inference), `SPEAKING` (vocal streaming audio visualizer), and `ALERT` (biometric breach / stranger warning).
   - **AMOLED Pixel-Shifting:** Built-in burn-in protection specifically designed for the Samsung Galaxy A33 Super AMOLED display, periodically shifting UI coordinates and automatically entering subdued power-saving mode during inactivity.
   - Live subtitles display showing transcribed user queries, A-X-L vocal responses, and speaker biometric verification scores.
+  - **Modern Card UI & Interactive Controls:**
+    - Restyled top status tray with modern rounded pill/card buttons (`border-radius: 10px`), smooth hover/tap feedback, and full mouse + touchscreen support (`TELEM: ON/OFF`, one-way security mode lock `FRIENDLY -> RESTRICT / PARANOID` that prevents unauthorized downgrade once locked, WebSocket connectivity indicator, and full-screen toggle).
+    - **Dead-Center Tactical Clock:** Absolute geometric centering (`left: 50%; transform: translateX(-50%)`) ensuring the top clock (`#clock-time`) is permanently aligned to the exact horizontal center of the display, independent of asymmetric brand text or status button widths.
+    - **Tactical MUTE Button & Voice Protocol:** Dedicated rounded action button above `SPEAKER ID` with dynamic cyan glow (`MIC: ATTIVO`) and pulsing red alert state (`MIC: MUTO`). Supports voice command muting ("AXL muto", "disattiva microfono") which drops incoming WebSocket PCM packets at the network layer. **Strict Security Constraint:** Unmuting can ONLY be performed by physically tapping the UI button, preventing malicious voice overrides.
+    - **Live Security Mode Voice Synchronization:** Real-time bi-directional sync: commands like "passa in modalità paranoica" or "metti restrict" update `speaker_verifier.py`, `os.environ`, and instantly broadcast WebSocket events to update the UI badge without reload.
+    - **Modernized Hardware Telemetry Panel:** Redesigned in a 2x2 glassmorphic card grid with rounded corners (`border-radius: 16px-20px`), dedicated monitor cards for CPU core load, RAM memory, dedicated & integrated GPUs, and cooling fans with rounded progress bars, preserving A-X-L's cyberpunk palette.
+    - **Dynamic Split-Stage Layout & Live/Fallback Telemetry:** Responsive stage geometry that prevents visor-to-subtitle overlap across all aspect ratios, cleanly hides/shows the telemetry panel on toggle, and streams live hardware telemetry (with automatic local `psutil` and dynamic browser fallback when the external slave daemon is offline).
 - **Workstation Slave Daemon (`slave_node/slave_daemon.py`):**
   - Standalone lightweight daemon running on Fedora or Windows workstations on port `8001`.
   - Exposes real-time hardware telemetry (`psutil`: CPU load, RAM usage, storage, thermal sensors, battery status).
