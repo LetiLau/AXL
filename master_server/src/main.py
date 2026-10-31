@@ -20,7 +20,15 @@ from brain_gemini import GeminiBrain
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
 from tts_engine import PiperTTSEngine
-from commands import register_telemetry_listener
+from telemetry_utils import collect_system_telemetry
+from commands import (
+    detect_security_mode_in_reply,
+    detect_security_mode_intent,
+    detect_telemetry_intent,
+    is_mute_in_reply,
+    is_mute_intent,
+    register_telemetry_listener,
+)
 
 THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
 
@@ -53,6 +61,7 @@ class StreamManager:
         self.ui_clients: Set[WebSocket] = set()
         self.is_speaking: bool = False
         self.is_muted: bool = False
+        self.ask_while_muted: bool = False
         self.telemetry_active: bool = False
         self.telemetry_target: str = "fedora"
         self._telemetry_task: Optional[asyncio.Task] = None
@@ -98,18 +107,19 @@ class StreamManager:
             return
 
         enabled = payload.get("enabled", self.telemetry_active)
-        target = payload.get("target", self.telemetry_target)
-        if enabled != self.telemetry_active:
+        raw_target = payload.get("target", self.telemetry_target)
+        target = "server" if str(raw_target).lower().strip() in ("server", "master", "thinkpad", "locale", "local") else "slave"
+        if enabled != self.telemetry_active or target != self.telemetry_target:
             await self.set_telemetry_mode(enabled, target=target)
         else:
             self.telemetry_target = target
             await self.broadcast_ui(payload)
 
-    async def set_telemetry_mode(self, enabled: bool, target: str = "fedora"):
-        """Activates or deactivates live telemetry streaming mode."""
+    async def set_telemetry_mode(self, enabled: bool, target: str = "slave"):
+        """Activates or deactivates live telemetry streaming mode for server or slave."""
         self.telemetry_active = enabled
-        self.telemetry_target = target
-        logger.info(f"[TELEMETRY MODE] State updated: {enabled} (target: {target})")
+        self.telemetry_target = "server" if str(target).lower().strip() in ("server", "master", "thinkpad", "locale", "local") else "slave"
+        logger.info(f"[TELEMETRY MODE] State updated: {enabled} (target: {self.telemetry_target})")
 
         # Broadcast state change to UI
         await self.broadcast_ui({
@@ -119,6 +129,12 @@ class StreamManager:
         })
 
         if self.telemetry_active:
+            if self.telemetry_target in ("server", "master"):
+                await self.broadcast_ui({
+                    "type": "TELEMETRY_UPDATE",
+                    "target": self.telemetry_target,
+                    "data": self._collect_local_telemetry(),
+                })
             if self._telemetry_task is None or self._telemetry_task.done():
                 self._telemetry_task = asyncio.create_task(self._telemetry_poll_loop())
         else:
@@ -127,77 +143,44 @@ class StreamManager:
                 self._telemetry_task = None
 
     def _collect_local_telemetry(self) -> dict:
-        """Fallback local hardware telemetry collector via psutil when slave daemon is not running."""
-        cpu_pct = psutil.cpu_percent(interval=None)
-        cpu_freq = psutil.cpu_freq()
-        mem = psutil.virtual_memory()
-        cpu_temp = None
-        try:
-            if hasattr(psutil, "sensors_temperatures"):
-                s = psutil.sensors_temperatures()
-                for key in ["coretemp", "k10temp", "cpu_thermal", "zenpower", "acpitz"]:
-                    if key in s and s[key]:
-                        cpu_temp = round(float(s[key][0].current), 1)
-                        break
-        except Exception:
-            pass
-
-        fans = []
-        try:
-            if hasattr(psutil, "sensors_fans"):
-                sf = psutil.sensors_fans()
-                for name, entries in sf.items():
-                    for e in entries:
-                        lbl = getattr(e, "label", None) or name
-                        fans.append({"label": lbl.replace("_", " ").title(), "rpm": int(e.current)})
-        except Exception:
-            pass
-
-        return {
-            "cpu": {
-                "usage_percent": round(cpu_pct, 1),
-                "temperature_c": cpu_temp,
-                "core_count": psutil.cpu_count(logical=True),
-                "freq_mhz": round(cpu_freq.current, 1) if cpu_freq else None,
-            },
-            "memory": {
-                "total_gb": round(mem.total / (1024**3), 2),
-                "used_gb": round(mem.used / (1024**3), 2),
-                "available_gb": round(mem.available / (1024**3), 2),
-                "percent": mem.percent,
-            },
-            "gpus": [],
-            "fans": fans,
-        }
+        """Universal hardware telemetry collector via psutil and multi-GPU probes."""
+        return collect_system_telemetry(node_name="master_server")
 
     async def _telemetry_poll_loop(self):
-        """Background poller that periodically fetches metrics from slave daemon and broadcasts to UI."""
+        """Background poller that periodically fetches metrics from slave daemon or local server and broadcasts to UI."""
         logger.info("[TELEMETRY STREAM] Background poller loop started.")
         slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
         try:
             while self.telemetry_active:
                 if self.ui_clients:
-                    try:
-                        async with httpx.AsyncClient(timeout=1.5) as client:
-                            resp = await client.get(f"{slave_url}/telemetry")
-                            if resp.status_code == 200:
-                                await self.broadcast_ui({
-                                    "type": "TELEMETRY_UPDATE",
-                                    "target": self.telemetry_target,
-                                    "data": resp.json(),
-                                })
-                            else:
-                                await self.broadcast_ui({
-                                    "type": "TELEMETRY_UPDATE",
-                                    "target": self.telemetry_target,
-                                    "data": self._collect_local_telemetry(),
-                                })
-                    except Exception:
+                    if self.telemetry_target in ("server", "master"):
                         await self.broadcast_ui({
                             "type": "TELEMETRY_UPDATE",
                             "target": self.telemetry_target,
                             "data": self._collect_local_telemetry(),
                         })
+                    else:
+                        try:
+                            async with httpx.AsyncClient(timeout=1.5) as client:
+                                resp = await client.get(f"{slave_url}/telemetry")
+                                if resp.status_code == 200:
+                                    await self.broadcast_ui({
+                                        "type": "TELEMETRY_UPDATE",
+                                        "target": self.telemetry_target,
+                                        "data": resp.json(),
+                                    })
+                                else:
+                                    await self.broadcast_ui({
+                                        "type": "TELEMETRY_UPDATE",
+                                        "target": self.telemetry_target,
+                                        "data": self._collect_local_telemetry(),
+                                    })
+                        except Exception:
+                            await self.broadcast_ui({
+                                "type": "TELEMETRY_UPDATE",
+                                "target": self.telemetry_target,
+                                "data": self._collect_local_telemetry(),
+                            })
                 await asyncio.sleep(1.5)
         except asyncio.CancelledError:
             pass
@@ -321,6 +304,35 @@ class StreamManager:
             logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
             logger.info(f">>> [A-X-L SPEAKS]: \"{vocal_reply}\" <<<")
 
+            # --- Synchronous Intent Guardrails (Guarantees 100% action execution fidelity) ---
+            # Guardrail 1: Mute Command (checks both user transcript and spoken confirmation)
+            mute_triggered = is_mute_intent(transcript) or is_mute_in_reply(vocal_reply)
+            if not self.is_muted and mute_triggered:
+                logger.info(f"[COMMAND GUARDRAIL] Engaging mute mode (transcript: '{transcript}' | reply: '{vocal_reply[:60]}...').")
+                await self.handle_telemetry_event({"type": "SET_MUTE", "muted": True})
+
+            # Guardrail 2: Security Mode Command (checks both user transcript and spoken confirmation)
+            req_mode = detect_security_mode_intent(transcript) or detect_security_mode_in_reply(vocal_reply)
+            if req_mode and self.verifier and req_mode != self.verifier.security_mode:
+                can_switch = is_authorized or (sec_mode == "friendly")
+                if can_switch:
+                    logger.info(f"[COMMAND GUARDRAIL] Switching security mode to '{req_mode}' (speaker: {identity}).")
+                    await self.handle_telemetry_event({"type": "SECURITY_MODE", "mode": req_mode})
+                else:
+                    logger.warning(
+                        f"[COMMAND GUARDRAIL] Blocked unauthorized security mode switch to '{req_mode}' "
+                        f"from speaker '{identity}' (score: {sim_score:.3f})."
+                    )
+
+            # Guardrail 3: Telemetry HUD Command
+            telem_intent = detect_telemetry_intent(transcript)
+            if telem_intent is not None:
+                req_show = telem_intent.get("show", True)
+                req_tgt = telem_intent.get("target", self.telemetry_target)
+                if req_show != self.telemetry_active or (req_show and req_tgt != self.telemetry_target):
+                    logger.info(f"[COMMAND GUARDRAIL] Toggling telemetry HUD: show={req_show}, target={req_tgt}")
+                    await self.set_telemetry_mode(req_show, target=req_tgt)
+
             # Broadcast dialogue subtitles to connected HUD visors
             await self.broadcast_ui({
                 "type": "TRANSCRIPT",
@@ -399,8 +411,8 @@ async def audio_websocket_endpoint(websocket: WebSocket):
             if len(data) % 2 != 0:
                 continue
 
-            # Inhibit audio ingestion while A-X-L is speaking or muted
-            if stream_manager.is_speaking or stream_manager.is_muted:
+            # Inhibit audio ingestion while A-X-L is speaking or muted (except a one-shot ASK while muted)
+            if stream_manager.is_speaking or (stream_manager.is_muted and not stream_manager.ask_while_muted):
                 continue
 
             stream_manager.audio_buffer.write(data)
@@ -440,6 +452,7 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                         )
 
                     elif ev_type == "SILENCE_RESET":
+                        stream_manager.ask_while_muted = False
                         silence_time = ev.get("silence_sec", 0.0)
                         reason = ev.get("reason", "unknown")
                         logger.info(
@@ -498,29 +511,56 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         stream_manager.audio_buffer.clear()
                     logger.info(f"[MUTE CONTROLLER] Mute state updated via UI: {stream_manager.is_muted}")
                     await stream_manager.broadcast_ui({"type": "MUTE_STATE", "muted": stream_manager.is_muted})
+                elif mtype == "ASK_START":
+                    # Push-to-ask: skips the wake-word. Speaker verification still applies afterwards.
+                    # Allowed even while muted (one-shot question: the mute state is kept afterwards).
+                    if stream_manager.is_speaking:
+                        logger.info("[ASK BUTTON] Ignored (A-X-L is speaking).")
+                    elif not stream_manager.active_client or not stream_manager.pipeline:
+                        logger.warning("[ASK BUTTON] Ignored: no audio source connected.")
+                    elif stream_manager.pipeline.force_listen():
+                        stream_manager.ask_while_muted = stream_manager.is_muted
+                        logger.info(
+                            "[ASK BUTTON] Listening started without wake-word"
+                            + (" (one-shot while muted)." if stream_manager.is_muted else ".")
+                        )
+                        await stream_manager.broadcast_ui({
+                            "type": "STATE_CHANGE",
+                            "state": "LISTENING",
+                        })
+                    else:
+                        logger.info("[ASK BUTTON] Ignored: pipeline busy.")
                 elif mtype == "REQUEST_TELEMETRY":
-                    slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
-                    try:
-                        async with httpx.AsyncClient(timeout=1.5) as client:
-                            resp = await client.get(f"{slave_url}/telemetry")
-                            if resp.status_code == 200:
-                                await websocket.send_json({
-                                    "type": "TELEMETRY_UPDATE",
-                                    "target": stream_manager.telemetry_target,
-                                    "data": resp.json(),
-                                })
-                            else:
-                                await websocket.send_json({
-                                    "type": "TELEMETRY_UPDATE",
-                                    "target": stream_manager.telemetry_target,
-                                    "data": stream_manager._collect_local_telemetry(),
-                                })
-                    except Exception:
+                    req_target = msg.get("target", stream_manager.telemetry_target)
+                    if req_target in ("server", "master"):
                         await websocket.send_json({
                             "type": "TELEMETRY_UPDATE",
-                            "target": stream_manager.telemetry_target,
+                            "target": req_target,
                             "data": stream_manager._collect_local_telemetry(),
                         })
+                    else:
+                        slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
+                        try:
+                            async with httpx.AsyncClient(timeout=1.5) as client:
+                                resp = await client.get(f"{slave_url}/telemetry")
+                                if resp.status_code == 200:
+                                    await websocket.send_json({
+                                        "type": "TELEMETRY_UPDATE",
+                                        "target": req_target,
+                                        "data": resp.json(),
+                                    })
+                                else:
+                                    await websocket.send_json({
+                                        "type": "TELEMETRY_UPDATE",
+                                        "target": req_target,
+                                        "data": stream_manager._collect_local_telemetry(),
+                                    })
+                        except Exception:
+                            await websocket.send_json({
+                                "type": "TELEMETRY_UPDATE",
+                                "target": req_target,
+                                "data": stream_manager._collect_local_telemetry(),
+                            })
             except Exception:
                 pass
     except WebSocketDisconnect:

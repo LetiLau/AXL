@@ -43,31 +43,29 @@ class PiperTTSEngine:
 
     def _load_local_voices(self):
         """Pre-loads local Piper models into memory for English and offline fallback."""
-        # 1. English: Prefer Bryce (Jarvis persona), fallback to Alan
+        # 1. English: Bryce (Jarvis persona)
         bryce_path = self.models_dir / "en_US-bryce-medium.onnx"
-        alan_path = self.models_dir / "en_GB-alan-low.onnx"
-
-        en_target = bryce_path if bryce_path.exists() else alan_path
-        if en_target.exists():
-            logger.info(f"Loading English Piper model: {en_target.name}")
+        if bryce_path.exists():
+            logger.info(f"Loading English Piper model: {bryce_path.name}")
             try:
-                self.voices["en"] = PiperVoice.load(str(en_target))
-                logger.info(f"English voice ({en_target.stem}) initialized.")
+                self.voices["en"] = PiperVoice.load(str(bryce_path))
+                logger.info(f"English voice ({bryce_path.stem}) initialized.")
             except Exception as exc:
                 logger.error(f"Failed to load English voice: {exc}", exc_info=True)
+        else:
+            logger.warning(f"English Piper model not found at {bryce_path}")
 
-        # 2. Italian local fallback: Prefer Miro (tuned), fallback to Riccardo
+        # 2. Italian local fallback: Miro (tuned)
         miro_path = self.models_dir / "it_IT-miro-high.onnx"
-        riccardo_path = self.models_dir / "it_IT-riccardo-x_low.onnx"
-
-        it_target = miro_path if miro_path.exists() else riccardo_path
-        if it_target.exists():
-            logger.info(f"Loading Italian local fallback model: {it_target.name}")
+        if miro_path.exists():
+            logger.info(f"Loading Italian local fallback model: {miro_path.name}")
             try:
-                self.voices["it_local"] = PiperVoice.load(str(it_target))
-                logger.info(f"Local Italian fallback ({it_target.stem}) initialized.")
+                self.voices["it_local"] = PiperVoice.load(str(miro_path))
+                logger.info(f"Local Italian fallback ({miro_path.stem}) initialized.")
             except Exception as exc:
                 logger.error(f"Failed to load local Italian fallback: {exc}", exc_info=True)
+        else:
+            logger.warning(f"Italian local fallback model not found at {miro_path}")
 
     @staticmethod
     def _detect_language(text: str) -> str:

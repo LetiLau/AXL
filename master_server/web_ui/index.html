@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css?v=4.3">
+    <link rel="stylesheet" href="style.css?v=4.4">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -24,9 +24,12 @@
         
         <!-- Top Tactical Telemetry Bar -->
         <header class="hud-header">
-            <div class="hud-brand">
-                <div class="brand-title">A-X-L</div>
-                <div class="brand-sub">TACTICAL AI // NODE-01</div>
+            <div class="hud-brand-wrap">
+                <div class="hud-brand">
+                    <div class="brand-title">A-X-L</div>
+                    <div class="brand-sub">TACTICAL AI // NODE-01</div>
+                </div>
+                <button type="button" id="server-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Master Server">SERVER TELEM: OFF</button>
             </div>
 
             <div class="hud-center-clock">
@@ -35,7 +38,7 @@
             </div>
 
             <div class="hud-status-tray">
-                <button type="button" id="telemetry-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Hardware">TELEM: OFF</button>
+                <button type="button" id="slave-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Slave PC">SLAVE TELEM: OFF</button>
                 
                 <div class="mode-badge-wrapper">
                     <button type="button" id="sec-mode-badge" class="badge badge-friendly mode-unlocked" title="Clicca per impostare Restrict o Paranoid">MODE: FRIENDLY ▾</button>
@@ -59,10 +62,10 @@
                 <div class="telem-header">
                     <div class="telem-title-wrap">
                         <span class="telem-tag">NODE MONITOR</span>
-                        <h2 class="telem-title">SYSTEM TELEMETRY</h2>
+                        <h2 id="telem-title" class="telem-title">SYSTEM TELEMETRY</h2>
                     </div>
                     <div class="telem-header-actions">
-                        <span id="telem-node-badge" class="badge badge-telem-online">NODE: FEDORA // LIVE</span>
+                        <span id="telem-node-badge" class="badge badge-telem-online">NODE: SLAVE // LIVE</span>
                         <button type="button" id="telem-close-btn" class="telem-icon-btn" title="Chiudi Telemetria">✕</button>
                     </div>
                 </div>
@@ -188,11 +191,15 @@
         <!-- Biometric Telemetry & Speech Subtitles Tray -->
         <footer class="hud-footer">
             
-            <!-- Tactical Action Strip with MUTE Button -->
+            <!-- Tactical Action Strip: MIC (left) / ASK ME (right) -->
             <div class="hud-action-strip">
                 <button type="button" id="mute-btn" class="badge badge-mute-btn" title="Disattiva ascolto microfono (Può essere riattivato solo cliccando qui)">
                     <span id="mute-btn-icon" class="mute-icon">🎙️</span>
                     <span id="mute-btn-label">MIC: ATTIVO</span>
+                </button>
+                <button type="button" id="ask-btn" class="badge badge-ask-btn ask-friendly" title="Fai una domanda senza dire la wake-word">
+                    <span id="ask-btn-icon" class="mute-icon">💬</span>
+                    <span id="ask-btn-label">ASK ME...</span>
                 </button>
             </div>
 
@@ -234,6 +241,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <script src="app.js?v=4.3"></script>
+    <script src="app.js?v=4.4"></script>
 </body>
 </html>

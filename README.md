@@ -1,5 +1,4 @@
 # --- Work in progress ---
-Testin branches
 
 ## General Info
 **A-X-L** is the acronym for **A**daptive e**X**ecution **L**ogistic. A sort of tribute to A.X.L. movie from Global Road Entertainment. 
@@ -179,7 +178,7 @@ AXL_SECURITY_MODE=friendly
 #### Phase 3: Cognitive Brain & Dynamic Tools (`brain_gemini.py` & `commands.py`)
 In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabilities:
 - **Multimodal Audio Ingestion:** The in-memory WAV buffer generated after VAD End-of-Speech is dispatched directly to Gemini (`google-genai` SDK) without any disk I/O latency.
-- **Native Automatic Function Calling (AFC):** All system actions are neatly registered in `master_server/src/commands.py`:
+- **Native Automatic Function Calling (AFC) & Deterministic Guardrails:** All system actions are neatly registered in `master_server/src/commands.py`:
   - `set_timer(duration_seconds, label)`
   - `set_alarm(time_str, label)`
   - `get_system_status()`
@@ -187,7 +186,8 @@ In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabili
   - `execute_slave_command(command, target)`
   - `set_security_mode(mode)` (switches between `friendly`, `restrict`, and `paranoid` distrust profiles)
   - `set_mute_mode(enabled)` (silences acoustic ingestion until physically unmuted via touchscreen)
-  Gemini automatically invokes the right function based on natural language intent and wraps the result in A-X-L's witty tone.
+  - `toggle_telemetry_hud(show, target)` (shows/hides live telemetry HUD)
+  Gemini automatically invokes the right function based on natural language intent. Furthermore, a **Dual-Layer Command Guardrail** in `main.py` analyzes the verified transcript: if a compact model (like `gemini-flash-lite`) only generates spoken text without issuing the tool call, the server synchronously executes the requested action (while strictly checking biometric privileges), guaranteeing 100% execution fidelity for muting and security modes.
 - **Biometric Distrust Integration:** The speaker identity evaluated by CAM++ (`is_stranger` flag) is injected into the cognitive prompt:
   - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
   - If **Stranger**: A-X-L enters distrust mode, barking or sarcastically refusing to execute sensitive commands or access personal data.
@@ -203,9 +203,15 @@ Phase 4 introduces visual feedback and workstation orchestration:
   - **AMOLED Pixel-Shifting:** Built-in burn-in protection specifically designed for the Samsung Galaxy A33 Super AMOLED display, periodically shifting UI coordinates and automatically entering subdued power-saving mode during inactivity.
   - Live subtitles display showing transcribed user queries, A-X-L vocal responses, and speaker biometric verification scores.
   - **Modern Card UI & Interactive Controls:**
-    - Restyled top status tray with modern rounded pill/card buttons (`border-radius: 10px`), smooth hover/tap feedback, and full mouse + touchscreen support (`TELEM: ON/OFF`, one-way security mode lock `FRIENDLY -> RESTRICT / PARANOID` that prevents unauthorized downgrade once locked, WebSocket connectivity indicator, and full-screen toggle).
+    - Restyled top status tray with modern rounded pill/card buttons (`border-radius: 10px`), smooth hover/tap feedback, and full mouse + touchscreen support (`SERVER TELEM: ON/OFF` in top-left next to the A-X-L brand, `SLAVE TELEM: ON/OFF` in the status tray, one-way security mode lock `FRIENDLY -> RESTRICT / PARANOID` that prevents unauthorized downgrade once locked, WebSocket connectivity indicator, and full-screen toggle).
+    - **Dual Independent Telemetry (Master Server vs Slave Node):**
+      - Allows inspecting hardware metrics for either the Master Server host machine (e.g. ThinkPad) or the remote Slave workstation (e.g. Fedora/Windows rig) on the exact same HUD panel.
+      - **Mutually Exclusive Display:** Only one telemetry panel can be active at a time; clicking one opens it and automatically closes the other. Clicking the active one toggles it closed.
+      - **Universal Multi-GPU Support:** Detects any combination of dedicated (NVIDIA RTX/GTX via `nvidia-smi`, AMD Radeon, Intel Arc) and integrated GPUs (Intel UHD/Iris Xe, AMD Radeon APU) across desktops and hybrid dual-GPU laptops, displaying individual card loads, thermals, frequencies, and VRAM.
+      - **Voice Commands:** Spoken voice commands (*"mostra telemetria server"*, *"telemetria master"*, *"mostra telemetria slave"*, *"telemetria pc"*, *"chiudi telemetria"*) trigger real-time telemetry streaming for the requested machine via native tool invocation and dual-layer regex guardrails.
     - **Dead-Center Tactical Clock:** Absolute geometric centering (`left: 50%; transform: translateX(-50%)`) ensuring the top clock (`#clock-time`) is permanently aligned to the exact horizontal center of the display, independent of asymmetric brand text or status button widths.
     - **Tactical MUTE Button & Voice Protocol:** Dedicated rounded action button above `SPEAKER ID` with dynamic cyan glow (`MIC: ATTIVO`) and pulsing red alert state (`MIC: MUTO`). Supports voice command muting ("AXL muto", "disattiva microfono") which drops incoming WebSocket PCM packets at the network layer. **Strict Security Constraint:** Unmuting can ONLY be performed by physically tapping the UI button, preventing malicious voice overrides.
+    - **"ASK ME..." Push-to-Ask Button:** Large action button opposite the MIC button that starts listening without saying the wake-word (`ASK_START` WebSocket message → `AudioPipeline.force_listen()`). Its colour follows the security mode (green in `friendly`, orange in `restrict`, red in `paranoid`); speaker verification still applies in protected modes. It also works while muted as a one-shot question (mute stays on afterwards); it is disabled only while A-X-L is listening/thinking/speaking. MIC and ASK ME are sized for easy visibility/tapping on the kiosk.
     - **Live Security Mode Voice Synchronization:** Real-time bi-directional sync: commands like "passa in modalità paranoica" or "metti restrict" update `speaker_verifier.py`, `os.environ`, and instantly broadcast WebSocket events to update the UI badge without reload.
     - **Modernized Hardware Telemetry Panel:** Redesigned in a 2x2 glassmorphic card grid with rounded corners (`border-radius: 16px-20px`), dedicated monitor cards for CPU core load, RAM memory, dedicated & integrated GPUs, and cooling fans with rounded progress bars, preserving A-X-L's cyberpunk palette.
     - **Dynamic Split-Stage Layout & Live/Fallback Telemetry:** Responsive stage geometry that prevents visor-to-subtitle overlap across all aspect ratios, cleanly hides/shows the telemetry panel on toggle, and streams live hardware telemetry (with automatic local `psutil` and dynamic browser fallback when the external slave daemon is offline).

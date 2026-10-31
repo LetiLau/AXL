@@ -93,10 +93,11 @@ def get_fan_info() -> List[Dict[str, Any]]:
 
 def get_gpu_info() -> List[Dict[str, Any]]:
     """
-    Detects dedicated (NVIDIA/AMD) and integrated (Intel/AMD) GPUs,
-    returning usage %, temperatures, and VRAM utilization.
+    Detects dedicated (NVIDIA/AMD/Intel Arc) and integrated (Intel/AMD APU) GPUs,
+    returning usage %, temperatures, frequencies, and VRAM utilization across laptops and desktops.
     """
     gpus = []
+    seen_names = set()
 
     # 1. Dedicated GPU: NVIDIA via nvidia-smi
     if shutil.which("nvidia-smi"):
@@ -113,55 +114,163 @@ def get_gpu_info() -> List[Dict[str, Any]]:
             for line in out.strip().splitlines():
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) >= 5:
+                    g_name = parts[0]
+                    seen_names.add(g_name.lower())
+                    try:
+                        u_pct = float(parts[1])
+                    except (ValueError, TypeError):
+                        u_pct = 0.0
+                    try:
+                        t_c = float(parts[2])
+                    except (ValueError, TypeError):
+                        t_c = None
+                    try:
+                        m_used = float(parts[3])
+                    except (ValueError, TypeError):
+                        m_used = None
+                    try:
+                        m_tot = float(parts[4])
+                    except (ValueError, TypeError):
+                        m_tot = None
+
                     gpus.append({
-                        "name": parts[0],
+                        "name": g_name,
                         "type": "dedicated",
-                        "usage_percent": float(parts[1]),
-                        "temperature_c": float(parts[2]),
-                        "memory_used_mb": float(parts[3]),
-                        "memory_total_mb": float(parts[4]),
+                        "usage_percent": round(u_pct, 1),
+                        "temperature_c": t_c,
+                        "memory_used_mb": m_used,
+                        "memory_total_mb": m_tot,
                     })
         except Exception as exc:
             logger.debug(f"nvidia-smi polling error: {exc}")
 
-    # 2. Integrated GPU: Intel / AMD via Linux sysfs (or Windows fallback)
+    # 2. Linux DRM Driver Cards (Intel Integrated / Arc, AMD Radeon / APU)
     if SYSTEM_OS == "Linux":
         drm_path = Path("/sys/class/drm")
         if drm_path.exists():
-            for card in drm_path.glob("card*"):
+            for card in sorted(drm_path.glob("card[0-9]*")):
+                if "-" in card.name:
+                    continue
+
                 uevent = card / "device" / "uevent"
-                if uevent.exists():
-                    try:
-                        content = uevent.read_text()
-                    except Exception:
-                        content = ""
+                if not uevent.exists():
+                    continue
 
-                    if "DRIVER=i915" in content or "DRIVER=xe" in content:
-                        cur_freq = None
-                        max_freq = None
-                        p_cur = card / "gt_cur_freq_mhz"
-                        p_max = card / "gt_max_freq_mhz"
-                        if p_cur.exists():
+                try:
+                    content = uevent.read_text()
+                except Exception:
+                    content = ""
+
+                # Skip NVIDIA cards already harvested via nvidia-smi
+                if "DRIVER=nvidia" in content:
+                    continue
+
+                # --- 2A. Intel Integrated Graphics or Intel Arc (i915 or xe driver) ---
+                if "DRIVER=i915" in content or "DRIVER=xe" in content:
+                    cur_freq = None
+                    max_freq = None
+
+                    for fc in [
+                        card / "gt_cur_freq_mhz",
+                        card / "gt_act_freq_mhz",
+                        card / "gt" / "gt0" / "act_freq_mhz",
+                        card / "gt" / "gt0" / "cur_freq_mhz",
+                        card / "gt" / "cur_freq_mhz",
+                    ]:
+                        if fc.exists():
                             try:
-                                cur_freq = float(p_cur.read_text().strip())
+                                cur_freq = float(fc.read_text().strip())
+                                break
                             except Exception:
                                 pass
-                        if p_max.exists():
+
+                    for mc in [
+                        card / "gt_max_freq_mhz",
+                        card / "gt_RP0_freq_mhz",
+                        card / "gt" / "gt0" / "max_freq_mhz",
+                        card / "gt" / "max_freq_mhz",
+                    ]:
+                        if mc.exists():
                             try:
-                                max_freq = float(p_max.read_text().strip())
+                                max_freq = float(mc.read_text().strip())
+                                break
                             except Exception:
                                 pass
 
-                        usage = round((cur_freq / max_freq) * 100, 1) if (cur_freq and max_freq and max_freq > 0) else 0.0
-                        gpus.append({
-                            "name": "Intel Iris Xe / UHD Graphics",
-                            "type": "integrated",
-                            "usage_percent": usage,
-                            "temperature_c": None, # thermally bound to CPU package
-                            "freq_mhz": cur_freq,
-                            "max_freq_mhz": max_freq,
-                        })
-                        break
+                    usage = 0.0
+                    if cur_freq and max_freq and max_freq > 0:
+                        usage = round(min(100.0, max(0.0, (cur_freq / max_freq) * 100)), 1)
+
+                    is_arc = "arc" in content.lower()
+                    gpus.append({
+                        "name": "Intel Arc Graphics" if is_arc else "Intel UHD / Iris Xe Graphics",
+                        "type": "dedicated" if is_arc else "integrated",
+                        "usage_percent": usage,
+                        "temperature_c": None,
+                        "freq_mhz": round(cur_freq, 1) if cur_freq else None,
+                        "max_freq_mhz": round(max_freq, 1) if max_freq else None,
+                    })
+
+                # --- 2B. AMD Radeon Dedicated dGPU or Integrated APU (amdgpu or radeon driver) ---
+                elif "DRIVER=amdgpu" in content or "DRIVER=radeon" in content:
+                    busy_path = card / "device" / "gpu_busy_percent"
+                    usage = 0.0
+                    if busy_path.exists():
+                        try:
+                            usage = float(busy_path.read_text().strip())
+                        except Exception:
+                            pass
+
+                    vram_used_mb = None
+                    vram_total_mb = None
+                    v_used = card / "device" / "mem_info_vram_used"
+                    v_total = card / "device" / "mem_info_vram_total"
+                    if v_used.exists() and v_total.exists():
+                        try:
+                            vram_used_mb = round(int(v_used.read_text().strip()) / (1024**2), 1)
+                            vram_total_mb = round(int(v_total.read_text().strip()) / (1024**2), 1)
+                        except Exception:
+                            pass
+
+                    amd_temp = None
+                    for hwmon in (card / "device").glob("hwmon/hwmon*"):
+                        for tf in hwmon.glob("temp*_input"):
+                            try:
+                                amd_temp = round(int(tf.read_text().strip()) / 1000.0, 1)
+                                break
+                            except Exception:
+                                pass
+                        if amd_temp is not None:
+                            break
+
+                    is_dedicated = bool(vram_total_mb and vram_total_mb > 1024)
+                    gpus.append({
+                        "name": "AMD Radeon Dedicated GPU" if is_dedicated else "AMD Radeon Graphics (APU)",
+                        "type": "dedicated" if is_dedicated else "integrated",
+                        "usage_percent": round(usage, 1),
+                        "temperature_c": amd_temp,
+                        "memory_used_mb": vram_used_mb,
+                        "memory_total_mb": vram_total_mb,
+                    })
+
+    # 3. Windows Multi-GPU Detection Fallback
+    if SYSTEM_OS == "Windows" and not gpus:
+        try:
+            cmd = ["powershell", "-NoProfile", "-Command", "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"]
+            out = subprocess.check_output(cmd, text=True, timeout=2.0)
+            for line in out.strip().splitlines():
+                name = line.strip()
+                if name and name.lower() not in seen_names:
+                    seen_names.add(name.lower())
+                    is_ded = any(k in name.lower() for k in ["geforce", "rtx", "gtx", "radeon rx", "quadro", "arc "])
+                    gpus.append({
+                        "name": name,
+                        "type": "dedicated" if is_ded else "integrated",
+                        "usage_percent": 0.0,
+                        "temperature_c": None,
+                    })
+        except Exception as exc:
+            logger.debug(f"Windows GPU discovery error: {exc}")
 
     return gpus
 

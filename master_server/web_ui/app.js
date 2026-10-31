@@ -21,7 +21,10 @@
     const secModeBadge = document.getElementById("sec-mode-badge");
     const modeSelectorPopup = document.getElementById("mode-selector-popup");
     const connBadge = document.getElementById("connection-badge");
-    const telemetryBtn = document.getElementById("telemetry-btn");
+    const serverTelemBtn = document.getElementById("server-telem-btn");
+    const slaveTelemBtn = document.getElementById("slave-telem-btn");
+    const telemetryBtn = slaveTelemBtn; // alias for backwards compatibility
+    const telemTitle = document.getElementById("telem-title");
     const stateLabel = document.getElementById("visor-state-label");
     const stateSub = document.getElementById("visor-sub-label");
     const bioIdentity = document.getElementById("bio-identity");
@@ -34,6 +37,8 @@
     const muteBtn = document.getElementById("mute-btn");
     const muteBtnIcon = document.getElementById("mute-btn-icon");
     const muteBtnLabel = document.getElementById("mute-btn-label");
+    const askBtn = document.getElementById("ask-btn");
+    const askBtnLabel = document.getElementById("ask-btn-label");
 
     // --- Telemetry Elements ---
     const telemetryPanel = document.getElementById("telemetry-panel");
@@ -226,7 +231,7 @@
                 if (msg.state) setVisorState(msg.state);
                 if (msg.is_muted !== undefined) updateMuteUI(msg.is_muted);
                 if (msg.telemetry_active !== undefined) {
-                    setTelemetryMode(msg.telemetry_active, msg.telemetry_target, false);
+                    setTelemetryMode(msg.telemetry_active, msg.telemetry_target || "slave", false);
                 }
                 break;
 
@@ -235,15 +240,15 @@
                 break;
 
             case "TELEMETRY_MODE":
-                setTelemetryMode(msg.enabled, msg.target, false);
-                if (msg.data) updateTelemetryData(msg.data, msg.target);
+                setTelemetryMode(msg.enabled, msg.target || "slave", false);
+                if (msg.data) updateTelemetryData(msg.data, msg.target || "slave");
                 break;
 
             case "TELEMETRY_UPDATE":
                 if (msg.data) {
-                    updateTelemetryData(msg.data, msg.target);
+                    updateTelemetryData(msg.data, msg.target || telemetryTarget);
                 } else if (msg.error) {
-                    // Slave node unreachable: keep live fallback metrics running so values update smoothly
+                    // Node unreachable: keep live fallback metrics running so values update smoothly
                     if (Date.now() - lastRealTelemetryTime > 2500) {
                         updateTelemetryData(generateFallbackTelemetry(), msg.target || telemetryTarget);
                     }
@@ -342,7 +347,10 @@
                 return;
             }
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY" }));
+                ws.send(JSON.stringify({
+                    type: "REQUEST_TELEMETRY",
+                    target: telemetryTarget
+                }));
             }
             if (Date.now() - lastRealTelemetryTime > 2500) {
                 updateTelemetryData(generateFallbackTelemetry(), telemetryTarget);
@@ -368,12 +376,31 @@
             telemetryPanel.style.display = isTelemetryActive ? "flex" : "none";
         }
 
-        if (telemetryBtn) {
-            telemetryBtn.classList.toggle("active", isTelemetryActive);
-            telemetryBtn.textContent = isTelemetryActive ? "TELEM: ON" : "TELEM: OFF";
+        const isServer = (telemetryTarget === "server" || telemetryTarget === "master");
+
+        // Mutually exclusive button states: only the active node's button is highlighted
+        if (serverTelemBtn) {
+            const active = isTelemetryActive && isServer;
+            serverTelemBtn.classList.toggle("active", active);
+            serverTelemBtn.textContent = active ? "SERVER TELEM: ON" : "SERVER TELEM: OFF";
         }
 
+        if (slaveTelemBtn) {
+            const active = isTelemetryActive && !isServer;
+            slaveTelemBtn.classList.toggle("active", active);
+            slaveTelemBtn.textContent = active ? "SLAVE TELEM: ON" : "SLAVE TELEM: OFF";
+        }
+
+        // Update panel titles and badge
         if (isTelemetryActive) {
+            if (telemTitle) {
+                telemTitle.textContent = isServer ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
+            }
+            if (telemNodeBadge) {
+                telemNodeBadge.textContent = isServer
+                    ? "NODE: MASTER // LIVE"
+                    : `NODE: [${telemetryTarget.toUpperCase()}] // LIVE`;
+            }
             startTelemetryLoop();
         } else {
             stopTelemetryLoop();
@@ -395,14 +422,22 @@
 
     function updateTelemetryData(data, target) {
         if (!data) return;
-        const tgt = target || telemetryTarget || "fedora";
+        const tgt = target || telemetryTarget || "slave";
         if (!data._is_fallback) {
             lastRealTelemetryTime = Date.now();
         }
 
+        const isServer = (tgt === "server" || tgt === "master" || telemetryTarget === "server");
+
         if (telemNodeBadge) {
             telemNodeBadge.className = "badge badge-telem-online";
-            telemNodeBadge.textContent = `NODE: ${tgt.toUpperCase()} // LIVE`;
+            telemNodeBadge.textContent = isServer
+                ? "NODE: MASTER // LIVE"
+                : `NODE: [${tgt.toUpperCase()}] // LIVE`;
+        }
+
+        if (telemTitle) {
+            telemTitle.textContent = isServer ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
         }
 
         // 1. CPU
@@ -535,11 +570,28 @@
     }
 
     // --- Interactive Telemetry Buttons (Mouse + Touch) ---
-    if (telemetryBtn) {
-        telemetryBtn.addEventListener("click", (e) => {
+    // Rule: Mutually exclusive - only one telemetry panel can be open at a time; clicking one closes the other.
+    if (serverTelemBtn) {
+        serverTelemBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            setTelemetryMode(!isTelemetryActive, telemetryTarget, true);
+            if (isTelemetryActive && (telemetryTarget === "server" || telemetryTarget === "master")) {
+                setTelemetryMode(false, "server", true);
+            } else {
+                setTelemetryMode(true, "server", true);
+            }
+        });
+    }
+
+    if (slaveTelemBtn) {
+        slaveTelemBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (isTelemetryActive && telemetryTarget !== "server" && telemetryTarget !== "master") {
+                setTelemetryMode(false, "slave", true);
+            } else {
+                setTelemetryMode(true, "slave", true);
+            }
         });
     }
 
@@ -561,9 +613,34 @@
         }
     }
 
+    function updateAskButton() {
+        if (!askBtn) return;
+        askBtn.classList.remove("ask-friendly", "ask-restrict", "ask-paranoid");
+        askBtn.classList.add(`ask-${securityMode}`);
+        const listening = currentState === "LISTENING";
+        askBtn.classList.toggle("listening", listening);
+        askBtn.disabled = currentState !== "IDLE";
+        if (askBtnLabel) askBtnLabel.textContent = listening ? "LISTENING..." : "ASK ME...";
+        askBtn.title = securityMode === "friendly"
+            ? "Fai una domanda senza dire la wake-word"
+            : "Fai una domanda senza wake-word (verifica vocale ancora attiva)";
+    }
+
+    if (askBtn) {
+        askBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (askBtn.disabled) return;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "ASK_START" }));
+            }
+        });
+    }
+
     function updateSecurityMode(mode) {
         securityMode = (mode || "friendly").toLowerCase().trim();
         closeModePopup();
+        updateAskButton();
 
         if (!secModeBadge) return;
 
@@ -636,6 +713,7 @@
     // ==========================================================================
     function updateMuteUI(muted) {
         isMuted = !!muted;
+        updateAskButton();
         if (!muteBtn) return;
 
         muteBtn.classList.toggle("muted", isMuted);
@@ -735,6 +813,7 @@
         const config = defaults[currentState] || defaults["IDLE"];
         if (stateLabel) stateLabel.textContent = customLabel || config.label;
         if (stateSub) stateSub.textContent = customSub || config.sub;
+        updateAskButton();
     }
 
     // ==========================================================================
