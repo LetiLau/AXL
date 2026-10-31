@@ -138,6 +138,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 - [ ] **Ottimizzazione Riconoscimento Vocale (Speaker Verification):** 
   - Migliorare l'acquisizione dell'enrollment (multi-take a distanze diverse e con rumore ambientale) e tarare la soglia di Cosine Similarity per evitare falsi positivi/negativi quando si parla piano o vicino al microfono.
   - Testare modelli alternativi (es. 3D-Speaker o modelli più resilienti) dopo lo sviluppo dell'app Kotlin.
+- [ ] switch tra diversi kiosk (tablet/cell) a comando
 - [x] **Tre Modalità di Sicurezza e Diffidenza (Security Modes):**
   - `friendly` (attiva di default per sviluppo e test): A-X-L ascolta ed esegue i comandi di chiunque, eliminando rifiuti accidentali e risparmiando chiamate/quote API.
   - `restrict`: A-X-L ascolta ed esegue ordini solo per l'Owner e gli amici registrati nei profili (`models/profiles/*.npy`), respingendo gli estranei.
