@@ -61,14 +61,14 @@ html, body {
     padding: 16px 24px;
     background-color: var(--bg-black);
     transform: translate3d(var(--hud-shift-x), var(--hud-shift-y), 0);
-    transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.8s ease;
-    will-change: transform;
+    transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1), opacity 1.2s ease, filter 1.2s ease;
+    will-change: transform, opacity, filter;
 }
 
-/* Dimming in extended idle mode for extra AMOLED life */
+/* Dimming in extended idle mode for extra AMOLED life & anti-burn-in */
 body.hud-subdued #pixel-shift-container {
     opacity: 0.35;
-    filter: brightness(0.6);
+    filter: brightness(0.55);
 }
 
 /* ==========================================================================

@@ -101,10 +101,10 @@
     resizeCanvas();
 
     // ==========================================================================
-    // 1. OLED PIXEL-SHIFTING ANTI-BURN-IN SYSTEM (GALAXY A33)
+    // 1. OLED PIXEL-SHIFTING & SUBDUED AMOLED POWER-SAVING (BURN-IN PROTECTION)
     // ==========================================================================
     const PIXEL_SHIFT_INTERVAL_MS = 60000;
-    const SUBDUED_INACTIVITY_MS = 90000;
+    const SUBDUED_INACTIVITY_MS = 45000; // 45 seconds of idle inactivity before dimming
 
     function triggerPixelShift() {
         const shiftX = (Math.floor(Math.random() * 17) - 8);
@@ -114,17 +114,46 @@
     }
     setInterval(triggerPixelShift, PIXEL_SHIFT_INTERVAL_MS);
 
+    function wakeScreen() {
+        if (body.classList.contains("hud-subdued")) {
+            body.classList.remove("hud-subdued");
+        }
+    }
+
+    function dimScreen() {
+        if (currentState === "IDLE") {
+            body.classList.add("hud-subdued");
+        }
+    }
+
     function resetInactivityTimer() {
-        body.classList.remove("hud-subdued");
-        if (idleInactivityTimer) clearTimeout(idleInactivityTimer);
+        wakeScreen();
+        if (idleInactivityTimer) {
+            clearTimeout(idleInactivityTimer);
+            idleInactivityTimer = null;
+        }
         if (currentState === "IDLE") {
             idleInactivityTimer = setTimeout(() => {
-                body.classList.add("hud-subdued");
+                dimScreen();
             }, SUBDUED_INACTIVITY_MS);
         }
     }
-    window.addEventListener("pointerdown", resetInactivityTimer, { passive: true });
-    window.addEventListener("keydown", resetInactivityTimer, { passive: true });
+
+    let lastUserActivityTime = 0;
+    function onThrottledUserActivity() {
+        const now = Date.now();
+        // Throttle high-frequency cursor movements to once per 500ms
+        if (now - lastUserActivityTime > 500) {
+            lastUserActivityTime = now;
+            resetInactivityTimer();
+        }
+    }
+
+    // Capture phase listeners ensure user interaction wakes screen even if UI buttons stop propagation
+    window.addEventListener("pointerdown", resetInactivityTimer, { passive: true, capture: true });
+    window.addEventListener("keydown", resetInactivityTimer, { passive: true, capture: true });
+    window.addEventListener("pointermove", onThrottledUserActivity, { passive: true, capture: true });
+    window.addEventListener("touchstart", resetInactivityTimer, { passive: true, capture: true });
 
     // ==========================================================================
     // 2. TACTICAL CLOCK & DATE
@@ -226,7 +255,8 @@
     // 5. SERVER MESSAGE DISPATCHER
     // ==========================================================================
     function handleServerMessage(msg) {
-        resetInactivityTimer();
+        // Notice: High-frequency background messages (MIC_LEVEL, TELEMETRY_UPDATE)
+        // MUST NOT reset the inactivity timer, otherwise the screen would never dim!
 
         switch (msg.type) {
             case "INIT":
@@ -236,18 +266,22 @@
                 if (msg.telemetry_active !== undefined) {
                     setTelemetryMode(msg.telemetry_active, msg.telemetry_target || "slave", false);
                 }
+                resetInactivityTimer();
                 break;
 
             case "STATE_CHANGE":
+                // Handled inside setVisorState (wakes if active, or re-arms timer if IDLE)
                 setVisorState(msg.state, msg.label, msg.sub);
                 break;
 
             case "TELEMETRY_MODE":
+                resetInactivityTimer();
                 setTelemetryMode(msg.enabled, msg.target || "slave", false);
                 if (msg.data) updateTelemetryData(msg.data, msg.target || "slave");
                 break;
 
             case "TELEMETRY_UPDATE":
+                // Passive background telemetry - do NOT reset inactivity timer!
                 if (msg.data) {
                     updateTelemetryData(msg.data, msg.target || telemetryTarget);
                 } else if (msg.error) {
@@ -259,28 +293,34 @@
                 break;
 
             case "AUTH_EVENT":
+                resetInactivityTimer();
                 updateBiometrics(msg);
                 break;
 
             case "TRANSCRIPT":
+                resetInactivityTimer();
                 if (msg.user_text && userTranscript) userTranscript.textContent = `"${msg.user_text}"`;
                 if (msg.axl_text && axlReply) axlReply.textContent = msg.axl_text;
                 break;
 
             case "SECURITY_MODE":
+                resetInactivityTimer();
                 updateSecurityMode(msg.mode);
                 break;
 
             case "MUTE_STATE":
+                resetInactivityTimer();
                 updateMuteUI(msg.muted);
                 break;
 
             case "ANIMATION":
             case "VIDEO_ANIMATION":
+                resetInactivityTimer();
                 if (msg.video) switchAvatarVideo(msg.video);
                 break;
 
             case "MIC_LEVEL":
+                // High-frequency audio streaming frames (10-30Hz) - do NOT reset inactivity timer!
                 if (typeof msg.level === "number") {
                     targetMicLevel = Math.max(0, Math.min(1, msg.level));
                 }
@@ -816,9 +856,21 @@
     function setVisorState(state, customLabel, customSub) {
         currentState = (state || "IDLE").toUpperCase();
 
-        // Preserve non-state classes like 'telemetry-active' and 'hud-subdued'
+        // Preserve non-state classes like 'telemetry-active'
         body.classList.remove("state-idle", "state-listening", "state-thinking", "state-speaking", "state-alert");
         body.classList.add(`state-${currentState.toLowerCase()}`);
+
+        if (currentState === "IDLE") {
+            // When returning to IDLE standby, start/re-arm the subdued dimming timer
+            resetInactivityTimer();
+        } else {
+            // Any active interaction (LISTENING, THINKING, SPEAKING, ALERT) wakes the display immediately
+            wakeScreen();
+            if (idleInactivityTimer) {
+                clearTimeout(idleInactivityTimer);
+                idleInactivityTimer = null;
+            }
+        }
 
         const defaults = {
             IDLE: {
@@ -1061,5 +1113,6 @@
     initVideoAvatar();
     renderVisor();
     startAudioReactiveLoop();
+    resetInactivityTimer();
 
 })();
