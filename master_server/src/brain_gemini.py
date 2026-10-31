@@ -9,7 +9,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from google import genai
@@ -96,11 +96,16 @@ class GeminiBrain:
         self.client = genai.Client(api_key=self.api_key)
         self.active_chat = None
         self._current_model = DEFAULT_FLASH_MODEL
+        # Conversational memory kept strictly in lightweight text format to prevent
+        # multi-audio re-encoding latency, 429 quota exhaustion, and cross-turn audio confusion.
+        self.text_history: List[types.Content] = []
+        self.max_history_turns: int = 8
         self._reset_chat_session()
 
     def reset_session(self):
         """Resets conversational history (e.g. when an audio source reconnects)."""
         logger.info("[BRAIN SESSION] Resetting conversational history.")
+        self.text_history.clear()
         self._reset_chat_session()
 
     def _reset_chat_session(self, model: Optional[str] = None):
@@ -114,9 +119,14 @@ class GeminiBrain:
             temperature=0.7,
         )
 
+        # Seed the chat session with text-only history from previous turns
+        # This completely avoids re-transmitting raw binary audio WAVs across turns
+        history = list(self.text_history) if getattr(self, "text_history", None) else None
+
         self.active_chat = self.client.aio.chats.create(
             model=self._current_model,
             config=config,
+            history=history,
         )
 
     @property
@@ -143,9 +153,6 @@ class GeminiBrain:
         Processes an incoming in-memory WAV utterance, invokes Gemini,
         executes relevant tools automatically, and returns the vocal response.
         """
-        if not self.active_chat:
-            self._reset_chat_session()
-
         local_now = datetime.datetime.now().astimezone()
         time_str = local_now.strftime("%H:%M:%S")
         date_str = local_now.strftime("%A, %d %B %Y")
@@ -172,8 +179,9 @@ class GeminiBrain:
         last_error = None
         for model_name in models_to_try:
             try:
-                if self._current_model != model_name or not self.active_chat:
-                    self._reset_chat_session(model=model_name)
+                # Always create a fresh session seeded ONLY with text_history for each turn.
+                # This guarantees past turns' binary audio parts are never retained or re-transmitted.
+                self._reset_chat_session(model=model_name)
 
                 logger.info(f"[AXL-Brain]: Ingestion started | Model: {model_name} ({len(wav_bytes)} bytes WAV)")
                 response = await self.active_chat.send_message([audio_part, text_part])
@@ -199,23 +207,22 @@ class GeminiBrain:
 
                 logger.debug(f"[BRAIN PARSED] User: '{transcript}' | Reply: '{reply_text}'")
 
-                # Slide history window (keep last 10 messages) to avoid stale context accumulation
-                try:
-                    hist = self.active_chat.get_history()
-                    if len(hist) > 16:
-                        trimmed = hist[-10:]
-                        cfg = types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT_TEMPLATE,
-                            tools=REGISTERED_TOOLS,
-                            temperature=0.7,
-                        )
-                        self.active_chat = self.client.aio.chats.create(
-                            model=self._current_model,
-                            config=cfg,
-                            history=trimmed,
-                        )
-                except Exception:
-                    pass
+                # Store this turn into text_history as pure text (zero audio bytes retained)
+                user_content = types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=f'[User Spoke]: "{transcript}"')],
+                )
+                model_content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=f"TRANSCRIPT: {transcript}\nREPLY: {reply_text}")],
+                )
+                self.text_history.append(user_content)
+                self.text_history.append(model_content)
+
+                # Keep sliding window to max_history_turns (e.g. 8 turns = 16 messages)
+                max_msgs = self.max_history_turns * 2
+                if len(self.text_history) > max_msgs:
+                    self.text_history = self.text_history[-max_msgs:]
 
                 return {
                     "status": "success",

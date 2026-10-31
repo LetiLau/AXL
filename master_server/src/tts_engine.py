@@ -11,8 +11,9 @@ import asyncio
 import logging
 import re
 import subprocess
+import wave
 from pathlib import Path
-from typing import AsyncGenerator, Dict, Optional
+from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy import signal
@@ -33,13 +34,121 @@ class PiperTTSEngine:
     - Diego (Neural Italian, +10% rate, reduced inter-sentence pauses)
     - Bryce (Neural English, Jarvis style)
     - Local Piper offline fallback
+    - Authentic Canine SFX Pre-roll (Bark, Growl, Woof)
     """
 
-    def __init__(self, models_dir: Path):
+    BARK_REGEX = re.compile(
+        r"\b(bark|barks|woof|woofs|ruff|yip|yips|bau|abbaia|abbaiata|abbaiando)\b",
+        re.IGNORECASE,
+    )
+    GROWL_REGEX = re.compile(
+        r"\b(growl|growls|grr+|ringhia|ringhio|ringhiando|snarl|snarls)\b|grr+[-_]?(woof|bark|\w*)",
+        re.IGNORECASE,
+    )
+    STAGE_DIRECTION_KEYWORDS = re.compile(
+        r"\b(luce|ross[ao]|lampeggi|schermo|display|occhi|servo|meccanic|motore|testa|coda|orecchi|whine|gemito|piagnucol|pant|ansim|sigh|sospiro|giggle|risatina|whirr|clank|beep)\b",
+        re.IGNORECASE,
+    )
+
+    def __init__(self, models_dir: Path, sfx_dir: Optional[Path] = None):
         self.models_dir = models_dir
+        self.sfx_dir = sfx_dir or (models_dir.parent / "assets" / "sfx")
         self.voices: Dict[str, PiperVoice] = {}
+        self.sfx_cache: Dict[str, bytes] = {}
         self.sample_rate = 16000
         self._load_local_voices()
+        self._load_sfx()
+
+    def _load_sfx(self):
+        """Pre-loads 16kHz PCM16 Mono sound effects from assets/sfx/ into memory."""
+        if not self.sfx_dir.exists():
+            logger.warning(f"SFX directory not found at {self.sfx_dir}")
+            return
+
+        for wav_path in self.sfx_dir.glob("*.wav"):
+            if wav_path.name == "bark_old.wav":
+                continue
+            try:
+                with wave.open(str(wav_path), "rb") as wf:
+                    channels = wf.getnchannels()
+                    width = wf.getsampwidth()
+                    rate = wf.getframerate()
+                    frames = wf.readframes(wf.getnframes())
+
+                    if channels == 1 and width == 2 and rate == 16000:
+                        pcm = frames
+                    else:
+                        raw_np = np.frombuffer(frames, dtype=np.int16)
+                        if channels == 2:
+                            raw_np = (raw_np[0::2] / 2 + raw_np[1::2] / 2).astype(np.int16)
+                        if rate != 16000:
+                            samples_f = raw_np.astype(np.float32)
+                            pcm = signal.resample_poly(samples_f, 16000, rate).astype(np.int16).tobytes()
+                        else:
+                            pcm = raw_np.tobytes()
+
+                    key = wav_path.stem.lower()
+                    self.sfx_cache[key] = pcm
+                    logger.info(f"Loaded SFX asset: {wav_path.name} ({len(pcm)} bytes, {len(pcm) / 32000:.2f}s)")
+            except Exception as exc:
+                logger.error(f"Failed to load SFX asset {wav_path}: {exc}")
+
+    def _parse_segments(self, text: str) -> List[Tuple[str, str]]:
+        """
+        Parses text into an ordered list of segments:
+        - ('text', clean_content)
+        - ('sfx', 'growl' | 'bark')
+        Preserves original sequence (in-line SFX) and removes stage directions.
+        """
+        tag_pattern = re.compile(r"(\*[^*]+\*|\[[^\]]+\]|\([^)]+\))")
+        tokens = tag_pattern.split(text)
+        segments: List[Tuple[str, str]] = []
+
+        for token in tokens:
+            if not token:
+                continue
+
+            if (token.startswith("*") and token.endswith("*")) or \
+               (token.startswith("[") and token.endswith("]")) or \
+               (token.startswith("(") and token.endswith(")")):
+
+                content = token[1:-1].strip()
+                lower = content.lower()
+
+                # 1. Growl check takes priority over bark (handles grrr-woof, grrwoof, etc.)
+                if self.GROWL_REGEX.search(lower):
+                    segments.append(("sfx", "growl"))
+                    continue
+
+                # 2. Bark check
+                if self.BARK_REGEX.search(lower):
+                    segments.append(("sfx", "bark"))
+                    continue
+
+                # 3. Stage directions / sound keywords to ignore
+                word_count = len(lower.split())
+                if word_count >= 2 or self.STAGE_DIRECTION_KEYWORDS.search(lower):
+                    continue
+
+                # 4. Single-word markdown emphasis (e.g. *davvero*, *molto*):
+                if token.startswith("*"):
+                    segments.append(("text", content))
+                    continue
+                continue
+            else:
+                cleaned = token.strip()
+                if cleaned:
+                    segments.append(("text", cleaned))
+
+        # Merge consecutive text segments
+        merged: List[Tuple[str, str]] = []
+        for kind, val in segments:
+            if merged and merged[-1][0] == "text" and kind == "text":
+                merged[-1] = ("text", merged[-1][1] + " " + val)
+            else:
+                merged.append((kind, val))
+
+        return merged
 
     def _load_local_voices(self):
         """Pre-loads local Piper models into memory for English and offline fallback."""
@@ -183,34 +292,77 @@ class PiperTTSEngine:
 
         return raw_pcm
 
-    async def synthesize_bytes(self, text: str, lang: Optional[str] = None) -> bytes:
-        """
-        Synthesizes complete 16kHz PCM16 Mono bytes for the given text.
-        Chooses Diego for Italian, Bryce for English, with local fallback.
-        """
-        clean_text = self._normalize_text(text)
+    async def _synthesize_voice_segment(self, clean_text: str, target_lang: str) -> bytes:
+        """Synthesizes a single text segment using Diego (Italian), Bryce (English), or local fallback."""
         if not clean_text:
             return b""
 
-        target_lang = lang or self._detect_language(clean_text)
-
         if target_lang == "it":
-            # Primary: Diego Neural (natural, studio human quality)
-            pcm_bytes = await self._synthesize_edge_tts(clean_text, voice_name="it-IT-DiegoNeural")
-            if pcm_bytes:
-                return pcm_bytes
-
-            # Offline Fallback: Local Miro/Riccardo Piper
-            logger.info("[TTS FALLBACK] Synthesizing Italian via local Piper voice...")
-            return await asyncio.to_thread(self._synthesize_piper_local, clean_text, "it_local")
-
+            speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name="it-IT-DiegoNeural")
+            if not speech_pcm:
+                logger.info("[TTS FALLBACK] Synthesizing Italian via local Piper voice...")
+                speech_pcm = await asyncio.to_thread(self._synthesize_piper_local, clean_text, "it_local")
+            return speech_pcm or b""
         else:
-            # English: Bryce Piper model (Jarvis persona)
             if "en" in self.voices:
                 return await asyncio.to_thread(self._synthesize_piper_local, clean_text, "en")
-            # Secondary English fallback: Christopher or Ryan Neural
-            pcm_bytes = await self._synthesize_edge_tts(clean_text, voice_name="en-US-ChristopherNeural")
-            return pcm_bytes or b""
+            speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name="en-US-ChristopherNeural")
+            return speech_pcm or b""
+
+    async def synthesize_bytes(self, text: str, lang: Optional[str] = None) -> bytes:
+        """
+        Synthesizes complete 16kHz PCM16 Mono bytes for the given text.
+        Extracts canine cues (*bark*, *growl*, *grrr-woof*) and sequences authentic audio SFX inline.
+        Chooses Diego for Italian, Bryce for English, with local fallback.
+        """
+        segments = self._parse_segments(text)
+        if not segments:
+            return b""
+
+        text_indices = [i for i, (kind, _) in enumerate(segments) if kind == "text"]
+
+        # If there is no vocal text to speak (e.g. only *Growl*), return SFX sequence directly
+        if not text_indices:
+            sfx_parts = [self.sfx_cache.get(val, b"") for kind, val in segments if kind == "sfx"]
+            return b"".join(sfx_parts)
+
+        # Detect language from combined clean text
+        full_text = " ".join(segments[i][1] for i in text_indices)
+        target_lang = lang or self._detect_language(full_text)
+
+        # Concurrently synthesize all voice parts
+        voice_results = await asyncio.gather(
+            *(
+                self._synthesize_voice_segment(self._normalize_text(segments[i][1]), target_lang)
+                for i in text_indices
+            )
+        )
+        voice_map = dict(zip(text_indices, voice_results))
+
+        # Assemble final PCM sequence with natural 100ms silence gap between transitions
+        silence_gap = b"\x00" * int(0.10 * self.sample_rate * 2)  # 100ms
+        audio_sequence: List[bytes] = []
+
+        for i, (kind, val) in enumerate(segments):
+            if kind == "sfx":
+                pcm = self.sfx_cache.get(val)
+                if pcm:
+                    logger.info(f"[TTS SFX] Inserting canine audio SFX inline: '{val}' ({len(pcm)} bytes)")
+                    audio_sequence.append(pcm)
+            elif kind == "text":
+                pcm = voice_map.get(i, b"")
+                if pcm:
+                    audio_sequence.append(pcm)
+
+        interleaved: List[bytes] = []
+        for part in audio_sequence:
+            if not part:
+                continue
+            if interleaved:
+                interleaved.append(silence_gap)
+            interleaved.append(part)
+
+        return b"".join(interleaved)
 
     async def synthesize_stream(
         self,
