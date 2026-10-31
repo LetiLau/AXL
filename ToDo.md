@@ -73,8 +73,19 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 #### FASE 4: Il Visore Web e i Nodi Esecutivi (Slave)
 
-10. **Web UI (Il Visore):** Creazione dell'interfaccia HTML/JS servita da FastAPI su `/ui` e collegata via WebSocket a `/ws/ui`. Implementazione delle animazioni di stato (Idle, Listening, Thinking, Speaking, Stranger Alert) e del timer CSS/JS per il pixel-shifting anti burn-in.
-11. **Nodo Slave (Fedora/Windows):** Scrittura di `slave_daemon.py` per esporre telemetria (`psutil`: CPU, RAM, temperature) e ricevere dal Master i webhook per eseguire script o comandi di sistema.
+10. [x] **Web UI (Il Visore):** Creazione dell'interfaccia HTML/JS servita da FastAPI su `/ui` e collegata via WebSocket a `/ws/ui`. Implementazione delle animazioni di stato (Idle, Listening, Thinking, Speaking, Stranger Alert) e del timer CSS/JS per il pixel-shifting anti burn-in.
+    * **Modernizzazione Bottoni & Card Style:** Restyling moderno e arrotondato (`border-radius: 10px`) dei bottoni della barra superiore con supporto intelligente sia per cursore mouse che touch, mantenendo i colori e i font di A-X-L.
+    * **Blocco Unidirezionale Modalità di Sicurezza (`MODE`):** Il pulsante `MODE` è cliccabile solo quando si trova su `FRIENDLY` per permettere di impostare `RESTRICT` o `PARANOID`. Una volta attivata una modalità protetta, il pulsante si blocca (`🔒`) impedendo a estranei di disattivare la verifica vocale dal display.
+    * **Verifica e Switch Modalità di Sicurezza Vocale:** Sincronizzazione completa del comando vocale `set_security_mode` tra Gemini Brain, `commands.py`, `StreamManager` (`speaker_verifier.py`) e Web UI WebSocket: pronunciare "passa in modalità paranoica" o "metti restrict" aggiorna dinamicamente la logica di diffidenza biometrica e la UI in tempo reale.
+    * **Pulsante MUTE Tattico & Vincolo Sblocco Esclusivo da Schermo:** Aggiunto pulsante MUTE moderno direttamente sopra la scritta `SPEAKER ID` nel footer HUD. Supporta il comando vocale ("vai in muto", "silenzio", "disattiva microfono") che arresta l'ingestione dei pacchetti audio a livello WebSocket. **Regola di sicurezza:** la modalità muto può essere disattivata solo ed esclusivamente premendo il pulsante fisico/touch sul display, rendendo impossibile lo sblocco accidentale o non autorizzato a voce.
+    * **Centratura Geometrica Assoluta dell'Orologio:** Utilizzo di posizionamento assoluto (`left: 50%; transform: translateX(-50%)`) per garantire che l'orario rimanga perfettamente e matematicamente al centro della barra superiore, a prescindere dalle larghezze asimmetriche del brand A-X-L a sinistra e dei pulsanti a destra.
+    * **Riquadro Telemetria Moderno (Griglia 2x2 Glassmorphic):** Nuovo design a card arrotondate (`border-radius: 16px-20px`) per CPU, RAM, GPU e ventole, con scomparsa totale alla chiusura, riposizionamento fluido del visore al centro e aggiornamento continuo dei valori (tramite nodo slave, `psutil` locale o fallback dinamico).
+    * **Doppia Telemetria Hardware Indipendente (Master Server vs Slave Node):**
+      - Aggiunto pulsante tattico `SERVER TELEM` in alto a sinistra accanto al logo *A-X-L* e ribattezzato il pulsante in alto a destra in `SLAVE TELEM`.
+      - **Mutua Esclusività**: È possibile visualizzare una sola telemetria alla volta sullo stesso pannello HUD sinistro; l'attivazione di una chiude automaticamente l'altra, mentre un secondo click sulla telemetria attiva chiude il pannello.
+      - **Comandi Vocali Bivalenti**: Implementati i comandi vocali dedicati per entrambe le macchine (*"mostra telemetria server"*, *"telemetria master"*, *"mostra telemetria slave"*, *"telemetria pc"*, *"chiudi telemetria"*) con estrazione diretta delle metriche locali (`psutil`) per il Master Server e polling HTTP verso il demone remoto per il nodo Slave.
+      - **Rilevamento Multi-GPU Universale (Dedicated + Integrated)**: Creato motore di ispezione hardware `telemetry_utils.py` integrato sia nel Master Server che nel demone Slave. Rileva contemporaneamente e senza limiti GPU dedicate NVIDIA (`nvidia-smi`), GPU integrate Intel HD/Iris Xe (`i915`/`xe`), GPU dedicate e APU AMD Radeon (`amdgpu`/`radeon`) e fallback Windows, visualizzando tutte le schede grafiche presenti sul sistema con carico %, temperature, frequenze e memoria VRAM.
+11. [x] **Nodo Slave (Fedora/Windows):** Scrittura di `slave_daemon.py` per esporre telemetria (`psutil`: CPU, RAM, temperature, GPU dedicate/integrate, ventole) e ricevere dal Master i webhook per eseguire script o comandi di sistema. Visualizzazione split-layout HUD in tempo reale sul visore.
 
 #### FASE 5: App Android "Thin Kiosk" (Galaxy A33)
 
@@ -89,13 +100,28 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 14. **WebView Kiosk & Intent Receiver:** Configurazione di `MainActivity.kt` per mostrare la Web UI ospitata sul ThinkPad e ricezione di comandi JSON sul WebSocket per lanciare `Intent` Android (sveglie, apertura app, controlli media).
 """ Dettaglio esplicito delle integrazioni Android native: `AlarmClock` (sveglie/timer), `CalendarContract` (eventi Google) e `AudioManager` (gestione volume/media)."""
 
-#### FASE 6: Deploy su ThinkPad Debian 12
+#### FASE 6: Animazioni Espressive Web UI (Video Neon / Avatar Reattivo)
 
-15. **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
+15. [ ] **Avatar Dinamico A-X-L nel Visore (Video / Animazioni Contestuali):**
+    * [x] **Video Avatar Neon A-X-L nello Stage Centrale:** Integrato il video `neon_axl_robo_dog.mp4` al posto del cerchio procedurale Canvas, con crop responsive quadrato 1:1 hardware (`object-fit: cover`), 
+    * [ ] cornice con bracket tattici e glow neon reattivo agli stati FSM (`IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `ALERT`).
+    * [ ] **Switch Dinamico Animazioni basato su Stato, Azione e Sottotitoli:**
+      - Analisi semantica in tempo reale della risposta generata, dell'azione o dei sottotitoli (`TRANSCRIPT` / function call eseguita o in corso):
+        - `idle` / `sleep`: animazione cane che dorme / respiro calmo
+        - `listening`: animazione cane vigile con orecchie ritte
+        - `stranger` / `alert`: animazione cane aggressivo / snarl ringhio verso estranei
+        - `music` / `balletto`: cane con console DJ o balletto / movimento a ritmo quando suona musica o in festeggiamenti
+        - `speaking`: muso che dialoga sincronizzato con la voce Piper TTS
+
+#### FASE 7: Deploy su ThinkPad Debian 12
+
+16. [ ] **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
 
 ---
 
 #### NOTE FUTURE & OTTIMIZZAZIONI POST-SVILUPPO
+- [ ] **Switch Dinamico Animazioni Avatar A-X-L da Sottotitoli e Azioni:**
+  - Sistema di selezione automatica del clip video avatar (da `web_ui/dog_animation/`) in base al contenuto dei sottotitoli (`user_text` e `axl_text`), allo stato di sicurezza o all'azione in svolgimento (es. dorme in idle, ringhio su estraneo, balletto/console DJ quando c'è musica).
 - [ ] **Ottimizzazione Riconoscimento Vocale (Speaker Verification):** 
   - Migliorare l'acquisizione dell'enrollment (multi-take a distanze diverse e con rumore ambientale) e tarare la soglia di Cosine Similarity per evitare falsi positivi/negativi quando si parla piano o vicino al microfono.
   - Testare modelli alternativi (es. 3D-Speaker o modelli più resilienti) dopo lo sviluppo dell'app Kotlin.
@@ -103,7 +129,62 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
   - `friendly` (attiva di default per sviluppo e test): A-X-L ascolta ed esegue i comandi di chiunque, eliminando rifiuti accidentali e risparmiando chiamate/quote API.
   - `restrict`: A-X-L ascolta ed esegue ordini solo per l'Owner e gli amici registrati nei profili (`models/profiles/*.npy`), respingendo gli estranei.
   - `paranoid`: A-X-L obbedisce solo ed esclusivamente all'Owner registrato; se parla un amico, rifiuta spiegando che è in modalità paranoica.
-- [ ] **Nuova voce**: Trovare un nuovo modello vocale che pronunci le parole in maniera più sensata. Aggiungi suoni di abbaio o ringhio vero
+- [x] **Nuova voce**: Trovare un nuovo modello vocale che pronunci le parole in maniera più sensata. 
+- [x] **Pulizia e Ottimizzazione Log Terminale (Master & Brain):**
+  - Eliminazione delle stampe duplicate del parlato e della trascrizione: solo il Master stampa authoritative `>>> [USER HEARD] <<<` e `>>> [A-X-L SPEAKS] <<<`.
+  - Spostamento di `[BRAIN RAW OUTPUT]` e `[WAKEWORD_PROBE]` a livello `DEBUG` per evitare rumore prima dell'effettivo trigger.
+  - Silenziamento chatter interno di terze parti (`google_genai`, `httpx`, `websockets`).
+  - Notifica esplicita di avvio del Brain e modello neurale attivo (`[AXL-Brain]: Cognitive Core ready | Active Model: ...` all'avvio e ad ogni inferenza).
+- [x] **Fix e Robustezza Comandi Vocali (`muto` e cambio modalità `friendly`/`restrict`/`paranoid`):**
+  - **Doppio Livello di Risoluzione (Prompt Directive + Deterministic Intent Guardrail):**
+    - Livello 1: Riformulazione delle direttive e docstring dei tool in `commands.py` e `brain_gemini.py` (termini bilingui, divieto tassativo di allucinare o promettere azioni nel testo senza aver prima eseguito la `function_call`).
+    - Livello 2: Guardrail di esecuzione sincrona in `main.py` che analizza sia la trascrizione dell'utente sia la risposta generata dal modello (`is_mute_in_reply`, `detect_security_mode_in_reply`) e applica immediatamente il comando (`set_mute_mode`, switch di `set_security_mode`, apertura/chiusura telemetria) qualora il modello abbia promesso o allucinato la sola risposta parlata.
+    - **Protezione biometrica integrata:** il guardrail autorizza il cambio di sicurezza solo se chi parla è autorizzato (`owner` o amici registrati in base alla modalità), bloccando tempestivamente tentativi non autorizzati da estranei.
+    - **Disattivazione fisica dell'ascolto:** quando il muto è attivo (`is_muted = True`), l'ingestione dei chunk audio WebSocket viene interrotta alla radice, impedendo a monte il trigger della wake-word finché non si preme il pulsante sul visore.
+    - **Bug root cause (tool in thread):** l'SDK Gemini esegue i tool sincroni in un thread (`asyncio.to_thread`), dove non esiste un event loop: `notify_telemetry` scartava silenziosamente l'evento, quindi `set_mute_mode`/`set_security_mode` rispondevano "ok" ma non cambiavano nulla (né server né UI). Corretto con `asyncio.run_coroutine_threadsafe` sul loop principale salvato in `register_telemetry_listener`.
+    - Pattern muto ampliati IT/EN ("microfono disattivato", "microphone off", "turn off the mic", "be quiet"...).
+    - Nota di esecuzione: i file Python modificati richiedono il riavvio del server (`python src/main.py`) per essere caricati in memoria.
+- [x] **Pulsante "ASK ME..." (push-to-ask senza wake-word):**
+  - Nuovo bottone nella barra del visore, a destra (MIC resta a sinistra); entrambi ingranditi (`min-height: 48px`, font e icone maggiori) per essere ben visibili/toccabili dal kiosk A33.
+  - Colore legato alla modalità di sicurezza: verde in `friendly`, arancione in `restrict`, rosso in `paranoid` (stessi colori del badge MODE). Nelle modalità protette la verifica vocale resta attiva: il bottone salta solo la wake-word.
+  - Server: messaggio WebSocket `ASK_START` → `AudioPipeline.force_listen()` avvia subito la raccolta comando; l'end-of-speech scatta solo dopo che inizi a parlare, con timeout di 5s se non dici nulla.
+  - Il bottone resta utilizzabile anche con il mic muto (domanda one-shot: finita la risposta il muto resta attivo); è disabilitato solo mentre A-X-L ascolta/pensa/parla. La verifica del parlante vale comunque.
+- [x] **Memoria Conversazionale Text-Only & Prevenzione Audio Bloat (`brain_gemini.py`):**
+  - Risolto il problema di accumulo delle tracce audio WAV binarie nello storico della chat SDK `chats.create`. In precedenza, ogni turno ri-inviava tutti i file audio dei turni precedenti a Gemini, causando errori 429 di quota, picchi di latenza di codifica e confusione semantica su audio vecchi/faint.
+  - Conversione automatica della memoria conversazionale in puro testo leggero: `[User Spoke]: "..."` e `TRANSCRIPT: ... REPLY: ...`.
+  - Rigenerazione della sessione ad ogni turno con solo lo storico testuale, inviando via rete solo il buffer WAV del turno corrente e liberando istantaneamente la RAM.
+  - Finestra scorrevole limitata agli ultimi 8 turni (16 messaggi) per mantenere basso il consumo di token ed evitare allucinazioni su contesti obsoleti.
+- [ ] **Switch Dinamico tra Modelli Gemini (Dynamic Model Switching):**
+  - Consentire ad A-X-L di muoversi dinamicamente tra i vari modelli Gemini (`gemini-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro`...) sia a caldo via Web UI / configurazione, sia tramite comando vocale ("passa a Gemini Pro") o per escalation automatica a seconda della complessità del task richiesto.
+- [x] **Integrazione Effetti Sonori Canini Autentici (SFX Pre-Roll in `tts_engine.py`):**
+  - **Analisi Acustica e Sintesi Ibrida Open Source:** 
+    - Abbaio: Analisi spettrale e temporale dei sample Freesound (`small-dog-bark-02` per attacco brillante e yip a ~1560 Hz + `dog-bark-9` per risonanza toracica da cane adulto a ~590 Hz). Sintetizzato blend armonico a 16kHz 16-bit mono (`bark.wav` a doppia battuta cadenzata a 320ms, unendo il timbro giovane ed energico a quello profondo del cane da guardia).
+    - Ringhio/Minaccia: Elaborazione del growl gutturale goblin (`442816__qubodup__goblin-scream.wav`), ricampionato a 16kHz mono, normalizzato a -0.5 dBFS e rifinito con fade-in/fade-out naturale (`growl.wav`, 1.20s), perfetto per il ringhio robotico/alieno di A-X-L contro gli estranei.
+    - Respiro Chill / Ansito Lingua Fuori (`pant.wav`): Estratti i primi 2.20 secondi del sample `574183__bloodybill__doc-the-aussie-growls-dog.wav` (Aussie Dog), isolando 2 cicli completi di respirazione/ansito rilassato con la lingua fuori prima dell'inizio del ringhio aggressivo. Convertito da 24-bit 48kHz stereo a 16kHz 16-bit mono con fade naturale, agganciato a `*whirr*`, `*pant*`, `*ansima*`, `*respiro*`.
+    - [ ] palette acustica di singolo bark per *bark * e doppio bark per *bark bark *
+  - **Zero-Latency In-Memory SFX Pre-Roll:** Pre-caricamento all'avvio in RAM (`self.sfx_cache`) di `bark.wav`, `growl.wav` e `pant.wav` senza I/O su disco.
+  - **Parsing Regex, Gestione Tag Composti (*GRRR-WOOF!*) & Sequenziamento In-Line:**
+    - Priorità al ringhio minaccioso: tag ibridi o composti come `*GRRR-WOOF!*`, `*GRR-WOOF*`, `grrwoof` mappano rigorosamente a `growl` (`growl.wav`), escludendo `bark` (che è un abbaio amichevole/di allerta e non cattivo).
+    - Riproduzione In-Line nel parlato: supporto per tag canini posizionati in mezzo alla frase (es. *"Vuoi sentire un ringhio? Subito, capo. \*GRRR-WOOF!\* Meglio di un dobermann..."*). Il testo viene suddiviso in segmenti sintetizzati concorrentemente con `asyncio.gather`, intercalando il verso e gap di 100ms nell'esatta sequenza temporale della conversazione.
+  - **Palette Acustica Rigida nel System Prompt (`brain_gemini.py`):**
+    - Vincolo esplicito e tassativo nel Cognitive Core: A-X-L è istruito a generare **solo ed esclusivamente i 3 tag canonici** supportati dall'hardware (`*bark*`, `*growl*`, `*pant*`), con divieto assoluto di allucinare o inventare descrizioni di scena fantasiose (es. `*sbuffo idraulico*`, `*fischio acuto*`, `*luce rossa lampeggiante*`).
+    - Filtro difensivo di fallback in `tts_engine.py`: intercetta e sopprime qualsiasi eventuale didascalia spuria residua per preservare la pulizia della sintesi vocale.
+  - **Sequenziamento e GAP Naturale:** Inserimento di 100ms di silenzio digitale prima e dopo i campioni canini. Nessun ritardo percepito: il visore Kiosk riceve lo stream PCM via WebSocket e riproduce istantaneamente audio e voce.
+- [ ] **Strada 3: Sound Design Ibrido 'A-X-L Cyber-Canine' (Layering Meccatronico Stile Film):**
+  - Layering avanzato con SFX meccatronici (sibilo attuatori idraulici/pneumatici, ronzio di condensatori, servomotori di puntamento e clank metallico) sovrapposti o alternati ai versi canini organici, per replicare la fedeltà timbrica e sci-fi del cane robotico da guerra del film cinematografico A.X.L.
 - [ ] **Antigravity**: Spiega o correggi il codice che ho scritto. correzione (esercizi degli esami, altri progetti...)
-
-
+- [ ] **Modalità "Sentinella" (Sentry Mode) e "Sentinella Segreta" (Stealth Sentry):**
+  - **Funzionamento Base (Sorveglianza Periodica Locale a Basso Consumo):**
+    - Feature on-demand attivabile manualmente (es. quando si esce di casa per la giornata).
+    - Il Galaxy A33 scatta uno snapshot fotografico periodico (ogni ~15 secondi) tramite CameraX/WebView e lo invia al Master ThinkPad.
+    - Elaborazione ultraleggera locale: confronto tra frame consecutivi (frame differencing dinamico) o rilevamento sagoma umana (YOLOv8-nano / MobileNet ONNX) per evitare falsi allarmi causati dal naturale cambio di luce del sole durante il giorno.
+    - Se viene rilevata una presenza: salva lo scatto con timestamp (`captures/guard_YYYYMMDD_HHMMSS.jpg`) e registra l'evento in `guard_events.json`.
+    - Canali di avviso: notifica immediata opzionale con foto su bot Telegram privato, oppure resoconto vocale locale al rientro su richiesta ("AXL, novità oggi?").
+  - **Modalità Sentinella Standard (Palese / Deterrente):**
+    - Il Visore Web/Kiosk mostra chiaramente a schermo lo stato `"SENTINELLA ATTIVA"` (effetto deterrente visivo).
+    - Può essere disattivata via voce o tramite apposito toggle su UI.
+  - **Modalità "Sentinella Segreta" (Stealth / Infiltrata - Non si fa beccare):**
+    - Pensata per monitorare senza far insospettire chi entra nella stanza.
+    - **Camuffamento UI:** Sullo schermo del Visore NON compare alcuna scritta o indicatore di sentinella/sorveglianza; la UI mostra semplicemente lo stato di **MIC MUTO** (icona microfono disattivato), simulando che A-X-L sia solo a riposo/disattivato.
+    - **Zero Feedback Sonoro:** Nessun beep, abbaio o suono di scatto; silenzio radio totale.
+    - **Disattivazione Protetta in Due Passaggi:** Poiché a schermo non c'è traccia della modalità segreta, per disattivarla l'Owner deve prima toccare manualmente il bottone "MIC" per riattivare l'ascolto, e poi pronunciare il comando vocale di disattivazione (confermato dalla verifica biometrica vocale dell'Owner).

@@ -139,6 +139,8 @@ class AudioPipeline:
         self.command_start_timestamp = 0.0
         self.command_start_sample = 0
         self.total_samples_ingested = 0
+        self.forced_listen = False
+        self.forced_no_speech_timeout_sec = 5.0
 
     def reset(self) -> None:
         self._vad_residual.clear()
@@ -151,6 +153,23 @@ class AudioPipeline:
         self.command_start_timestamp = 0.0
         self.command_start_sample = 0
         self.total_samples_ingested = 0
+        self.forced_listen = False
+
+    def force_listen(self) -> bool:
+        """
+        Starts command collection without the wake-word (UI 'ASK ME' button).
+        Speaker verification still runs afterwards. Returns False if not IDLE.
+        """
+        if self.state != self.STATE_IDLE:
+            return False
+        now = time.monotonic()
+        self.state = self.STATE_COLLECTING_COMMAND
+        self.forced_listen = True
+        self.command_start_timestamp = now
+        self.command_start_sample = max(0, self.total_samples_ingested - 3200)  # 200ms pre-roll
+        self.last_speech_timestamp = 0.0
+        self.wakeword.reset()
+        return True
 
     def ingest_frame(self, pcm_bytes: bytes) -> List[Dict[str, Any]]:
         self._vad_residual.extend(pcm_bytes)
@@ -207,6 +226,19 @@ class AudioPipeline:
             silence_duration = now - self.last_speech_timestamp
             command_duration = now - self.command_start_timestamp
 
+            # Forced (button) mode: wait for the user to start speaking before applying EOS logic
+            if self.forced_listen and self.last_speech_timestamp < self.command_start_timestamp:
+                if command_duration >= self.forced_no_speech_timeout_sec:
+                    events.append({
+                        "event": "SILENCE_RESET",
+                        "silence_sec": command_duration,
+                        "reason": "ask_no_speech_timeout",
+                    })
+                    self.state = self.STATE_IDLE
+                    self.forced_listen = False
+                    self.wakeword.reset()
+                return events
+
             # Condition A: Silence closure with post-wakeword grace window (>= 0.8s total duration)
             silence_triggered = (
                 silence_duration >= self.silence_hangover_sec
@@ -234,6 +266,7 @@ class AudioPipeline:
                 })
 
                 self.state = self.STATE_IDLE
+                self.forced_listen = False
                 self.wakeword.reset()
 
         return events

@@ -12,25 +12,29 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / "models"
 
-# Target download artifacts
+# Target download artifacts (Active production models only)
 MODEL_TARGETS = {
+    # 1. Silero VAD (Voice Activity Detection)
     "silero_vad.onnx": (
         "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
     ),
+    # 2. Speaker Verification (CAM++ DAMO Academy via sherpa-onnx)
     "speaker_id.onnx": (
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_CAM++_LM.onnx"
     ),
-    "it_IT-riccardo-x_low.onnx": (
-        "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/riccardo/x_low/it_IT-riccardo-x_low.onnx"
+    # 3. English Piper TTS (Bryce - Jarvis Persona)
+    "en_US-bryce-medium.onnx": (
+        "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/en_US-bryce-medium.onnx"
     ),
-    "it_IT-riccardo-x_low.onnx.json": (
-        "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/riccardo/x_low/it_IT-riccardo-x_low.onnx.json"
+    "en_US-bryce-medium.onnx.json": (
+        "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/en_US-bryce-medium.onnx.json"
     ),
-    "en_GB-alan-low.onnx": (
-        "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/low/en_GB-alan-low.onnx"
+    # 4. Italian Local Offline Fallback Piper TTS (Miro - Tuned)
+    "it_IT-miro-high.onnx": (
+        "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/miro/high/it_IT-miro-high.onnx"
     ),
-    "en_GB-alan-low.onnx.json": (
-        "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/low/en_GB-alan-low.onnx.json"
+    "it_IT-miro-high.onnx.json": (
+        "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/miro/high/it_IT-miro-high.onnx.json"
     ),
 }
 

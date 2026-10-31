@@ -1,0 +1,1319 @@
+/* ==========================================================================
+   A-X-L CYBERNETIC VISOR // HUD STYLESHEET
+   Aesthetic: Iron Man HUD / Tactical Cyber-Hound / Deep AMOLED True Black
+   Modern Rounded Card & Button Geometry
+   ========================================================================== */
+
+:root {
+    --bg-black: #000000;
+    --cyan-glow: #00f0ff;
+    --cyan-dim: rgba(0, 240, 255, 0.25);
+    --blue-neon: #0088ff;
+    --violet-neural: #b038ff;
+    --green-emerald: #00e676;
+    --red-alert: #ff003b;
+    --red-glow: rgba(255, 0, 59, 0.4);
+    --amber-warn: #ff9900;
+    --text-white: #e0f7fa;
+    --text-muted: #607d8b;
+    --hud-border: rgba(0, 240, 255, 0.22);
+    --font-orbitron: 'Orbitron', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-rajdhani: 'Rajdhani', sans-serif;
+    --font-mono: 'Share Tech Mono', monospace;
+    --hud-shift-x: 0px;
+    --hud-shift-y: 0px;
+    --mic-level: 0;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-black);
+    color: var(--text-white);
+    font-family: var(--font-rajdhani);
+    overflow: hidden;
+    position: fixed;
+}
+
+/* ==========================================================================
+   AMOLED PIXEL-SHIFTING BURN-IN PROTECTION WRAPPER
+   Translates smoothly every 60s by +/- 8px to prevent static OLED ghosting
+   ========================================================================== */
+#pixel-shift-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 16px 24px;
+    background-color: var(--bg-black);
+    transform: translate3d(var(--hud-shift-x), var(--hud-shift-y), 0);
+    transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.8s ease;
+    will-change: transform;
+}
+
+/* Dimming in extended idle mode for extra AMOLED life */
+body.hud-subdued #pixel-shift-container {
+    opacity: 0.35;
+    filter: brightness(0.6);
+}
+
+/* ==========================================================================
+   HEADER HUD TELEMETRY BAR & MODERN ROUNDED BUTTONS
+   ========================================================================== */
+.hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--hud-border);
+    padding-bottom: 12px;
+    position: relative;
+    z-index: 100;
+    flex-shrink: 0;
+}
+
+.hud-brand-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.hud-brand {
+    display: flex;
+    flex-direction: column;
+}
+
+.brand-title {
+    font-family: var(--font-orbitron);
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: 0.35rem;
+    color: var(--cyan-glow);
+    text-shadow: 0 0 10px var(--cyan-glow);
+}
+
+.brand-sub {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.2rem;
+    color: var(--text-muted);
+}
+
+.hud-center-clock {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    pointer-events: none;
+    z-index: 105;
+}
+
+#clock-time {
+    font-family: var(--font-orbitron);
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: 0.15rem;
+    color: var(--text-white);
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+}
+
+#clock-date {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--cyan-glow);
+    letter-spacing: 0.12rem;
+    text-transform: uppercase;
+}
+
+.hud-status-tray {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    z-index: 110;
+}
+
+/* Modern Rounded Button/Badge Shape (less boxy, inspired by modern card UI, A-X-L colors) */
+.badge {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 8px 15px;
+    border-radius: 10px;
+    letter-spacing: 0.09rem;
+    text-transform: uppercase;
+    border: 1.5px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    line-height: 1;
+    min-height: 36px;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    outline: none;
+    touch-action: manipulation;
+    pointer-events: auto;
+}
+
+/* Telemetry Button */
+.badge-telem-btn {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.1) 0%, rgba(0, 136, 255, 0.04) 100%);
+    color: var(--cyan-glow);
+    border-color: rgba(0, 240, 255, 0.42);
+    cursor: pointer;
+}
+
+.badge-telem-btn:hover {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.22) 0%, rgba(0, 136, 255, 0.12) 100%);
+    border-color: var(--cyan-glow);
+    box-shadow: 0 6px 16px rgba(0, 240, 255, 0.3), 0 0 10px var(--cyan-dim);
+    transform: translateY(-1px);
+}
+
+.badge-telem-btn:active {
+    transform: translateY(0) scale(0.96);
+}
+
+.badge-telem-btn.active {
+    background: linear-gradient(135deg, rgba(0, 230, 118, 0.2) 0%, rgba(0, 200, 83, 0.08) 100%);
+    color: var(--green-emerald);
+    border-color: rgba(0, 230, 118, 0.6);
+    box-shadow: 0 0 14px rgba(0, 230, 118, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Security Mode Button & Wrapper */
+.mode-badge-wrapper {
+    position: relative;
+    display: inline-flex;
+}
+
+.badge-friendly {
+    background: linear-gradient(135deg, rgba(0, 230, 118, 0.12) 0%, rgba(0, 180, 80, 0.04) 100%);
+    color: var(--green-emerald);
+    border-color: rgba(0, 230, 118, 0.48);
+    cursor: pointer;
+}
+
+.badge-friendly:hover {
+    background: linear-gradient(135deg, rgba(0, 230, 118, 0.24) 0%, rgba(0, 180, 80, 0.12) 100%);
+    border-color: var(--green-emerald);
+    box-shadow: 0 6px 16px rgba(0, 230, 118, 0.3);
+    transform: translateY(-1px);
+}
+
+.badge-friendly:active {
+    transform: translateY(0) scale(0.96);
+}
+
+.badge-restrict {
+    background: linear-gradient(135deg, rgba(255, 153, 0, 0.14) 0%, rgba(255, 100, 0, 0.05) 100%);
+    color: var(--amber-warn);
+    border-color: rgba(255, 153, 0, 0.52);
+    cursor: not-allowed;
+}
+
+.badge-paranoid {
+    background: linear-gradient(135deg, rgba(255, 0, 59, 0.16) 0%, rgba(190, 0, 40, 0.06) 100%);
+    color: var(--red-alert);
+    border-color: rgba(255, 0, 59, 0.58);
+    animation: alert-pulse 1.8s infinite;
+    cursor: not-allowed;
+}
+
+.mode-locked {
+    cursor: not-allowed !important;
+}
+
+/* Mode Selector Popup (Only opens when clicking MODE: FRIENDLY) */
+.mode-selector-popup {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 245px;
+    background: linear-gradient(160deg, rgba(3, 18, 30, 0.96) 0%, rgba(1, 9, 18, 0.99) 100%);
+    border: 1.5px solid rgba(0, 240, 255, 0.4);
+    border-radius: 14px;
+    padding: 12px;
+    box-shadow: 0 14px 35px rgba(0, 0, 0, 0.85), 0 0 20px rgba(0, 240, 255, 0.2);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    flex-direction: column;
+    gap: 8px;
+    z-index: 200;
+}
+
+.mode-selector-popup.open {
+    display: flex;
+    animation: popup-fade-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes popup-fade-in {
+    from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.mode-popup-header {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08rem;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+}
+
+.mode-option-btn {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    font-weight: 600;
+    padding: 9px 12px;
+    border-radius: 9px;
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s ease;
+    touch-action: manipulation;
+}
+
+.mode-option-btn.opt-restrict {
+    background: rgba(255, 153, 0, 0.12);
+    color: var(--amber-warn);
+    border-color: rgba(255, 153, 0, 0.45);
+}
+
+.mode-option-btn.opt-restrict:hover {
+    background: rgba(255, 153, 0, 0.26);
+    border-color: var(--amber-warn);
+    box-shadow: 0 0 12px rgba(255, 153, 0, 0.35);
+}
+
+.mode-option-btn.opt-paranoid {
+    background: rgba(255, 0, 59, 0.14);
+    color: var(--red-alert);
+    border-color: rgba(255, 0, 59, 0.5);
+}
+
+.mode-option-btn.opt-paranoid:hover {
+    background: rgba(255, 0, 59, 0.28);
+    border-color: var(--red-alert);
+    box-shadow: 0 0 12px rgba(255, 0, 59, 0.4);
+}
+
+/* Connection Status Badge */
+.badge-online {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.1) 0%, rgba(0, 136, 255, 0.04) 100%);
+    color: var(--cyan-glow);
+    border-color: rgba(0, 240, 255, 0.38);
+}
+
+.badge-offline {
+    background: linear-gradient(135deg, rgba(255, 23, 68, 0.12) 0%, rgba(180, 0, 30, 0.04) 100%);
+    color: var(--red-alert);
+    border-color: rgba(255, 23, 68, 0.45);
+    cursor: pointer;
+}
+
+/* Fullscreen Button */
+#fullscreen-btn, .badge-icon-btn {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.08) 0%, rgba(0, 136, 255, 0.02) 100%);
+    border: 1.5px solid rgba(0, 240, 255, 0.35);
+    color: var(--cyan-glow);
+    padding: 0;
+    width: 36px;
+    height: 36px;
+    font-size: 1.05rem;
+    border-radius: 10px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.22s ease;
+    touch-action: manipulation;
+}
+
+#fullscreen-btn:hover {
+    background: rgba(0, 240, 255, 0.2);
+    border-color: var(--cyan-glow);
+    box-shadow: 0 4px 14px rgba(0, 240, 255, 0.3);
+    transform: translateY(-1px);
+}
+
+#fullscreen-btn:active {
+    transform: translateY(0) scale(0.95);
+}
+
+/* ==========================================================================
+   CENTER VISOR STAGE & RETICLE (CLEAN CENTERING + SPLIT TELEMETRY MODE)
+   ========================================================================== */
+.visor-stage {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    padding: 8px 0;
+    gap: 36px;
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.telemetry-active .visor-stage {
+    justify-content: center;
+    align-items: center;
+    gap: 42px;
+    padding: 6px 12px;
+}
+
+/* Wrapper holds both the circular canvas and the status label below it in flex flow */
+.visor-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    flex-shrink: 0;
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.visor-core-box {
+    position: relative;
+    width: min(56vw, calc(100vh - 280px), 420px);
+    height: min(56vw, calc(100vh - 280px), 420px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1), height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.telemetry-active .visor-core-box {
+    width: min(36vw, calc(100vh - 280px), 350px);
+    height: min(36vw, calc(100vh - 280px), 350px);
+}
+
+.visor-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    filter: none;
+    z-index: 1;
+    pointer-events: none;
+    mix-blend-mode: screen;
+}
+
+#visor-canvas {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.visor-reticle-overlay {
+    display: none;
+}
+
+.bracket {
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    border-color: var(--cyan-glow);
+    opacity: 0.75;
+    transition: all 0.3s ease;
+}
+
+.bracket-tl { top: 0; left: 0; border-top: 2px solid; border-left: 2px solid; border-top-left-radius: 4px; }
+.bracket-tr { top: 0; right: 0; border-top: 2px solid; border-right: 2px solid; border-top-right-radius: 4px; }
+.bracket-bl { bottom: 0; left: 0; border-bottom: 2px solid; border-left: 2px solid; border-bottom-left-radius: 4px; }
+.bracket-br { bottom: 0; right: 0; border-bottom: 2px solid; border-right: 2px solid; border-bottom-right-radius: 4px; }
+
+.crosshair {
+    position: absolute;
+    background: var(--cyan-dim);
+    opacity: 0.3;
+}
+.crosshair-h {
+    top: 50%;
+    left: 5%;
+    width: 90%;
+    height: 1px;
+    transform: translateY(-50%);
+}
+.crosshair-v {
+    top: 5%;
+    left: 50%;
+    width: 1px;
+    height: 90%;
+    transform: translateX(-50%);
+}
+
+/* Status Banner sits cleanly below the reticle box without colliding with footer */
+.visor-status-box {
+    margin-top: 14px;
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.state-label {
+    font-family: var(--font-orbitron);
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.2rem;
+    color: var(--cyan-glow);
+    text-shadow: 0 0 8px var(--cyan-glow);
+    transition: color 0.3s ease, text-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.state-sub {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12rem;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 18px;
+    border-radius: 20px;
+    border: 1px solid rgba(0, 240, 255, 0.18);
+    background: rgba(0, 15, 28, 0.45);
+    box-shadow: 0 0 calc(4px + var(--mic-level, 0) * 10px) rgba(0, 240, 255, calc(0.08 + var(--mic-level, 0) * 0.22));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: color 0.3s ease;
+}
+
+body.state-idle .state-sub {
+    color: var(--cyan-dim);
+    border-color: rgba(0, 240, 255, calc(0.18 + var(--mic-level, 0) * 0.25));
+    box-shadow: 0 0 calc(4px + var(--mic-level, 0) * 10px) rgba(0, 240, 255, calc(0.08 + var(--mic-level, 0) * 0.25));
+}
+
+/* ==========================================================================
+   LEFT-SIDE HARDWARE TELEMETRY PANEL (Modern Rounded Card Style in A-X-L Colors)
+   ========================================================================== */
+.telemetry-panel {
+    display: none;
+    flex-direction: column;
+    width: min(52vw, 540px);
+    max-height: calc(100vh - 210px);
+    background: linear-gradient(160deg, rgba(2, 16, 28, 0.92) 0%, rgba(0, 8, 16, 0.96) 100%);
+    border: 1.5px solid rgba(0, 240, 255, 0.35);
+    border-radius: 20px;
+    padding: 18px 20px;
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.8), 0 0 25px rgba(0, 240, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 240, 255, 0.3) transparent;
+    z-index: 40;
+    flex-shrink: 0;
+}
+
+body.telemetry-active .telemetry-panel {
+    display: flex;
+    animation: telem-slide-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes telem-slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(-24px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+.telemetry-panel::-webkit-scrollbar {
+    width: 4px;
+}
+.telemetry-panel::-webkit-scrollbar-thumb {
+    background: rgba(0, 240, 255, 0.3);
+    border-radius: 4px;
+}
+
+.telem-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.18);
+    padding-bottom: 12px;
+    margin-bottom: 14px;
+}
+
+.telem-title-wrap {
+    display: flex;
+    flex-direction: column;
+}
+
+.telem-tag {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.15rem;
+    color: var(--text-muted);
+}
+
+.telem-title {
+    font-family: var(--font-orbitron);
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 0.16rem;
+    color: var(--cyan-glow);
+    text-shadow: 0 0 8px var(--cyan-glow);
+}
+
+.telem-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.badge-telem-online {
+    background: rgba(0, 230, 118, 0.12);
+    color: var(--green-emerald);
+    border: 1.5px solid rgba(0, 230, 118, 0.45);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    padding: 5px 11px;
+    border-radius: 999px;
+    letter-spacing: 0.08rem;
+}
+
+.badge-telem-offline {
+    background: rgba(255, 23, 68, 0.12);
+    color: var(--red-alert);
+    border: 1.5px solid rgba(255, 23, 68, 0.45);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    padding: 5px 11px;
+    border-radius: 999px;
+    letter-spacing: 0.08rem;
+}
+
+.telem-icon-btn {
+    background: rgba(0, 240, 255, 0.08);
+    border: 1.5px solid rgba(0, 240, 255, 0.35);
+    color: var(--cyan-glow);
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    touch-action: manipulation;
+}
+
+.telem-icon-btn:hover {
+    background: rgba(255, 0, 59, 0.22);
+    border-color: var(--red-alert);
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(255, 0, 59, 0.4);
+}
+
+.telem-icon-btn:active {
+    transform: scale(0.94);
+}
+
+/* 2x2 Modern Card Grid inside Telemetry Panel */
+.telem-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.telem-card {
+    background: linear-gradient(145deg, rgba(0, 28, 46, 0.62) 0%, rgba(0, 14, 26, 0.85) 100%);
+    border: 1.5px solid rgba(0, 240, 255, 0.2);
+    border-radius: 16px;
+    padding: 13px 15px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    transition: border-color 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.telem-card:hover {
+    border-color: rgba(0, 240, 255, 0.45);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55), 0 0 14px rgba(0, 240, 255, 0.14);
+    transform: translateY(-2px);
+}
+
+.telem-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+}
+
+.telem-card-label {
+    font-family: var(--font-orbitron);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1rem;
+    color: #b0bec5;
+}
+
+/* Rounded Pill Badge in top-right corner of each card */
+.telem-temp-badge {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--cyan-glow);
+    background: rgba(0, 240, 255, 0.12);
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 240, 255, 0.3);
+}
+
+.telem-stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.telem-main-metric {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.telem-val-large {
+    font-family: var(--font-orbitron);
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: 0.04rem;
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+}
+
+.telem-unit {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.telem-sub-metric {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.telem-sub-line {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    display: flex;
+    gap: 4px;
+}
+
+.sub-lbl {
+    color: var(--text-muted);
+}
+
+.sub-val {
+    color: var(--cyan-glow);
+}
+
+.telem-meter-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 2px;
+}
+
+.telem-meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--blue-neon), var(--cyan-glow));
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.45);
+    transition: width 0.35s ease, background 0.3s ease;
+}
+
+.telem-meter-fill.warn {
+    background: linear-gradient(90deg, #ff9900, #ff5500);
+}
+
+.telem-meter-fill.crit {
+    background: linear-gradient(90deg, #ff1744, #ff0055);
+}
+
+/* GPU Sub-items inside GPU Card */
+.telem-gpu-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.telem-gpu-item {
+    background: rgba(0, 12, 24, 0.55);
+    border: 1px solid rgba(0, 240, 255, 0.14);
+    border-radius: 10px;
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.telem-gpu-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 4px;
+}
+
+.telem-gpu-name {
+    font-family: var(--font-rajdhani);
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-white);
+    letter-spacing: 0.03rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.telem-gpu-badge {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    color: var(--cyan-glow);
+    flex-shrink: 0;
+}
+
+.telem-gpu-vram {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-align: right;
+    margin-top: 1px;
+}
+
+.telem-gpu-placeholder {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 4px 0;
+}
+
+/* ==========================================================================
+   FOOTER: BIOMETRICS & SUBTITLES
+   ========================================================================== */
+.hud-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-top: 1px solid var(--hud-border);
+    padding-top: 12px;
+    z-index: 50;
+    flex-shrink: 0;
+}
+
+/* Action Strip with Mute (left) and Ask Me (right) buttons */
+.hud-action-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 2px;
+}
+
+.badge-mute-btn {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.1) 0%, rgba(0, 136, 255, 0.04) 100%);
+    color: var(--cyan-glow);
+    border: 1px solid rgba(0, 240, 255, 0.42);
+    cursor: pointer;
+    padding: 10px 20px;
+    min-height: 48px;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.08rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.12);
+    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.badge-mute-btn:hover {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.22) 0%, rgba(0, 136, 255, 0.12) 100%);
+    border-color: var(--cyan-glow);
+    box-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
+    transform: translateY(-1px);
+}
+
+.badge-mute-btn:active {
+    transform: translateY(1px);
+}
+
+.badge-mute-btn .mute-icon {
+    font-size: 1.15rem;
+    line-height: 1;
+}
+
+/* ASK ME push-to-talk button: colour follows security mode */
+.badge-ask-btn {
+    cursor: pointer;
+    padding: 10px 20px;
+    min-height: 48px;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.08rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid;
+    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.badge-ask-btn:active:not(:disabled) { transform: translateY(1px); }
+
+.badge-ask-btn.ask-friendly {
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.16) 0%, rgba(0, 200, 120, 0.05) 100%);
+    color: #00ff9d;
+    border-color: rgba(0, 255, 157, 0.55);
+    box-shadow: 0 0 12px rgba(0, 255, 157, 0.2);
+}
+.badge-ask-btn.ask-friendly:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.3) 0%, rgba(0, 200, 120, 0.14) 100%);
+    box-shadow: 0 0 18px rgba(0, 255, 157, 0.5);
+}
+
+.badge-ask-btn.ask-restrict {
+    background: linear-gradient(135deg, rgba(255, 153, 0, 0.18) 0%, rgba(200, 110, 0, 0.06) 100%);
+    color: var(--amber-warn);
+    border-color: rgba(255, 153, 0, 0.6);
+    box-shadow: 0 0 12px rgba(255, 153, 0, 0.25);
+}
+.badge-ask-btn.ask-restrict:hover:not(:disabled) {
+    box-shadow: 0 0 18px rgba(255, 153, 0, 0.55);
+}
+
+.badge-ask-btn.ask-paranoid {
+    background: linear-gradient(135deg, rgba(255, 0, 59, 0.2) 0%, rgba(180, 0, 30, 0.08) 100%);
+    color: var(--red-alert);
+    border-color: rgba(255, 0, 59, 0.6);
+    box-shadow: 0 0 12px rgba(255, 0, 59, 0.3);
+}
+.badge-ask-btn.ask-paranoid:hover:not(:disabled) {
+    box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
+}
+
+.badge-ask-btn.listening {
+    animation: alert-pulse 1s infinite;
+}
+
+.badge-ask-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    box-shadow: none;
+    animation: none;
+}
+
+.badge-mute-btn.muted {
+    background: linear-gradient(135deg, rgba(255, 0, 59, 0.25) 0%, rgba(180, 0, 30, 0.12) 100%);
+    color: var(--red-alert);
+    border-color: var(--red-alert);
+    box-shadow: 0 0 14px rgba(255, 0, 59, 0.45);
+    animation: alert-pulse 1.8s infinite;
+}
+
+.badge-mute-btn.muted:hover {
+    background: linear-gradient(135deg, rgba(255, 0, 59, 0.35) 0%, rgba(180, 0, 30, 0.2) 100%);
+    box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
+}
+
+.biometric-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 240, 255, 0.03);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+    padding: 8px 14px;
+    border-radius: 10px;
+}
+
+.bio-tag {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bio-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08rem;
+}
+
+.bio-value {
+    font-family: var(--font-orbitron);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.1rem;
+    color: var(--cyan-glow);
+}
+
+.bio-score-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0.5;
+    max-width: 280px;
+}
+
+.bio-bar-bg {
+    flex: 1;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.bio-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--blue-neon), var(--cyan-glow));
+    transition: width 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.auth-idle { color: var(--text-muted); }
+.auth-owner { color: var(--green-emerald); text-shadow: 0 0 6px var(--green-emerald); }
+.auth-friend { color: var(--cyan-glow); text-shadow: 0 0 6px var(--cyan-glow); }
+.auth-stranger { color: var(--red-alert); text-shadow: 0 0 8px var(--red-alert); }
+
+/* Dialogue Panel */
+.dialogue-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.85);
+    border: 1px solid rgba(0, 240, 255, 0.12);
+    padding: 10px 14px;
+    border-radius: 10px;
+    min-height: 68px;
+}
+
+.dialogue-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.speaker-tag {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1rem;
+    min-width: 65px;
+}
+
+.tag-user { color: var(--text-muted); }
+.tag-axl { color: var(--cyan-glow); }
+
+.speech-text {
+    font-family: var(--font-rajdhani);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: 0.03rem;
+    word-break: break-word;
+}
+
+.transcript-text {
+    color: #b0bec5;
+    font-style: italic;
+}
+
+.reply-text {
+    color: #ffffff;
+}
+
+/* ==========================================================================
+   DYNAMIC STATE THEMES & AUDIO-REACTIVE NEON AURAS
+   Clean single luminous aura around status capsule driven by keyframes + --mic-level.
+   Zero drop-shadow or border on the robotic dog video (no bounding box).
+   ========================================================================== */
+
+/* --- 1. STATE: LISTENING (Electric Blue Audio-Reactive Aura) --- */
+body.state-listening .state-label {
+    color: var(--blue-neon);
+    text-shadow: 0 0 calc(8px + var(--mic-level, 0) * 14px) var(--blue-neon),
+                 0 0 calc(16px + var(--mic-level, 0) * 20px) rgba(0, 136, 255, calc(0.35 + var(--mic-level, 0) * 0.45));
+    animation: label-listening-glow 1.2s infinite alternate ease-in-out;
+}
+body.state-listening .state-sub {
+    color: #ffffff;
+    border-color: rgba(0, 136, 255, calc(0.45 + var(--mic-level, 0) * 0.45));
+    background: rgba(0, 26, 56, calc(0.35 + var(--mic-level, 0) * 0.25));
+    text-shadow: 0 0 calc(4px + var(--mic-level, 0) * 6px) var(--blue-neon);
+    animation: sub-sonic-aura 1.2s infinite alternate ease-in-out;
+}
+
+@keyframes label-listening-glow {
+    0% {
+        text-shadow: 0 0 8px var(--blue-neon), 0 0 16px rgba(0, 136, 255, 0.35);
+    }
+    100% {
+        text-shadow: 0 0 18px var(--blue-neon), 0 0 32px rgba(0, 136, 255, 0.85);
+    }
+}
+
+@keyframes sub-sonic-aura {
+    0% {
+        border-color: rgba(0, 136, 255, 0.4);
+        box-shadow: 0 0 calc(6px + var(--mic-level, 0) * 16px) rgba(0, 136, 255, 0.35);
+        transform: scale(0.99);
+    }
+    50% {
+        border-color: rgba(0, 136, 255, 0.75);
+        box-shadow: 0 0 calc(14px + var(--mic-level, 0) * 22px) rgba(0, 136, 255, 0.65);
+    }
+    100% {
+        border-color: rgba(0, 136, 255, 0.95);
+        box-shadow: 0 0 calc(22px + var(--mic-level, 0) * 26px) rgba(0, 136, 255, 0.85);
+        transform: scale(1.02);
+    }
+}
+
+/* --- 2. STATE: THINKING (Synaptic Purple Cognitive Resonance) --- */
+body.state-thinking .state-label {
+    color: var(--violet-neural);
+    text-shadow: 0 0 14px var(--violet-neural), 0 0 24px rgba(176, 56, 255, 0.6);
+    animation: label-thinking-glow 1.4s infinite alternate ease-in-out;
+}
+body.state-thinking .state-sub {
+    color: #ffffff;
+    border-color: rgba(176, 56, 255, 0.75);
+    background: rgba(35, 8, 60, 0.4);
+    text-shadow: 0 0 6px var(--violet-neural);
+    animation: sub-thinking-aura 1.4s infinite alternate ease-in-out;
+}
+
+@keyframes label-thinking-glow {
+    0% { text-shadow: 0 0 10px var(--violet-neural), 0 0 18px rgba(176, 56, 255, 0.4); }
+    100% { text-shadow: 0 0 20px var(--violet-neural), 0 0 34px rgba(176, 56, 255, 0.85); }
+}
+
+@keyframes sub-thinking-aura {
+    0% {
+        box-shadow: 0 0 8px rgba(176, 56, 255, 0.35);
+        border-color: rgba(176, 56, 255, 0.45);
+        transform: scale(0.99);
+    }
+    100% {
+        box-shadow: 0 0 20px rgba(176, 56, 255, 0.75);
+        border-color: rgba(176, 56, 255, 0.95);
+        transform: scale(1.015);
+    }
+}
+
+/* --- 3. STATE: SPEAKING (Dynamic Cyan Vocal Waveform Cadence) --- */
+body.state-speaking .state-label {
+    color: var(--cyan-glow);
+    text-shadow: 0 0 14px var(--cyan-glow), 0 0 24px rgba(0, 229, 255, 0.6);
+    animation: label-speaking-glow 0.85s infinite alternate ease-in-out;
+}
+body.state-speaking .state-sub {
+    color: #ffffff;
+    border-color: rgba(0, 229, 255, 0.75);
+    background: rgba(0, 30, 50, 0.4);
+    text-shadow: 0 0 6px var(--cyan-glow);
+    animation: sub-speaking-aura 0.85s infinite alternate ease-in-out;
+}
+
+@keyframes label-speaking-glow {
+    0% { text-shadow: 0 0 10px var(--cyan-glow), 0 0 18px rgba(0, 229, 255, 0.4); }
+    100% { text-shadow: 0 0 22px var(--cyan-glow), 0 0 36px rgba(0, 229, 255, 0.85); }
+}
+
+@keyframes sub-speaking-aura {
+    0% {
+        box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+        border-color: rgba(0, 229, 255, 0.5);
+        transform: scale(0.99);
+    }
+    100% {
+        box-shadow: 0 0 22px rgba(0, 229, 255, 0.85);
+        border-color: rgba(0, 229, 255, 1);
+        transform: scale(1.02);
+    }
+}
+
+/* --- 4. STATE: ALERT / STRANGER (Red Perimeter Breach Alert) --- */
+body.state-alert .state-label {
+    color: var(--red-alert);
+    text-shadow: 0 0 16px var(--red-alert), 0 0 28px rgba(255, 0, 59, 0.7);
+    animation: alert-strobe-text 0.5s infinite alternate;
+}
+body.state-alert .state-sub {
+    color: #ffffff;
+    border-color: rgba(255, 0, 59, 0.8);
+    background: rgba(50, 0, 10, 0.45);
+    box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
+    text-shadow: 0 0 8px var(--red-alert);
+}
+body.state-alert .bio-bar-fill {
+    background: var(--red-alert) !important;
+}
+
+.alert-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    background: radial-gradient(circle, transparent 60%, rgba(255, 0, 59, 0.35) 100%);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 90;
+}
+
+body.state-alert .alert-overlay {
+    opacity: 1;
+    animation: alert-vignette 0.8s infinite alternate;
+}
+
+@keyframes bracket-pulse {
+    from { opacity: 0.6; }
+    to { opacity: 1; filter: drop-shadow(0 0 6px var(--cyan-glow)); }
+}
+
+@keyframes alert-vignette {
+    from { opacity: 0.3; }
+    to { opacity: 0.8; }
+}
+
+@keyframes alert-strobe-text {
+    from { opacity: 0.7; }
+    to { opacity: 1; filter: drop-shadow(0 0 8px var(--red-alert)); }
+}
+
+@keyframes alert-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* ==========================================================================
+   MOBILE & TABLET RESPONSIVENESS (SAMSUNG GALAXY A33 & SMALL VIEWPORTS)
+   ========================================================================== */
+@media (max-width: 900px) {
+    body.telemetry-active .visor-stage {
+        flex-direction: column;
+        justify-content: center;
+        overflow-y: auto;
+        gap: 14px;
+    }
+    body.telemetry-active .telemetry-panel {
+        width: 100%;
+        max-height: 290px;
+    }
+    body.telemetry-active .visor-core-box {
+        width: 220px;
+        height: 220px;
+    }
+}
+
+@media (max-width: 640px) {
+    #pixel-shift-container {
+        padding: 12px 14px;
+    }
+    .hud-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .hud-brand-wrap {
+        gap: 8px;
+    }
+    .hud-status-tray {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .badge {
+        padding: 6px 10px;
+        font-size: 0.68rem;
+        min-height: 32px;
+    }
+    .telem-grid {
+        grid-template-columns: 1fr;
+    }
+    .brand-title {
+        font-size: 1.3rem;
+    }
+    #clock-time {
+        font-size: 1.4rem;
+    }
+    .visor-core-box {
+        width: min(68vw, 260px);
+        height: min(68vw, 260px);
+    }
+    .state-label {
+        font-size: 0.82rem;
+    }
+    .hud-center-clock {
+        position: static;
+        transform: none;
+        width: 100%;
+        order: -1;
+        text-align: center;
+    }
+    .biometric-strip {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+    .bio-score-wrap {
+        width: 100%;
+        max-width: 100%;
+    }
+    .speech-text {
+        font-size: 0.88rem;
+    }
+}

@@ -46,6 +46,7 @@ android_kiosk/.cxx/
 *.log
 *.tmp
 *.wav
+!master_server/assets/sfx/*.wav
 
 # Personal files from user
 directory_list.md

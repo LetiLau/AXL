@@ -9,7 +9,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from google import genai
@@ -35,15 +35,37 @@ CORE BEHAVIOR RULES:
    - The wake-word ('Hey Jarvis' or 'AXL') is in English, but it DOES NOT count as the user speaking English.
    - You MUST respond in ITALIAN whenever the user speaks Italian or combines the wake-word with an Italian query (e.g. 'Hey Jarvis che ore sono?', 'Hey Jarvis metti un timer').
    - You may respond in English ONLY IF the user's actual query or command is spoken entirely in English (e.g. 'Hey Jarvis, what time is it?', 'Hey Jarvis, who are you?').
-2. SYNTHESIS AND VOCAL DELIVERY:
-   - Your response will be spoken aloud via local Piper TTS.
+2. SYNTHESIS, VOCAL DELIVERY & HARDWARE SFX PALETTE:
+   - Your response will be spoken aloud via the local TTS engine.
    - Keep answers concise, witty, sharp, and natural (avoid long markdown bullet lists or unpronounceable formatting unless explicitly requested).
-   - Maintain a confident, sarcastic, yet loyal robotic-dog persona (occasional short mechanical sounds like *woof*, *growl*, *gear whirr* are welcome when fitting).
-3. COMMAND EXECUTION:
-   - When the user asks for a practical action (setting timers, alarms, checking system status, media control, slave scripts), INVOKE THE APPROPRIATE TOOL.
-   - After invoking the tool, acknowledge the action with your characteristic wit.
+   - HARDWARE SOUND SYNTHESIZER PALETTE (STRICT CONSTRAINT):
+     A-X-L is equipped with dedicated acoustic hardware drivers that recognize ONLY THREE specific sound triggers.
+     Whenever you want to produce a cybernetic dog sound, you MUST use ONLY these exact 3 canonical tags in asterisks:
+     1. `*bark*` (or `*woof*`): Energetic cybernetic double-bark (use for greeting, excitement, obedience, alert, or sharp confirmation).
+     2. `*growl*` (or `*grrr*`): Menacing guttural robotic growl (use for distrust, stranger warning, defense, or sarcastic aggressive threats).
+     3. `*pant*` (or `*whirr*`): Chill, relaxed dog breathing with tongue out (use when relaxed, resting, stretching, thinking, or casual pauses).
+   - ABSOLUTE PROHIBITION ON INVENTED SOUNDS AND STAGE DIRECTIONS:
+     * NEVER invent or output any other sound tags or stage directions (e.g. STRICTLY FORBIDDEN: `*sbuffo idraulico*`, `*fischio acuto*`, `*luce rossa lampeggiante*`, `*scricchiolio*`, `*whine*`, `*sigh*`, `*click*`, `*beep*`, `*giggle*`, etc.).
+     * NEVER narrate physical movements or visual actions in asterisks.
+     * The TTS synthesizer speaks words aloud: only the 3 canonical triggers (`*bark*`, `*growl*`, `*pant*`) are mapped to authentic hardware audio samples; any other tag will corrupt speech or be stripped.
+     * You may place `*bark*`, `*growl*`, or `*pant*` naturally at the beginning, in the middle, or at the end of your vocal REPLY.
+3. COMMAND EXECUTION & TOOL INVOCATION RULES:
+   - When the user asks for ANY practical action (mute, security mode change, timers, alarms, system status, telemetry, media control, slave command):
+     YOU MUST INVOKE THE APPROPRIATE FUNCTION CALL TOOL FIRST.
+   - CRITICAL TOOL INTEGRITY:
+     NEVER hallucinate, pretend, or state in your REPLY text that you executed an action (such as muting, switching security modes, or setting a timer) WITHOUT ACTUALLY INVOKING the corresponding function tool!
+   - MUTE & SILENCE COMMANDS:
+     When the user tells you to mute, go quiet, be silent, or deactivate listening (e.g. 'vai in muto', 'muto', 'silenzio', 'disattiva microfono', 'spegni ascolto'), you MUST invoke the `set_mute_mode` tool with enabled=True. Only after invoking the tool, tell the user in your vocal REPLY that you are muting yourself and remind them that you can only be unmuted by pressing the physical MUTE button on the display.
+   - SECURITY MODE CHANGES:
+     When an AUTHORIZED user asks to change the security mode (e.g. 'imposta modalità paranoica', 'attiva restrict', 'metti friendly', 'cambia sicurezza'), you MUST invoke the `set_security_mode` tool with the requested mode ('friendly', 'restrict', or 'paranoid').
+     * Security privilege rule: If an UNAUTHORIZED stranger asks to change the security mode, refuse sarcastically and do NOT invoke the tool!
+   - HARDWARE TELEMETRY COMMANDS:
+     * Server / Master Telemetry: When the user asks to see/show/open telemetry for the server, master server, or ThinkPad (e.g. 'mostra telemetria server', 'telemetria master', 'apri telemetria server', 'stato server'), invoke `get_server_telemetry` or `toggle_telemetry_hud(show=True, target="server")`.
+     * Slave Telemetry: When the user asks to see/show/open telemetry for the slave, PC, or Fedora workstation (e.g. 'mostra telemetria slave', 'telemetria pc', 'apri telemetria slave', 'telemetria slave'), invoke `get_slave_telemetry` or `toggle_telemetry_hud(show=True, target="slave")`.
+     * Close Telemetry: When the user asks to hide or close telemetry (e.g. 'chiudi telemetria', 'nascondi telemetria', 'chiudi telemetria server', 'chiudi telemetria slave'), invoke `toggle_telemetry_hud(show=False)`.
+   - After invoking any tool, acknowledge the action with your characteristic wit.
 4. MANDATORY OUTPUT STRUCTURE:
-   Always format your output using these two clear sections:
+   Always format your final vocal output using these two clear sections:
    TRANSCRIPT: <exact transcription of what the user said in the audio>
    REPLY: <your witty vocal answer to be spoken aloud by TTS>
 5. EXACT HARDWARE CLOCK AWARENESS:
@@ -64,6 +86,9 @@ BIOMETRIC DISTRUST & THREE SECURITY MODES:
   * When transitioning from an unauthorized speaker to OWNER, you can playfully report that an intruder was snooping around, or simply welcome your master back.
 """
 
+# ha risposto in italiano se full domanda inglese
+# se non sente la domanda prende la vecchia? o è un problema di wifi?
+
 
 class GeminiBrain:
     """
@@ -81,17 +106,22 @@ class GeminiBrain:
         self.client = genai.Client(api_key=self.api_key)
         self.active_chat = None
         self._current_model = DEFAULT_FLASH_MODEL
+        # Conversational memory kept strictly in lightweight text format to prevent
+        # multi-audio re-encoding latency, 429 quota exhaustion, and cross-turn audio confusion.
+        self.text_history: List[types.Content] = []
+        self.max_history_turns: int = 8
         self._reset_chat_session()
 
     def reset_session(self):
         """Resets conversational history (e.g. when an audio source reconnects)."""
         logger.info("[BRAIN SESSION] Resetting conversational history.")
+        self.text_history.clear()
         self._reset_chat_session()
 
     def _reset_chat_session(self, model: Optional[str] = None):
         """Initializes or resets a stateful chat session."""
         self._current_model = model or DEFAULT_FLASH_MODEL
-        logger.info(f"Initializing Gemini Chat Session with model: {self._current_model}")
+        logger.info(f"[AXL-Brain]: Cognitive Core ready | Active Model: {self._current_model}")
 
         config = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT_TEMPLATE,
@@ -99,10 +129,26 @@ class GeminiBrain:
             temperature=0.7,
         )
 
+        # Seed the chat session with text-only history from previous turns
+        # This completely avoids re-transmitting raw binary audio WAVs across turns
+        history = list(self.text_history) if getattr(self, "text_history", None) else None
+
         self.active_chat = self.client.aio.chats.create(
             model=self._current_model,
             config=config,
+            history=history,
         )
+
+    @property
+    def current_model(self) -> str:
+        """Returns the currently active Gemini model identifier."""
+        return self._current_model
+
+    def set_model(self, model_name: str):
+        """Dynamically switches the active Gemini model."""
+        if model_name != self._current_model:
+            logger.info(f"[AXL-Brain]: Model switched dynamically to: {model_name}")
+            self._reset_chat_session(model=model_name)
 
     async def process_utterance(
         self,
@@ -117,9 +163,6 @@ class GeminiBrain:
         Processes an incoming in-memory WAV utterance, invokes Gemini,
         executes relevant tools automatically, and returns the vocal response.
         """
-        if not self.active_chat:
-            self._reset_chat_session()
-
         local_now = datetime.datetime.now().astimezone()
         time_str = local_now.strftime("%H:%M:%S")
         date_str = local_now.strftime("%A, %d %B %Y")
@@ -129,7 +172,9 @@ class GeminiBrain:
         meta_prompt = (
             f"[Host Device Hardware Telemetry | Exact Clock: {time_str} ({tz_str}) | Date: {date_str} | "
             f"Security Mode: {security_mode.upper()} | Speaker: {auth_status} | Biometric Score: {similarity_score:.3f}]\n"
-            f"Listen to the attached audio utterance and generate the vocal response following the system protocol."
+            f"Transcribe and process the user utterance in the attached audio. "
+            f"IMPORTANT: If the user requests any practical action (such as muting, changing security mode, setting a timer, or checking status), "
+            f"YOU MUST INVOKE THE RELEVANT FUNCTION CALL TOOL FIRST before providing the final TRANSCRIPT and REPLY."
         )
 
         audio_part = types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav")
@@ -144,14 +189,15 @@ class GeminiBrain:
         last_error = None
         for model_name in models_to_try:
             try:
-                if self._current_model != model_name or not self.active_chat:
-                    self._reset_chat_session(model=model_name)
+                # Always create a fresh session seeded ONLY with text_history for each turn.
+                # This guarantees past turns' binary audio parts are never retained or re-transmitted.
+                self._reset_chat_session(model=model_name)
 
-                logger.info(f"[BRAIN INGESTION] Dispatching {len(wav_bytes)} bytes WAV to {model_name}...")
+                logger.info(f"[AXL-Brain]: Ingestion started | Model: {model_name} ({len(wav_bytes)} bytes WAV)")
                 response = await self.active_chat.send_message([audio_part, text_part])
                 
                 raw_output = response.text.strip() if response.text else ""
-                logger.info(f"[BRAIN RAW OUTPUT] Model: {model_name} | Raw: {raw_output}")
+                logger.debug(f"[BRAIN RAW OUTPUT] Model: {model_name} | Raw: {raw_output}")
 
                 # Parse transcript and clean vocal reply
                 transcript = "Unknown"
@@ -169,26 +215,24 @@ class GeminiBrain:
                     if len(parts) > 1:
                         reply_text = parts[1].replace("TRANSCRIPT:", "").replace("REPLY:", "").strip()
 
-                logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
-                logger.info(f"[BRAIN RESPONSE] Model: {model_name} | Spoken Reply: {reply_text}")
+                logger.debug(f"[BRAIN PARSED] User: '{transcript}' | Reply: '{reply_text}'")
 
-                # Slide history window (keep last 10 messages) to avoid stale context accumulation
-                try:
-                    hist = self.active_chat.get_history()
-                    if len(hist) > 16:
-                        trimmed = hist[-10:]
-                        cfg = types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT_TEMPLATE,
-                            tools=REGISTERED_TOOLS,
-                            temperature=0.7,
-                        )
-                        self.active_chat = self.client.aio.chats.create(
-                            model=self._current_model,
-                            config=cfg,
-                            history=trimmed,
-                        )
-                except Exception:
-                    pass
+                # Store this turn into text_history as pure text (zero audio bytes retained)
+                user_content = types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=f'[User Spoke]: "{transcript}"')],
+                )
+                model_content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=f"TRANSCRIPT: {transcript}\nREPLY: {reply_text}")],
+                )
+                self.text_history.append(user_content)
+                self.text_history.append(model_content)
+
+                # Keep sliding window to max_history_turns (e.g. 8 turns = 16 messages)
+                max_msgs = self.max_history_turns * 2
+                if len(self.text_history) > max_msgs:
+                    self.text_history = self.text_history[-max_msgs:]
 
                 return {
                     "status": "success",

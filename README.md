@@ -1,5 +1,4 @@
 # --- Work in progress ---
-Testin branches
 
 ## General Info
 **A-X-L** is the acronym for **A**daptive e**X**ecution **L**ogistic. A sort of tribute to A.X.L. movie from Global Road Entertainment. 
@@ -170,23 +169,57 @@ To configure your environment:
 1. Create `master_server/.env` (or copy from `.env.example`).
 2. Add your Google AI Studio API key:
 ```env
-GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-3.5-flash
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-flash-lite-latest
 GEMINI_PRO_MODEL=gemini-3.1-pro-preview
+AXL_SECURITY_MODE=friendly
 ```
 
 #### Phase 3: Cognitive Brain & Dynamic Tools (`brain_gemini.py` & `commands.py`)
 In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabilities:
 - **Multimodal Audio Ingestion:** The in-memory WAV buffer generated after VAD End-of-Speech is dispatched directly to Gemini (`google-genai` SDK) without any disk I/O latency.
-- **Native Automatic Function Calling (AFC):** All system actions are neatly registered in `master_server/src/commands.py`:
+- **Native Automatic Function Calling (AFC) & Deterministic Guardrails:** All system actions are neatly registered in `master_server/src/commands.py`:
   - `set_timer(duration_seconds, label)`
   - `set_alarm(time_str, label)`
   - `get_system_status()`
   - `media_control(action, target)`
   - `execute_slave_command(command, target)`
-  Gemini automatically invokes the right function based on natural language intent and wraps the result in A-X-L's witty tone.
+  - `set_security_mode(mode)` (switches between `friendly`, `restrict`, and `paranoid` distrust profiles)
+  - `set_mute_mode(enabled)` (silences acoustic ingestion until physically unmuted via touchscreen)
+  - `toggle_telemetry_hud(show, target)` (shows/hides live telemetry HUD)
+  Gemini automatically invokes the right function based on natural language intent. Furthermore, a **Dual-Layer Command Guardrail** in `main.py` analyzes the verified transcript: if a compact model (like `gemini-flash-lite`) only generates spoken text without issuing the tool call, the server synchronously executes the requested action (while strictly checking biometric privileges), guaranteeing 100% execution fidelity for muting and security modes.
 - **Biometric Distrust Integration:** The speaker identity evaluated by CAM++ (`is_stranger` flag) is injected into the cognitive prompt:
   - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
   - If **Stranger**: A-X-L enters distrust mode, barking or sarcastically refusing to execute sensitive commands or access personal data.
-- **Dynamic Model Escalation:** Standard interactions run on ultra-low-latency flash models (`gemini-3.5-flash`), with transparent escalation to Pro models (`gemini-3.1-pro-preview`) when deep programming or complex reasoning is requested.
-- **Local Neural TTS (`tts_engine.py`):** Piper ONNX acoustic models synthesize vocal responses locally at 16kHz with ~0.08s latency (50x real-time), streaming raw PCM chunks back through `/ws/audio`. Features bilingual model selection (`it_IT-riccardo` and `en_GB-alan`), text normalization, and acoustic echo feedback prevention.
+- **Dynamic Model Escalation & Switching:** Standard interactions run on ultra-low-latency flash models (`gemini-flash-lite-latest` / `gemini-3.5-flash`), with planned runtime model switching (`GeminiBrain.set_model`) to escalate to Pro models (`gemini-3.1-pro-preview`) via voice or UI when complex tasks are requested.
+- **Clean Terminal Telemetry & Model Awareness:** Terminal output is streamlined to eliminate dialogue duplication. The Master server centrally prints single authoritative dialogue events (`>>> [USER HEARD] <<<` and `>>> [A-X-L SPEAKS] <<<`), while the Cognitive Brain explicitly logs model readiness and invocation (`[AXL-Brain]: Cognitive Core ready | Active Model: ...`). Pre-trigger wake-word probes and third-party SDK chatter are silenced from the standard terminal stream.
+- **Hybrid Neural TTS Engine & Authentic Canine SFX (`tts_engine.py`):** 
+  - Studio-grade speech synthesis combining Microsoft Edge Neural TTS (**Diego** for Italian with tuned `+10%` pacing and tight conversational cadence) with Piper ONNX (**Bryce** for English with Tony Stark/Jarvis persona). Includes on-device local Piper fallback (**Miro** / **Riccardo**), text normalization, and acoustic echo feedback prevention.
+  - **Authentic Canine SFX In-Line Sequencing & Compound Tag Parsing:** Rather than phonetically pronouncing sound tags or stage directions (e.g. `*Bark*`, `*Growl*`, `*GRRR-WOOF!*`, `*whirr*`, `*pant*`, `*Luce rossa lampeggiante*`), `PiperTTSEngine` parses incoming replies, strips non-verbal stage directions, and automatically interleaves authentic 16kHz PCM audio samples (`bark.wav`, `growl.wav`, `pant.wav`) directly from RAM (`self.sfx_cache`) with 100ms natural acoustic silence gaps. Compound menacing tags (such as `*GRRR-WOOF!*` or `*GRR-WOOF*`) strictly trigger `growl.wav` rather than the friendly `bark.wav`. Multi-part sentences containing sounds in the middle are synthesized concurrently with `asyncio.gather` and assembled in seamless temporal sequence.
+  - **Canine Acoustic Profiles (Bark, Growl, Pant) & Strict System Prompt Palette:** Features an open-source hybrid acoustic blend combining the energetic high-frequency yip attack of a young puppy with the chest resonance and growl body of an adult guard dog synchronized at a 320ms double-bark cadence (`bark.wav`). For distrust and threat warnings, it features an aggressive guttural cybernetic growl (`growl.wav`, derived from `442816__qubodup__goblin-scream.wav`). For chill moments and relaxed posture, it incorporates a rhythmic dog panting/breathing sequence (`pant.wav`, 2.20s, extracted from `574183__bloodybill__doc-the-aussie-growls-dog.wav`), seamlessly replacing mechanical stage directions like `*whirr*` and `*pant*`. The Cognitive Brain system prompt strictly limits acoustic cues to these 3 canonical tags, prohibiting LLM hallucinations of unsupported sounds (`*sbuffo idraulico*`, `*fischio acuto*`), with defensive regex safeguards in `tts_engine.py`.
+
+
+#### Phase 4: Cybernetic Visor & Slave Node Architecture
+Phase 4 introduces visual feedback and workstation orchestration:
+- **Cybernetic Visor Web UI (`master_server/web_ui/`):**
+  - Served directly from FastAPI on `/ui` with real-time state synchronization via WebSocket `/ws/ui`.
+  - Tactical HUD states: `IDLE` (passive surveillance), `LISTENING` (wake-word triggered), `THINKING` (neural cognitive inference), `SPEAKING` (vocal streaming audio visualizer), and `ALERT` (biometric breach / stranger warning).
+  - **AMOLED Pixel-Shifting:** Built-in burn-in protection specifically designed for the Samsung Galaxy A33 Super AMOLED display, periodically shifting UI coordinates and automatically entering subdued power-saving mode during inactivity.
+  - Live subtitles display showing transcribed user queries, A-X-L vocal responses, and speaker biometric verification scores.
+  - **Modern Card UI & Interactive Controls:**
+    - Restyled top status tray with modern rounded pill/card buttons (`border-radius: 10px`), smooth hover/tap feedback, and full mouse + touchscreen support (`SERVER TELEM: ON/OFF` in top-left next to the A-X-L brand, `SLAVE TELEM: ON/OFF` in the status tray, one-way security mode lock `FRIENDLY -> RESTRICT / PARANOID` that prevents unauthorized downgrade once locked, WebSocket connectivity indicator, and full-screen toggle).
+    - **Dual Independent Telemetry (Master Server vs Slave Node):**
+      - Allows inspecting hardware metrics for either the Master Server host machine (e.g. ThinkPad) or the remote Slave workstation (e.g. Fedora/Windows rig) on the exact same HUD panel.
+      - **Mutually Exclusive Display:** Only one telemetry panel can be active at a time; clicking one opens it and automatically closes the other. Clicking the active one toggles it closed.
+      - **Universal Multi-GPU Support:** Detects any combination of dedicated (NVIDIA RTX/GTX via `nvidia-smi`, AMD Radeon, Intel Arc) and integrated GPUs (Intel UHD/Iris Xe, AMD Radeon APU) across desktops and hybrid dual-GPU laptops, displaying individual card loads, thermals, frequencies, and VRAM.
+      - **Voice Commands:** Spoken voice commands (*"mostra telemetria server"*, *"telemetria master"*, *"mostra telemetria slave"*, *"telemetria pc"*, *"chiudi telemetria"*) trigger real-time telemetry streaming for the requested machine via native tool invocation and dual-layer regex guardrails.
+    - **Dead-Center Tactical Clock:** Absolute geometric centering (`left: 50%; transform: translateX(-50%)`) ensuring the top clock (`#clock-time`) is permanently aligned to the exact horizontal center of the display, independent of asymmetric brand text or status button widths.
+    - **Tactical MUTE Button & Voice Protocol:** Dedicated rounded action button above `SPEAKER ID` with dynamic cyan glow (`MIC: ATTIVO`) and pulsing red alert state (`MIC: MUTO`). Supports voice command muting ("AXL muto", "disattiva microfono") which drops incoming WebSocket PCM packets at the network layer. **Strict Security Constraint:** Unmuting can ONLY be performed by physically tapping the UI button, preventing malicious voice overrides.
+    - **"ASK ME..." Push-to-Ask Button:** Large action button opposite the MIC button that starts listening without saying the wake-word (`ASK_START` WebSocket message → `AudioPipeline.force_listen()`). Its colour follows the security mode (green in `friendly`, orange in `restrict`, red in `paranoid`); speaker verification still applies in protected modes. It also works while muted as a one-shot question (mute stays on afterwards); it is disabled only while A-X-L is listening/thinking/speaking. MIC and ASK ME are sized for easy visibility/tapping on the kiosk.
+    - **Live Security Mode Voice Synchronization:** Real-time bi-directional sync: commands like "passa in modalità paranoica" or "metti restrict" update `speaker_verifier.py`, `os.environ`, and instantly broadcast WebSocket events to update the UI badge without reload.
+    - **Modernized Hardware Telemetry Panel:** Redesigned in a 2x2 glassmorphic card grid with rounded corners (`border-radius: 16px-20px`), dedicated monitor cards for CPU core load, RAM memory, dedicated & integrated GPUs, and cooling fans with rounded progress bars, preserving A-X-L's cyberpunk palette.
+    - **Dynamic Split-Stage Layout & Live/Fallback Telemetry:** Responsive stage geometry that prevents visor-to-subtitle overlap across all aspect ratios, cleanly hides/shows the telemetry panel on toggle, and streams live hardware telemetry (with automatic local `psutil` and dynamic browser fallback when the external slave daemon is offline).
+- **Workstation Slave Daemon (`slave_node/slave_daemon.py`):**
+  - Standalone lightweight daemon running on Fedora or Windows workstations on port `8001`.
+  - Exposes real-time hardware telemetry (`psutil`: CPU load, RAM usage, storage, thermal sensors, battery status).
+  - Handles authenticated automation webhooks (`/execute`) for commands like `lock_screen`, `sleep`, `mute`, and application launching triggered by A-X-L.
