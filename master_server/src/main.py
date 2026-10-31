@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
+import math
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, Set
@@ -405,6 +407,7 @@ async def audio_websocket_endpoint(websocket: WebSocket):
     client_host = websocket.client.host if websocket.client else "unknown"
     logger.info(f"Audio source connected: {client_host}")
 
+    last_mic_broadcast_time = 0.0
     try:
         while True:
             data = await websocket.receive_bytes()
@@ -416,6 +419,21 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                 continue
 
             stream_manager.audio_buffer.write(data)
+
+            # Broadcast real-time microphone volume level (RMS/dBFS) to Web UI (~20 updates/sec)
+            if stream_manager.ui_clients:
+                now_mono = time.monotonic()
+                if now_mono - last_mic_broadcast_time >= 0.05:
+                    last_mic_broadcast_time = now_mono
+                    chunk_samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+                    rms = float(np.sqrt(np.mean(chunk_samples**2)))
+                    db = 20.0 * math.log10(rms / 32767.0) if rms > 1e-4 else -96.0
+                    norm_level = max(0.0, min(1.0, (db + 55.0) / 40.0))
+                    asyncio.create_task(stream_manager.broadcast_ui({
+                        "type": "MIC_LEVEL",
+                        "level": round(norm_level, 3),
+                        "db": round(db, 1),
+                    }))
 
             if stream_manager.pipeline:
                 events = stream_manager.pipeline.ingest_frame(data)

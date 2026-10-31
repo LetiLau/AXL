@@ -78,6 +78,8 @@
     let animFrameId = null;
     let animTime = 0;
     let idleInactivityTimer = null;
+    let targetMicLevel = 0.0;
+    let currentMicLevel = 0.0;
 
     // Ensure telemetry panel is strictly hidden at startup
     if (telemetryPanel) {
@@ -276,6 +278,12 @@
             case "ANIMATION":
             case "VIDEO_ANIMATION":
                 if (msg.video) switchAvatarVideo(msg.video);
+                break;
+
+            case "MIC_LEVEL":
+                if (typeof msg.level === "number") {
+                    targetMicLevel = Math.max(0, Math.min(1, msg.level));
+                }
                 break;
 
             default:
@@ -639,6 +647,25 @@
             if (askBtn.disabled) return;
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: "ASK_START" }));
+            } else {
+                // UI Preview Simulation Fallback (when testing offline/standalone)
+                setVisorState("LISTENING");
+                let simTick = 0;
+                const simInterval = setInterval(() => {
+                    targetMicLevel = (simTick % 2 === 0) ? 0.8 : 0.2;
+                    simTick++;
+                    if (simTick > 7) {
+                        clearInterval(simInterval);
+                        targetMicLevel = 0.0;
+                        setVisorState("THINKING");
+                        setTimeout(() => {
+                            setVisorState("SPEAKING");
+                            setTimeout(() => {
+                                setVisorState("IDLE");
+                            }, 2000);
+                        }, 1800);
+                    }
+                }, 350);
             }
         });
     }
@@ -819,6 +846,9 @@
         const config = defaults[currentState] || defaults["IDLE"];
         if (stateLabel) stateLabel.textContent = customLabel || config.label;
         if (stateSub) stateSub.textContent = customSub || config.sub;
+        if (currentState !== "LISTENING" && currentState !== "IDLE") {
+            targetMicLevel = 0.0;
+        }
         updateAskButton();
     }
 
@@ -1005,9 +1035,31 @@
         animFrameId = requestAnimationFrame(renderVisor);
     }
 
+    // ==========================================================================
+    // 11. REAL-TIME AUDIO-REACTIVE AURA ENGINE (Subtle Dynamic Microphone VU)
+    // ==========================================================================
+    function startAudioReactiveLoop() {
+        function stepAudioGlow() {
+            // Fast attack (~0.35) for instant vocal response, gentle decay (~0.12) to avoid jitter
+            const speed = targetMicLevel > currentMicLevel ? 0.35 : 0.12;
+            currentMicLevel += (targetMicLevel - currentMicLevel) * speed;
+            if (currentMicLevel < 0.001) {
+                currentMicLevel = 0.0;
+            }
+
+            // Continuous natural decay towards zero
+            targetMicLevel *= 0.88;
+
+            document.documentElement.style.setProperty("--mic-level", currentMicLevel.toFixed(3));
+            requestAnimationFrame(stepAudioGlow);
+        }
+        requestAnimationFrame(stepAudioGlow);
+    }
+
     // Start everything
     connectWebSocket();
     initVideoAvatar();
     renderVisor();
+    startAudioReactiveLoop();
 
 })();

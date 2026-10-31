@@ -50,7 +50,7 @@ class PiperTTSEngine:
         re.IGNORECASE,
     )
     STAGE_DIRECTION_KEYWORDS = re.compile(
-        r"\b(luce|ross[ao]|lampeggi|schermo|display|occhi|servo|meccanic|motore|testa|coda|orecchi|whine|gemito|piagnucol|sigh|sospiro|giggle|risatina|clank|beep)\b",
+        r"\b(luce|ross[ao]|lampeggi\w*|schermo|display|occhi|servo|meccanic\w*|motore|testa|coda|orecchi\w*|whine|gemito|piagnucol\w*|sigh|sospiro|giggle|risatina|clank|beep|sbuff\w*|fischi\w*|sbadigli\w*|ronz\w*)\b",
         re.IGNORECASE,
     )
 

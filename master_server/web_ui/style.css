@@ -22,6 +22,7 @@
     --font-mono: 'Share Tech Mono', monospace;
     --hud-shift-x: 0px;
     --hud-shift-y: 0px;
+    --mic-level: 0;
 }
 
 * {
@@ -416,6 +417,7 @@ body.telemetry-active .visor-core-box {
     border: none;
     box-shadow: none;
     outline: none;
+    filter: none;
     z-index: 1;
     pointer-events: none;
     mix-blend-mode: screen;
@@ -476,6 +478,10 @@ body.telemetry-active .visor-core-box {
     text-align: center;
     pointer-events: none;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
 }
 
 .state-label {
@@ -485,7 +491,7 @@ body.telemetry-active .visor-core-box {
     letter-spacing: 0.2rem;
     color: var(--cyan-glow);
     text-shadow: 0 0 8px var(--cyan-glow);
-    transition: color 0.3s ease, text-shadow 0.3s ease;
+    transition: color 0.3s ease, text-shadow 0.3s ease, transform 0.3s ease;
 }
 
 .state-sub {
@@ -493,7 +499,23 @@ body.telemetry-active .visor-core-box {
     font-size: 0.72rem;
     letter-spacing: 0.12rem;
     color: var(--text-muted);
-    margin-top: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 18px;
+    border-radius: 20px;
+    border: 1px solid rgba(0, 240, 255, 0.18);
+    background: rgba(0, 15, 28, 0.45);
+    box-shadow: 0 0 calc(4px + var(--mic-level, 0) * 10px) rgba(0, 240, 255, calc(0.08 + var(--mic-level, 0) * 0.22));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: color 0.3s ease;
+}
+
+body.state-idle .state-sub {
+    color: var(--cyan-dim);
+    border-color: rgba(0, 240, 255, calc(0.18 + var(--mic-level, 0) * 0.25));
+    box-shadow: 0 0 calc(4px + var(--mic-level, 0) * 10px) rgba(0, 240, 255, calc(0.08 + var(--mic-level, 0) * 0.25));
 }
 
 /* ==========================================================================
@@ -1054,47 +1076,128 @@ body.telemetry-active .telemetry-panel {
 }
 
 /* ==========================================================================
-   DYNAMIC STATE THEMES & ANIMATIONS
+   DYNAMIC STATE THEMES & AUDIO-REACTIVE NEON AURAS
+   Clean single luminous aura around status capsule driven by keyframes + --mic-level.
+   Zero drop-shadow or border on the robotic dog video (no bounding box).
    ========================================================================== */
 
-/* STATE: LISTENING */
-body.state-listening .bracket {
-    border-color: var(--blue-neon);
-    transform: scale(1.05);
-}
+/* --- 1. STATE: LISTENING (Electric Blue Audio-Reactive Aura) --- */
 body.state-listening .state-label {
     color: var(--blue-neon);
-    text-shadow: 0 0 12px var(--blue-neon);
+    text-shadow: 0 0 calc(8px + var(--mic-level, 0) * 14px) var(--blue-neon),
+                 0 0 calc(16px + var(--mic-level, 0) * 20px) rgba(0, 136, 255, calc(0.35 + var(--mic-level, 0) * 0.45));
+    animation: label-listening-glow 1.2s infinite alternate ease-in-out;
+}
+body.state-listening .state-sub {
+    color: #ffffff;
+    border-color: rgba(0, 136, 255, calc(0.45 + var(--mic-level, 0) * 0.45));
+    background: rgba(0, 26, 56, calc(0.35 + var(--mic-level, 0) * 0.25));
+    text-shadow: 0 0 calc(4px + var(--mic-level, 0) * 6px) var(--blue-neon);
+    animation: sub-sonic-aura 1.2s infinite alternate ease-in-out;
 }
 
-/* STATE: THINKING */
-body.state-thinking .bracket {
-    border-color: var(--violet-neural);
+@keyframes label-listening-glow {
+    0% {
+        text-shadow: 0 0 8px var(--blue-neon), 0 0 16px rgba(0, 136, 255, 0.35);
+    }
+    100% {
+        text-shadow: 0 0 18px var(--blue-neon), 0 0 32px rgba(0, 136, 255, 0.85);
+    }
 }
+
+@keyframes sub-sonic-aura {
+    0% {
+        border-color: rgba(0, 136, 255, 0.4);
+        box-shadow: 0 0 calc(6px + var(--mic-level, 0) * 16px) rgba(0, 136, 255, 0.35);
+        transform: scale(0.99);
+    }
+    50% {
+        border-color: rgba(0, 136, 255, 0.75);
+        box-shadow: 0 0 calc(14px + var(--mic-level, 0) * 22px) rgba(0, 136, 255, 0.65);
+    }
+    100% {
+        border-color: rgba(0, 136, 255, 0.95);
+        box-shadow: 0 0 calc(22px + var(--mic-level, 0) * 26px) rgba(0, 136, 255, 0.85);
+        transform: scale(1.02);
+    }
+}
+
+/* --- 2. STATE: THINKING (Synaptic Purple Cognitive Resonance) --- */
 body.state-thinking .state-label {
     color: var(--violet-neural);
-    text-shadow: 0 0 12px var(--violet-neural);
+    text-shadow: 0 0 14px var(--violet-neural), 0 0 24px rgba(176, 56, 255, 0.6);
+    animation: label-thinking-glow 1.4s infinite alternate ease-in-out;
+}
+body.state-thinking .state-sub {
+    color: #ffffff;
+    border-color: rgba(176, 56, 255, 0.75);
+    background: rgba(35, 8, 60, 0.4);
+    text-shadow: 0 0 6px var(--violet-neural);
+    animation: sub-thinking-aura 1.4s infinite alternate ease-in-out;
 }
 
-/* STATE: SPEAKING */
-body.state-speaking .bracket {
-    border-color: var(--cyan-glow);
-    animation: bracket-pulse 1s infinite alternate;
+@keyframes label-thinking-glow {
+    0% { text-shadow: 0 0 10px var(--violet-neural), 0 0 18px rgba(176, 56, 255, 0.4); }
+    100% { text-shadow: 0 0 20px var(--violet-neural), 0 0 34px rgba(176, 56, 255, 0.85); }
 }
+
+@keyframes sub-thinking-aura {
+    0% {
+        box-shadow: 0 0 8px rgba(176, 56, 255, 0.35);
+        border-color: rgba(176, 56, 255, 0.45);
+        transform: scale(0.99);
+    }
+    100% {
+        box-shadow: 0 0 20px rgba(176, 56, 255, 0.75);
+        border-color: rgba(176, 56, 255, 0.95);
+        transform: scale(1.015);
+    }
+}
+
+/* --- 3. STATE: SPEAKING (Dynamic Cyan Vocal Waveform Cadence) --- */
 body.state-speaking .state-label {
     color: var(--cyan-glow);
-    text-shadow: 0 0 14px var(--cyan-glow);
+    text-shadow: 0 0 14px var(--cyan-glow), 0 0 24px rgba(0, 229, 255, 0.6);
+    animation: label-speaking-glow 0.85s infinite alternate ease-in-out;
+}
+body.state-speaking .state-sub {
+    color: #ffffff;
+    border-color: rgba(0, 229, 255, 0.75);
+    background: rgba(0, 30, 50, 0.4);
+    text-shadow: 0 0 6px var(--cyan-glow);
+    animation: sub-speaking-aura 0.85s infinite alternate ease-in-out;
 }
 
-/* STATE: ALERT / STRANGER */
-body.state-alert .bracket {
-    border-color: var(--red-alert);
-    transform: scale(1.08);
+@keyframes label-speaking-glow {
+    0% { text-shadow: 0 0 10px var(--cyan-glow), 0 0 18px rgba(0, 229, 255, 0.4); }
+    100% { text-shadow: 0 0 22px var(--cyan-glow), 0 0 36px rgba(0, 229, 255, 0.85); }
 }
+
+@keyframes sub-speaking-aura {
+    0% {
+        box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+        border-color: rgba(0, 229, 255, 0.5);
+        transform: scale(0.99);
+    }
+    100% {
+        box-shadow: 0 0 22px rgba(0, 229, 255, 0.85);
+        border-color: rgba(0, 229, 255, 1);
+        transform: scale(1.02);
+    }
+}
+
+/* --- 4. STATE: ALERT / STRANGER (Red Perimeter Breach Alert) --- */
 body.state-alert .state-label {
     color: var(--red-alert);
-    text-shadow: 0 0 16px var(--red-alert);
+    text-shadow: 0 0 16px var(--red-alert), 0 0 28px rgba(255, 0, 59, 0.7);
     animation: alert-strobe-text 0.5s infinite alternate;
+}
+body.state-alert .state-sub {
+    color: #ffffff;
+    border-color: rgba(255, 0, 59, 0.8);
+    background: rgba(50, 0, 10, 0.45);
+    box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
+    text-shadow: 0 0 8px var(--red-alert);
 }
 body.state-alert .bio-bar-fill {
     background: var(--red-alert) !important;
