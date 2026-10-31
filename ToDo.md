@@ -161,6 +161,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
     - Abbaio: Analisi spettrale e temporale dei sample Freesound (`small-dog-bark-02` per attacco brillante e yip a ~1560 Hz + `dog-bark-9` per risonanza toracica da cane adulto a ~590 Hz). Sintetizzato blend armonico a 16kHz 16-bit mono (`bark.wav` a doppia battuta cadenzata a 320ms, unendo il timbro giovane ed energico a quello profondo del cane da guardia).
     - Ringhio/Minaccia: Elaborazione del growl gutturale goblin (`442816__qubodup__goblin-scream.wav`), ricampionato a 16kHz mono, normalizzato a -0.5 dBFS e rifinito con fade-in/fade-out naturale (`growl.wav`, 1.20s), perfetto per il ringhio robotico/alieno di A-X-L contro gli estranei.
     - Respiro Chill / Ansito Lingua Fuori (`pant.wav`): Estratti i primi 2.20 secondi del sample `574183__bloodybill__doc-the-aussie-growls-dog.wav` (Aussie Dog), isolando 2 cicli completi di respirazione/ansito rilassato con la lingua fuori prima dell'inizio del ringhio aggressivo. Convertito da 24-bit 48kHz stereo a 16kHz 16-bit mono con fade naturale, agganciato a `*whirr*`, `*pant*`, `*ansima*`, `*respiro*`.
+    - [ ] palette acustica di singolo bark per *bark * e doppio bark per *bark bark *
   - **Zero-Latency In-Memory SFX Pre-Roll:** Pre-caricamento all'avvio in RAM (`self.sfx_cache`) di `bark.wav`, `growl.wav` e `pant.wav` senza I/O su disco.
   - **Parsing Regex, Gestione Tag Composti (*GRRR-WOOF!*) & Sequenziamento In-Line:**
     - Priorità al ringhio minaccioso: tag ibridi o composti come `*GRRR-WOOF!*`, `*GRR-WOOF*`, `grrwoof` mappano rigorosamente a `growl` (`growl.wav`), escludendo `bark` (che è un abbaio amichevole/di allerta e non cattivo).
@@ -187,6 +188,3 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
     - **Camuffamento UI:** Sullo schermo del Visore NON compare alcuna scritta o indicatore di sentinella/sorveglianza; la UI mostra semplicemente lo stato di **MIC MUTO** (icona microfono disattivato), simulando che A-X-L sia solo a riposo/disattivato.
     - **Zero Feedback Sonoro:** Nessun beep, abbaio o suono di scatto; silenzio radio totale.
     - **Disattivazione Protetta in Due Passaggi:** Poiché a schermo non c'è traccia della modalità segreta, per disattivarla l'Owner deve prima toccare manualmente il bottone "MIC" per riattivare l'ascolto, e poi pronunciare il comando vocale di disattivazione (confermato dalla verifica biometrica vocale dell'Owner).
-
-
-
