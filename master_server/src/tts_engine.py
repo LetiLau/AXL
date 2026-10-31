@@ -45,8 +45,12 @@ class PiperTTSEngine:
         r"\b(growl|growls|grr+|ringhia|ringhio|ringhiando|snarl|snarls)\b|grr+[-_]?(woof|bark|\w*)",
         re.IGNORECASE,
     )
+    PANT_REGEX = re.compile(
+        r"\b(whirr+|pant|panting|ansim[ao]|ansimando|respiro|breath|breathing|chill)\b",
+        re.IGNORECASE,
+    )
     STAGE_DIRECTION_KEYWORDS = re.compile(
-        r"\b(luce|ross[ao]|lampeggi|schermo|display|occhi|servo|meccanic|motore|testa|coda|orecchi|whine|gemito|piagnucol|pant|ansim|sigh|sospiro|giggle|risatina|whirr|clank|beep)\b",
+        r"\b(luce|ross[ao]|lampeggi|schermo|display|occhi|servo|meccanic|motore|testa|coda|orecchi|whine|gemito|piagnucol|sigh|sospiro|giggle|risatina|clank|beep)\b",
         re.IGNORECASE,
     )
 
@@ -125,7 +129,12 @@ class PiperTTSEngine:
                     segments.append(("sfx", "bark"))
                     continue
 
-                # 3. Stage directions / sound keywords to ignore
+                # 3. Pant / Chill breathing check (replaces *whirr*)
+                if self.PANT_REGEX.search(lower):
+                    segments.append(("sfx", "pant"))
+                    continue
+
+                # 4. Stage directions / sound keywords to ignore
                 word_count = len(lower.split())
                 if word_count >= 2 or self.STAGE_DIRECTION_KEYWORDS.search(lower):
                     continue

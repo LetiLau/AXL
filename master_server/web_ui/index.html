@@ -165,8 +165,13 @@
             <div id="visor-wrapper" class="visor-wrapper">
                 
                 <div class="visor-core-box">
-                    <!-- Holographic Cybernetic Core Visualizer Canvas -->
-                    <canvas id="visor-canvas" width="600" height="600"></canvas>
+                    <!-- Neon A-X-L Cybernetic Dog Animation Video (Square cropped via CSS object-fit) -->
+                    <video id="visor-video" class="visor-video" autoplay loop muted playsinline preload="auto">
+                        <source src="dog_animation/neon_axl_robo_dog.mp4" type="video/mp4">
+                    </video>
+
+                    <!-- Holographic Cybernetic Core Visualizer Canvas (Hidden when video avatar is active) -->
+                    <canvas id="visor-canvas" width="600" height="600" style="display: none;"></canvas>
 
                     <!-- Tactical Visor Reticles & HUD Brackets -->
                     <div class="visor-reticle-overlay">

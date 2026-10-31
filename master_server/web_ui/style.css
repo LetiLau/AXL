@@ -404,6 +404,23 @@ body.telemetry-active .visor-core-box {
     height: min(36vw, calc(100vh - 280px), 350px);
 }
 
+.visor-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    z-index: 1;
+    pointer-events: none;
+    mix-blend-mode: screen;
+}
+
 #visor-canvas {
     width: 100%;
     height: 100%;
@@ -411,15 +428,11 @@ body.telemetry-active .visor-core-box {
     top: 0;
     left: 0;
     pointer-events: none;
+    z-index: 2;
 }
 
 .visor-reticle-overlay {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    top: 0;
-    left: 0;
-    pointer-events: none;
+    display: none;
 }
 
 .bracket {

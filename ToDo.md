@@ -100,9 +100,18 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 14. **WebView Kiosk & Intent Receiver:** Configurazione di `MainActivity.kt` per mostrare la Web UI ospitata sul ThinkPad e ricezione di comandi JSON sul WebSocket per lanciare `Intent` Android (sveglie, apertura app, controlli media).
 """ Dettaglio esplicito delle integrazioni Android native: `AlarmClock` (sveglie/timer), `CalendarContract` (eventi Google) e `AudioManager` (gestione volume/media)."""
 
-#### FASE 6: Animazioni Espressive Web UI (Schizzi 2D / Lottie / Avatar)
+#### FASE 6: Animazioni Espressive Web UI (Video Neon / Avatar Reattivo)
 
-15. [ ] **Avatar Dinamico A-X-L nel Visore:** Integrazione degli schizzi/animazioni 2D (Lottie / SVG / WebM) nello stage centrale del Visore Web per reagire ai diversi stati e comandi (dorme in Idle, orecchie tese in Listening, ringhio su Stranger, console DJ quando c'è musica, ecc.).
+15. [ ] **Avatar Dinamico A-X-L nel Visore (Video / Animazioni Contestuali):**
+    * [x] **Video Avatar Neon A-X-L nello Stage Centrale:** Integrato il video `neon_axl_robo_dog.mp4` al posto del cerchio procedurale Canvas, con crop responsive quadrato 1:1 hardware (`object-fit: cover`), 
+    * [ ] cornice con bracket tattici e glow neon reattivo agli stati FSM (`IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `ALERT`).
+    * [ ] **Switch Dinamico Animazioni basato su Stato, Azione e Sottotitoli:**
+      - Analisi semantica in tempo reale della risposta generata, dell'azione o dei sottotitoli (`TRANSCRIPT` / function call eseguita o in corso):
+        - `idle` / `sleep`: animazione cane che dorme / respiro calmo
+        - `listening`: animazione cane vigile con orecchie ritte
+        - `stranger` / `alert`: animazione cane aggressivo / snarl ringhio verso estranei
+        - `music` / `balletto`: cane con console DJ o balletto / movimento a ritmo quando suona musica o in festeggiamenti
+        - `speaking`: muso che dialoga sincronizzato con la voce Piper TTS
 
 #### FASE 7: Deploy su ThinkPad Debian 12
 
@@ -111,6 +120,8 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 ---
 
 #### NOTE FUTURE & OTTIMIZZAZIONI POST-SVILUPPO
+- [ ] **Switch Dinamico Animazioni Avatar A-X-L da Sottotitoli e Azioni:**
+  - Sistema di selezione automatica del clip video avatar (da `web_ui/dog_animation/`) in base al contenuto dei sottotitoli (`user_text` e `axl_text`), allo stato di sicurezza o all'azione in svolgimento (es. dorme in idle, ringhio su estraneo, balletto/console DJ quando c'è musica).
 - [ ] **Ottimizzazione Riconoscimento Vocale (Speaker Verification):** 
   - Migliorare l'acquisizione dell'enrollment (multi-take a distanze diverse e con rumore ambientale) e tarare la soglia di Cosine Similarity per evitare falsi positivi/negativi quando si parla piano o vicino al microfono.
   - Testare modelli alternativi (es. 3D-Speaker o modelli più resilienti) dopo lo sviluppo dell'app Kotlin.
@@ -149,7 +160,8 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
   - **Analisi Acustica e Sintesi Ibrida Open Source:** 
     - Abbaio: Analisi spettrale e temporale dei sample Freesound (`small-dog-bark-02` per attacco brillante e yip a ~1560 Hz + `dog-bark-9` per risonanza toracica da cane adulto a ~590 Hz). Sintetizzato blend armonico a 16kHz 16-bit mono (`bark.wav` a doppia battuta cadenzata a 320ms, unendo il timbro giovane ed energico a quello profondo del cane da guardia).
     - Ringhio/Minaccia: Elaborazione del growl gutturale goblin (`442816__qubodup__goblin-scream.wav`), ricampionato a 16kHz mono, normalizzato a -0.5 dBFS e rifinito con fade-in/fade-out naturale (`growl.wav`, 1.20s), perfetto per il ringhio robotico/alieno di A-X-L contro gli estranei.
-  - **Zero-Latency In-Memory SFX Pre-Roll:** Pre-caricamento all'avvio in RAM (`self.sfx_cache`) di `bark.wav` e `growl.wav` senza I/O su disco.
+    - Respiro Chill / Ansito Lingua Fuori (`pant.wav`): Estratti i primi 2.20 secondi del sample `574183__bloodybill__doc-the-aussie-growls-dog.wav` (Aussie Dog), isolando 2 cicli completi di respirazione/ansito rilassato con la lingua fuori prima dell'inizio del ringhio aggressivo. Convertito da 24-bit 48kHz stereo a 16kHz 16-bit mono con fade naturale, agganciato a `*whirr*`, `*pant*`, `*ansima*`, `*respiro*`.
+  - **Zero-Latency In-Memory SFX Pre-Roll:** Pre-caricamento all'avvio in RAM (`self.sfx_cache`) di `bark.wav`, `growl.wav` e `pant.wav` senza I/O su disco.
   - **Parsing Regex, Gestione Tag Composti (*GRRR-WOOF!*) & Sequenziamento In-Line:**
     - Priorità al ringhio minaccioso: tag ibridi o composti come `*GRRR-WOOF!*`, `*GRR-WOOF*`, `grrwoof` mappano rigorosamente a `growl` (`growl.wav`), escludendo `bark` (che è un abbaio amichevole/di allerta e non cattivo).
     - Riproduzione In-Line nel parlato: supporto per tag canini posizionati in mezzo alla frase (es. *"Vuoi sentire un ringhio? Subito, capo. \*GRRR-WOOF!\* Meglio di un dobermann..."*). Il testo viene suddiviso in segmenti sintetizzati concorrentemente con `asyncio.gather`, intercalando il verso e gap di 100ms nell'esatta sequenza temporale della conversazione.

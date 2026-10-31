@@ -14,8 +14,9 @@
 
     // --- DOM Elements ---
     const body = document.body;
+    const visorVideo = document.getElementById("visor-video");
     const canvas = document.getElementById("visor-canvas");
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas ? canvas.getContext("2d") : null;
     const clockTime = document.getElementById("clock-time");
     const clockDate = document.getElementById("clock-date");
     const secModeBadge = document.getElementById("sec-mode-badge");
@@ -270,6 +271,11 @@
 
             case "MUTE_STATE":
                 updateMuteUI(msg.muted);
+                break;
+
+            case "ANIMATION":
+            case "VIDEO_ANIMATION":
+                if (msg.video) switchAvatarVideo(msg.video);
                 break;
 
             default:
@@ -817,9 +823,55 @@
     }
 
     // ==========================================================================
-    // 10. 60FPS PROCEDURAL VISOR HUD CANVAS RENDERER
+    // 9. CYBERNETIC VIDEO AVATAR ENGINE (A-X-L NEON ROBOTIC DOG)
+    // ==========================================================================
+    function initVideoAvatar() {
+        if (!visorVideo) return;
+        visorVideo.playsInline = true;
+        visorVideo.muted = true;
+        visorVideo.loop = true;
+
+        const attemptPlay = () => {
+            const p = visorVideo.play();
+            if (p !== undefined) {
+                p.catch(() => {
+                    // Browser policy fallback: play on first user interaction
+                    const onFirstUserAction = () => {
+                        visorVideo.play().catch(() => {});
+                        window.removeEventListener("pointerdown", onFirstUserAction);
+                        window.removeEventListener("keydown", onFirstUserAction);
+                    };
+                    window.addEventListener("pointerdown", onFirstUserAction, { once: true });
+                    window.addEventListener("keydown", onFirstUserAction, { once: true });
+                });
+            }
+        };
+        attemptPlay();
+    }
+
+    function switchAvatarVideo(videoSrc) {
+        if (!visorVideo || !videoSrc) return;
+        const currentSrc = visorVideo.getAttribute("data-current-src") || "";
+        if (currentSrc === videoSrc) return;
+        visorVideo.setAttribute("data-current-src", videoSrc);
+        const source = visorVideo.querySelector("source");
+        if (source) {
+            source.src = videoSrc;
+        } else {
+            visorVideo.src = videoSrc;
+        }
+        visorVideo.load();
+        visorVideo.play().catch(() => {});
+    }
+
+    // ==========================================================================
+    // 10. 60FPS PROCEDURAL VISOR HUD CANVAS RENDERER (Fallback/Overlay)
     // ==========================================================================
     function renderVisor() {
+        if (!canvas || !ctx || canvas.style.display === "none") {
+            return;
+        }
+
         const dpr = window.devicePixelRatio || 1;
         const width = canvas.width / dpr;
         const height = canvas.height / dpr;
@@ -955,6 +1007,7 @@
 
     // Start everything
     connectWebSocket();
+    initVideoAvatar();
     renderVisor();
 
 })();
