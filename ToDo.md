@@ -113,9 +113,22 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
         - `music` / `balletto`: cane con console DJ o balletto / movimento a ritmo quando suona musica o in festeggiamenti
         - `speaking`: muso che dialoga sincronizzato con la voce Piper TTS
 
-#### FASE 7: Deploy su ThinkPad Debian 12
+#### FASE 7: Gestione Audio Avanzata, Riproduzione Musicale & Integrazioni Dispositivi
 
-16. [ ] **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
+16. [ ] **Routing Audio e Riproduzione Musicale Dinamica (Slave vs Galaxy A33):**
+    * Selezione del target di riproduzione vocale e musicale ("suona su PC" vs "suona sul visore A33"):
+      - Routing su Slave (Fedora/Windows): controllo riproduzione multimediale locale (player di sistema, Spotify desktop, daemon multimediale).
+      - Routing su Galaxy A33: dispatch comandi Intent/MediaSession su Android per riproduzione su smartphone.
+    * Gestione periferiche di output audio:
+      - Collegamento e gestione casse esterne Bluetooth o via jack AUX / auricolari (configurazione audio sink, prevenzione loopback acustico tra casse e microfono A33).
+    * Integrazione Spotify & Smart Apps:
+      - Supporto comandi vocali A-X-L per avvio playlist/brani Spotify (via Spotify Connect, Web API, o Android Intent).
+      - Predisposizione comandi per app smart domestiche (es. app lavastoviglie, smart home appliance con notifiche di stato e avvio programmato).
+17. [ ] **enrolling new friend command** must create a way to enroll new friend and calculate `THRESHOLD_VAR` for each user? find a better way
+
+#### FASE 8: Deploy su ThinkPad Debian 12
+
+18. [ ] **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
 
 ---
 
