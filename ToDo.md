@@ -114,6 +114,16 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
   - `restrict`: A-X-L ascolta ed esegue ordini solo per l'Owner e gli amici registrati nei profili (`models/profiles/*.npy`), respingendo gli estranei.
   - `paranoid`: A-X-L obbedisce solo ed esclusivamente all'Owner registrato; se parla un amico, rifiuta spiegando che è in modalità paranoica.
 - [x] **Nuova voce**: Trovare un nuovo modello vocale che pronunci le parole in maniera più sensata. 
+- [x] **Pulizia e Ottimizzazione Log Terminale (Master & Brain):**
+  - Eliminazione delle stampe duplicate del parlato e della trascrizione: solo il Master stampa authoritative `>>> [USER HEARD] <<<` e `>>> [A-X-L SPEAKS] <<<`.
+  - Spostamento di `[BRAIN RAW OUTPUT]` e `[WAKEWORD_PROBE]` a livello `DEBUG` per evitare rumore prima dell'effettivo trigger.
+  - Silenziamento chatter interno di terze parti (`google_genai`, `httpx`, `websockets`).
+  - Notifica esplicita di avvio del Brain e modello neurale attivo (`[AXL-Brain]: Cognitive Core ready | Active Model: ...` all'avvio e ad ogni inferenza).
+- [ ] **Fix e Robustezza Comandi Vocali (`muto` e cambio modalità `friendly`/`restrict`/`paranoid`):**
+  - Investigare e correggere il mancato dispatch dei tool quando si utilizzano modelli compatti (`gemini-flash-lite`), che talvolta allucinano la risposta testuale ("mi metto in muto") senza emettere la `function_call` (`set_mute_mode`).
+  - Gestione privilegi biometrici: se il sistema è in `restrict` o `paranoid` e il punteggio vocale assegna `STRANGER`, il system prompt vieta l'invocazione di `set_security_mode`.
+- [ ] **Switch Dinamico tra Modelli Gemini (Dynamic Model Switching):**
+  - Consentire ad A-X-L di muoversi dinamicamente tra i vari modelli Gemini (`gemini-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro`...) sia a caldo via Web UI / configurazione, sia tramite comando vocale ("passa a Gemini Pro") o per escalation automatica a seconda della complessità del task richiesto.
 - [ ] Aggiungi suoni di abbaio o ringhio vero
 - [ ] **Antigravity**: Spiega o correggi il codice che ho scritto. correzione (esercizi degli esami, altri progetti...)
 

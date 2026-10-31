@@ -30,6 +30,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("AXL-Master")
 
+# Suppress verbose third-party loggers for a clean terminal output
+logging.getLogger("google_genai").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("websockets").setLevel(logging.WARNING)
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODELS_DIR = BASE_DIR / "models"
 
@@ -405,7 +411,7 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                     ev_type = ev["event"]
 
                     if ev_type == "WAKEWORD_PROBE":
-                        logger.info(f"[PROBE] Model: {ev['model']} | Score: {ev['score']:.3f}")
+                        logger.debug(f"[PROBE] Model: {ev['model']} | Score: {ev['score']:.3f}")
 
                     elif ev_type == "WAKEWORD_TRIGGER":
                         logger.info(

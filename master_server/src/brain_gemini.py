@@ -99,7 +99,7 @@ class GeminiBrain:
     def _reset_chat_session(self, model: Optional[str] = None):
         """Initializes or resets a stateful chat session."""
         self._current_model = model or DEFAULT_FLASH_MODEL
-        logger.info(f"Initializing Gemini Chat Session with model: {self._current_model}")
+        logger.info(f"[AXL-Brain]: Cognitive Core ready | Active Model: {self._current_model}")
 
         config = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT_TEMPLATE,
@@ -111,6 +111,17 @@ class GeminiBrain:
             model=self._current_model,
             config=config,
         )
+
+    @property
+    def current_model(self) -> str:
+        """Returns the currently active Gemini model identifier."""
+        return self._current_model
+
+    def set_model(self, model_name: str):
+        """Dynamically switches the active Gemini model."""
+        if model_name != self._current_model:
+            logger.info(f"[AXL-Brain]: Model switched dynamically to: {model_name}")
+            self._reset_chat_session(model=model_name)
 
     async def process_utterance(
         self,
@@ -155,11 +166,11 @@ class GeminiBrain:
                 if self._current_model != model_name or not self.active_chat:
                     self._reset_chat_session(model=model_name)
 
-                logger.info(f"[BRAIN INGESTION] Dispatching {len(wav_bytes)} bytes WAV to {model_name}...")
+                logger.info(f"[AXL-Brain]: Ingestion started | Model: {model_name} ({len(wav_bytes)} bytes WAV)")
                 response = await self.active_chat.send_message([audio_part, text_part])
                 
                 raw_output = response.text.strip() if response.text else ""
-                logger.info(f"[BRAIN RAW OUTPUT] Model: {model_name} | Raw: {raw_output}")
+                logger.debug(f"[BRAIN RAW OUTPUT] Model: {model_name} | Raw: {raw_output}")
 
                 # Parse transcript and clean vocal reply
                 transcript = "Unknown"
@@ -177,8 +188,7 @@ class GeminiBrain:
                     if len(parts) > 1:
                         reply_text = parts[1].replace("TRANSCRIPT:", "").replace("REPLY:", "").strip()
 
-                logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
-                logger.info(f"[BRAIN RESPONSE] Model: {model_name} | Spoken Reply: {reply_text}")
+                logger.debug(f"[BRAIN PARSED] User: '{transcript}' | Reply: '{reply_text}'")
 
                 # Slide history window (keep last 10 messages) to avoid stale context accumulation
                 try:
