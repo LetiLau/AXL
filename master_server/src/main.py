@@ -41,6 +41,7 @@ from commands import (
 )
 
 THRESHOLD_VAR = float(os.getenv("AXL_SPEAKER_THRESHOLD", "0.48"))  # Configurable via .env, calibrated with tools/calibrate_speaker.py
+WAKEWORD_THRESHOLD = float(os.getenv("AXL_WAKEWORD_THRESHOLD", "0.48"))  # Configurable via .env, prevents false positives
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,7 +87,7 @@ class StreamManager:
         self.pipeline = AudioPipeline(
             models_dir=MODELS_DIR,
             vad_threshold=0.4,
-            wakeword_threshold=0.35,
+            wakeword_threshold=WAKEWORD_THRESHOLD,
             silence_hangover_sec=0.5,
             max_command_duration_sec=10.0,
         )

@@ -215,6 +215,16 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
   - Conversione automatica della memoria conversazionale in puro testo leggero: `[User Spoke]: "..."` e `TRANSCRIPT: ... REPLY: ...`.
   - Rigenerazione della sessione ad ogni turno con solo lo storico testuale, inviando via rete solo il buffer WAV del turno corrente e liberando istantaneamente la RAM.
   - Finestra scorrevole limitata agli ultimi 8 turni (16 messaggi) per mantenere basso il consumo di token ed evitare allucinazioni su contesti obsoleti.
+- [x] **Tuning Soglia Wake-Word, Protezione Anti-Allucinazione Comandi/Timer & Fallback Trascrizione (`main.py` & `brain_gemini.py`):**
+  - **Soglia Wake-Word Dinamica su `.env` (`AXL_WAKEWORD_THRESHOLD`):**
+    - Spostata la soglia di openWakeWord (`main.py`) da hardcoded `0.35` a variabile d'ambiente con default `0.48`.
+    - Risolto il problema delle attivazioni spurie del modello `hey_jarvis` durante il parlato naturale in italiano (fonemi simili in conversazioni casuali, es. *"cosa in Norvegia alle isole di nuovo in Finlandia dove ti va"* che triggheravano con score `0.352` o `0.394`).
+  - **Protezione Anti-Allucinazione Comandi Operativi & Guardrail Metaforici:**
+    - Introdotta nel System Prompt (`brain_gemini.py`) una regola bidirezionale rigida per i comandi attuativi (`set_timer`, `set_alarm`, ecc.): il modello deve invocare il tool **unicamente** su comando diretto ed esplicito dell'utente (es. *"metti un timer di 5 minuti"*), e **mai** per battute retoriche, metafore umoristiche (*"cinque minuti sul cronometro per un caffè"*) o figure di stile.
+    - Simmetricamente, vietato dichiarare nella risposta vocale di aver eseguito un'azione se il function tool non è stato effettivamente chiamato.
+  - **Parser Robusto Trascrizione & Fallback Ambientale (`[Suono/Rumore ambientale]`):**
+    - Quando la wake-word viene catturata per rumori o parlato non indirizzato ad A-X-L, `transcript` assume il valore predefinito difensivo `"[Suono/Rumore ambientale]"` anziché scambiare header interni del modello (`REPLY:`, alert sintetici di timer scaduti) per parole dell'utente.
+    - Sanificazione dei sottotitoli dell'HUD Web UI e dei log del master server, eliminando ripetizioni e leak di prompt.
 - [ ] **Switch Dinamico tra Modelli Gemini (Dynamic Model Switching):**
   - Consentire ad A-X-L di muoversi dinamicamente tra i vari modelli Gemini (`gemini-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro`...) sia a caldo via Web UI / configurazione, sia tramite comando vocale ("passa a Gemini Pro") o per escalation automatica a seconda della complessità del task richiesto.
 - [x] **Integrazione Effetti Sonori Canini Autentici (SFX Pre-Roll in `tts_engine.py`):**

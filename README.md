@@ -201,6 +201,10 @@ AXL_SECURITY_MODE=friendly
 # Biometric Speaker Verification Threshold (calibrated via tools/calibrate_speaker.py)
 # Controls sensitivity dynamically without modifying Python code (default: 0.48)
 AXL_SPEAKER_THRESHOLD=0.48
+
+# OpenWakeWord Wake-Word Detection Threshold
+# Calibrated to minimize false positives during conversational Italian speech (default: 0.48)
+AXL_WAKEWORD_THRESHOLD=0.48
 ```
 
 #### Phase 3: Cognitive Brain & Dynamic Tools (`brain_gemini.py` & `commands.py`)
@@ -216,6 +220,9 @@ In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabili
   - `set_mute_mode(enabled)` (silences acoustic ingestion until physically unmuted via touchscreen)
   - `toggle_telemetry_hud(show, target)` (shows/hides live telemetry HUD)
   Gemini automatically invokes the right function based on natural language intent. Crucially, critical tools (`set_security_mode`, `set_mute_mode`, `execute_slave_command`) enforce **Strict Biometric Privilege Verification** directly at execution time: if an unauthorized speaker tries to switch security modes or mute the system in `restrict` or `paranoid` mode, the tool deterministically rejects execution (`COMANDO RIFIUTATO: Accesso negato`). Furthermore, a synchronous intent guardrail in `main.py` and turn-level meta-prompt alert in `brain_gemini.py` ensure complete end-to-end immunity from LLM hallucinations or unauthorized voice overrides.
+- **Strict Tool Invocation Integrity & Metaphor Guardrails:** Operational commands (`set_timer`, `set_alarm`, etc.) are protected by strict cognitive rules: Gemini is explicitly instructed to invoke practical action tools **only** when the user has formulated a direct, explicit command (e.g. *"metti un timer di 5 minuti"*), and **never** for rhetorical jokes, metaphors, or conversational pauses. Conversely, the model is strictly forbidden from claiming in its vocal reply that an action was executed if the corresponding function tool was not genuinely called.
+- **Robust Transcription Parsing & Ambient Noise Fallback:** In scenarios where the wake-word is triggered by background ambient noise or casual speech without a direct command to A-X-L, `brain_gemini.py` provides resilient parsing: `TRANSCRIPT:` defaults cleanly to `"[Suono/Rumore ambientale]"` if no distinct user utterance is present, guarding against internal prompt leaks (such as `REPLY:` or alert tags) and keeping the Visore HUD subtitles and console logs clean and accurate.
+- **Wake-Word Sensitivity & False-Positive Filtering (`main.py`):** The OpenWakeWord inference threshold is loaded dynamically via `AXL_WAKEWORD_THRESHOLD` (default: `0.48`). This filters out accidental triggers caused by acoustic similarities in conversational Italian speech (e.g. phrases like *"viaggia"*, *"ti va"*, *"isole"*), ensuring clean activation only when the user intentionally speaks to A-X-L.
 - **Biometric Distrust Integration:** The speaker identity evaluated by CAM++ (`is_stranger` flag) is injected into the cognitive prompt:
   - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
   - If **Stranger**: A-X-L enters distrust mode, barking or sarcastically refusing to execute sensitive commands or access personal data.

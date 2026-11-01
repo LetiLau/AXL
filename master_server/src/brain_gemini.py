@@ -54,6 +54,9 @@ CORE BEHAVIOR RULES:
      YOU MUST INVOKE THE APPROPRIATE FUNCTION CALL TOOL FIRST.
    - CRITICAL TOOL INTEGRITY:
      NEVER hallucinate, pretend, or state in your REPLY text that you executed an action (such as muting, switching security modes, or setting a timer) WITHOUT ACTUALLY INVOKING the corresponding function tool!
+     Conversely, DO NOT invoke any action tool unless the user explicitly requested that specific action in their command.
+   - TIMERS & ALARMS:
+     Invoke `set_timer` or `set_alarm` ONLY if the user explicitly commanded a countdown, timer, or reminder (e.g. 'metti un timer di 5 minuti', 'imposta sveglia alle 8'). NEVER invoke `set_timer` for rhetorical jokes, metaphors, hypothetical commentary, or conversational pauses.
    - MUTE & SILENCE COMMANDS:
      When the user tells you to mute, go quiet, be silent, or deactivate listening (e.g. 'vai in muto', 'muto', 'silenzio', 'disattiva microfono', 'spegni ascolto'), you MUST invoke the `set_mute_mode` tool with enabled=True. Only after invoking the tool, tell the user in your vocal REPLY that you are muting yourself and remind them that you can only be unmuted by pressing the physical MUTE button on the display.
    - SECURITY MODE CHANGES:
@@ -183,8 +186,9 @@ class GeminiBrain:
             )
         else:
             security_directive = (
-                "IMPORTANT: If the user requests any practical action (such as muting, changing security mode, setting a timer, or checking status), "
-                "YOU MUST INVOKE THE RELEVANT FUNCTION CALL TOOL FIRST before providing the final TRANSCRIPT and REPLY."
+                "IMPORTANT: If the user explicitly requests any practical action (such as muting, changing security mode, setting a timer, or checking status), "
+                "YOU MUST INVOKE THE RELEVANT FUNCTION CALL TOOL FIRST before providing the final TRANSCRIPT and REPLY. "
+                "DO NOT invoke tools for jokes, metaphors, or when the user did not explicitly command an action."
             )
 
         meta_prompt = (
@@ -217,20 +221,31 @@ class GeminiBrain:
                 logger.debug(f"[BRAIN RAW OUTPUT] Model: {model_name} | Raw: {raw_output}")
 
                 # Parse transcript and clean vocal reply
-                transcript = "Unknown"
+                transcript = "[Suono/Rumore ambientale]"
                 reply_text = raw_output
 
-                t_match = re.search(r"TRANSCRIPT:\s*(.*?)(?=\nREPLY:|\n\n|\Z)", raw_output, re.IGNORECASE | re.DOTALL)
+                t_match = re.search(r"TRANSCRIPT:\s*(.*?)(?=\nREPLY:|\s+REPLY:|\n\n|\Z)", raw_output, re.IGNORECASE | re.DOTALL)
                 r_match = re.search(r"REPLY:\s*(.*)", raw_output, re.IGNORECASE | re.DOTALL)
 
                 if t_match:
-                    transcript = t_match.group(1).strip()
+                    parsed_t = t_match.group(1).strip()
+                    # Sanity check: Ensure TRANSCRIPT didn't capture REPLY or internal alert headers
+                    if (
+                        parsed_t
+                        and not parsed_t.upper().startswith("REPLY:")
+                        and not parsed_t.upper().startswith("[TIMER EXPIRATION")
+                        and parsed_t.lower() not in ("unknown", "none", "null", "[unknown]", "")
+                    ):
+                        transcript = parsed_t
+
                 if r_match:
                     reply_text = r_match.group(1).strip()
-                elif t_match and not r_match:
+                elif t_match and transcript != "[Suono/Rumore ambientale]":
                     parts = raw_output.split(transcript, 1)
                     if len(parts) > 1:
                         reply_text = parts[1].replace("TRANSCRIPT:", "").replace("REPLY:", "").strip()
+                else:
+                    reply_text = re.sub(r"^TRANSCRIPT:\s*", "", reply_text, flags=re.IGNORECASE).strip()
 
                 logger.debug(f"[BRAIN PARSED] User: '{transcript}' | Reply: '{reply_text}'")
 
