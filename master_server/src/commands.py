@@ -636,7 +636,12 @@ def detect_telemetry_intent(text: str) -> Optional[Dict[str, Any]]:
     lower = text.lower().strip()
 
     # Determine target if mentioned (defaults to slave if unspecified)
-    target = "server" if any(w in lower for w in ["server", "master", "thinkpad", "locale", "local"]) else "slave"
+    if any(w in lower for w in ["server", "master", "thinkpad", "locale", "local"]):
+        target = "server"
+    elif any(w in lower for w in ["kiosk", "android", "telefono", "cellulare", "a33", "phone", "batteria"]):
+        target = "kiosk"
+    else:
+        target = "slave"
 
     # Close / Hide telemetry patterns
     if any(re.search(p, lower) for p in [
@@ -649,11 +654,11 @@ def detect_telemetry_intent(text: str) -> Optional[Dict[str, Any]]:
     # Open / Show telemetry patterns
     if any(re.search(p, lower) for p in [
         r"\b(mostra|apri|attiva|visualizza|proietta|fammi\s+vedere)\s+(la\s+)?telemetria\b",
-        r"\btelemetria\s+(del\s+|dello\s+)?(server|master|slave|pc|thinkpad|workstation)\b",
-        r"\b(server|slave|master|pc)\s+telemetr(ia|y)\b",
+        r"\btelemetria\s+(del\s+|dello\s+)?(server|master|slave|pc|thinkpad|workstation|kiosk|telefono|cellulare)\b",
+        r"\b(server|slave|master|pc|kiosk|android)\s+telemetr(ia|y)\b",
         r"\btelemetria\s+(on|aperta|attiva)\b",
-        r"\b(stato|monitor)\s+(del\s+)?(server|master|slave|pc|hardware)\b",
-        r"^(hey\s+jarvis\s+|axl\s+)?(server\s+telemetry|slave\s+telemetry|telemetria\s+server|telemetria\s+slave|telemetria\s+pc)\.?$",
+        r"\b(stato|monitor)\s+(del\s+)?(server|master|slave|pc|hardware|kiosk|telefono|batteria)\b",
+        r"^(hey\s+jarvis\s+|axl\s+)?(server\s+telemetry|slave\s+telemetry|kiosk\s+telemetry|telemetria\s+server|telemetria\s+slave|telemetria\s+pc|telemetria\s+kiosk|telemetria\s+telefono)\.?$",
     ]):
         return {"show": True, "target": target}
 

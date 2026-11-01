@@ -62,7 +62,8 @@ CORE BEHAVIOR RULES:
    - HARDWARE TELEMETRY COMMANDS:
      * Server / Master Telemetry: When the user asks to see/show/open telemetry for the server, master server, or ThinkPad (e.g. 'mostra telemetria server', 'telemetria master', 'apri telemetria server', 'stato server'), invoke `get_server_telemetry` or `toggle_telemetry_hud(show=True, target="server")`.
      * Slave Telemetry: When the user asks to see/show/open telemetry for the slave, PC, or Fedora workstation (e.g. 'mostra telemetria slave', 'telemetria pc', 'apri telemetria slave', 'telemetria slave'), invoke `get_slave_telemetry` or `toggle_telemetry_hud(show=True, target="slave")`.
-     * Close Telemetry: When the user asks to hide or close telemetry (e.g. 'chiudi telemetria', 'nascondi telemetria', 'chiudi telemetria server', 'chiudi telemetria slave'), invoke `toggle_telemetry_hud(show=False)`.
+     * Kiosk / Phone Telemetry: When the user asks to see/show/open telemetry for the kiosk, smartphone, Galaxy A33, or battery (e.g. 'mostra telemetria kiosk', 'telemetria telefono', 'stato batteria', 'telemetria cellulare'), invoke `toggle_telemetry_hud(show=True, target="kiosk")`.
+     * Close Telemetry: When the user asks to hide or close telemetry (e.g. 'chiudi telemetria', 'nascondi telemetria', 'chiudi telemetria server', 'chiudi telemetria slave', 'chiudi telemetria kiosk'), invoke `toggle_telemetry_hud(show=False)`.
    - VOICE PROFILE ENROLLMENT & CALIBRATION:
      * When an AUTHORIZED OWNER asks to calibrate, update, or modify their voice (e.g. 'aggiorna la mia voce', 'modifica la mia voce', 'ricalibra la mia voce', 'cambia la mia voce'), invoke `enroll_voice_profile(profile_name="owner")`.
      * When an AUTHORIZED OWNER asks to enroll or register a friend (e.g. 'registra la voce di Luca', 'aggiungi amico Marco'), invoke `enroll_voice_profile(profile_name="<friend_name>")`.

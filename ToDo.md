@@ -91,11 +91,18 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
       - Transizione fluida CSS (`filter: brightness(0.55); opacity: 0.35;` con transizione a 1.2s) che riduce luminosità e contrasto a riposo per massima durata del pannello Super AMOLED del Galaxy A33 ed azzeramento del rischio burn-in.
       - Risveglio istantaneo a piena luminosità appena l'utente parla o interagisce con il visore.
     * **Menu Rapido Impostazioni Cyberpunk (Gear Dropdown) & Tasto STOP Sincronizzato:**
-      - **Ingranaggio Cyberpunk & Menu a Tendina (`#settings-popup`):** Sostituito il semplice tasto reload con un'icona ingranaggio animata in stile HUD ciano, che apre un menu a scomparsa glassmorphic coerente con lo stile di `MODE: FRIENDLY`. Opzioni: Ricarica Visore, Configura/Info IP Master (con bridge nativo su Android e prompt su PC), Riconnetti WebSocket (handshake immediato senza ricaricare la pagina HTML), Lingua UI e Arresta Kiosk & Mic.
+      - **Ingranaggio Cyberpunk & Menu a Tendina (`#settings-popup`):** Sostituito il semplice tasto reload con un'icona ingranaggio animata in stile HUD ciano, che apre un menu a scomparsa glassmorphic coerente con lo stile di `MODE: FRIENDLY`. Opzioni con icone vettoriali SVG cyberpunk dedicate (eliminati tutti gli emoji generici di sistema): Ricarica Visore (doppia freccia circolare), Configura IP Master (chiave inglese tattica), Riconnetti WebSocket (data-link di rete per handshake a caldo immediato), Lingua UI (reticolo sferico) e Arresta Kiosk & Mic (power stand-by rosso allerta). Micro-animazioni interattive hover per ciascun pulsante.
       - **Rimozione Schermo Intero dal Menu Settings:** Rimosso il duplicato dal popup poiché esiste già il pulsante dedicato `#fullscreen-btn` nella barra superiore.
       - **Predisposizione Switch Lingua UI (`#setting-opt-lang`):** Predisposto pulsante per commutare la lingua dell'interfaccia (default ENG con placeholder informativo in vista delle localizzazioni future).
       - **Pulsante Arresta Kiosk & Mic con Blocco Dinamico PC/Android (`#setting-opt-kill-kiosk`):** Aggiunta opzione per arrestare completamente l'app Kotlin Kiosk e rilasciare il microfono in background (`exitKiosk()`). La Web UI riconosce automaticamente se si trova su browser desktop/localhost (in tal caso il tasto è disabilitato e oscurato con cursore vietato) oppure all'interno del Kiosk Android (tasto attivo, evidenziato in rosso allerta `opt-kill-kiosk` per chiudere l'app ed evitare consumi anomali del mic).
-      - **Eliminazione Pulsante Nativo Chiave Inglese su Android:** Rimosso completamente il pulsante fluttuante grigio nativo (`btnSettings`) da `activity_main.xml` e `MainActivity.kt`, accentrando tutte le impostazioni nell'interfaccia Web UI.
+      - **Identificazione Dinamica Dispositivo e Naming Tattico (`// KIOSK` vs `// NODE-n`):**
+        - La Web UI e il Master Server cooperano per identificare la natura del client connesso al WebSocket `/ws/ui`.
+        - Se la connessione proviene dall'app Kotlin Android, la dicitura sotto ad *A-X-L* passa automaticamente a `TACTICAL AI // KIOSK`.
+        - Se la connessione proviene da browser web desktop o mobile, il Master Server assegna progressivamente uno slot dinamico (`NODE-01`, `NODE-02`, ecc.) in base all'ordine di collegamento, riciclando i numeri di nodo non appena le schede o finestre vengono chiuse.
+        - **Stile Cromatico Muted Uniforme:** Uniformato il colore di `KIOSK` e `NODE-n` al grigio tattico (`var(--text-muted)`) di `TACTICAL AI //`.
+      - **Riposizionamento Stato WebSocket Minimalista (Sotto al Brand A-X-L):**
+        - Rimosso il riquadro pulsante `WS: ONLINE/OFFLINE` dalla tray superiore destra dei comandi per evitare confusione con i bottoni interattivi.
+        - Spostato direttamente sotto alla scritta `TACTICAL AI // NODE-01` in alto a sinistra sotto forma di linea di stato essenziale, con punto luminoso e testo ciano brillante (`WS: ONLINE`), rosso allerta (`WS: OFFLINE`) o ambra (`WS: CONNECTING`), privo di cornici o bottoni ingombranti.
       - **Sincronizzazione Reale Tasto STOP & Durata Riproduzione:** Corretto il ciclo di vita dello stato `SPEAKING`. In precedenza la trasmissione WiFi terminava in 0.3s e riportava il visore in `IDLE`, facendo sparire il tasto STOP mentre l'altoparlante del client continuava a parlare per 10 secondi. Ora `speak_text()` mantiene `is_speaking = True` e il tasto rosso STOP pulsante per l'intera durata effettiva dell'audio.
       - **Silenziamento Istantaneo (Vocal Abort):** La pressione di STOP sul visore invia il comando di abort a livello di rete, azzera i buffer del server e invia `"STOP"` al client audio, scatenando lo svuotamento hardware (`AudioTrack.flush()` su Android e `sd.stop()` su PC) per zittire A-X-L all'istante.
       - **Risoluzione Troncamento Messaggi Lunghi:** Eliminata l'alterazione forzata della punteggiatura (sostituzione dei punti con virgole) che causava l'esaurimento del buffer prosodico neurale di Edge-TTS e Piper, e inibito l'audio microfonico per tutta la durata del parlato per evitare che A-X-L si auto-ascoltasse e interrompesse le proprie risposte lunghe.
@@ -112,15 +119,16 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 
 14. [x] **WebView Kiosk, Javascript Bridge & Intent Receiver:** Configurazione di `MainActivity.kt` per mostrare la Web UI ospitata sul ThinkPad e ricezione di comandi JSON sul WebSocket per lanciare `Intent` Android (sveglie, apertura app, controlli media).
-      - **Interfaccia Bridge Javascript (`window.AXLKiosk`):** Esposizione dei metodi `reload()`, `showIpConfig()` e `exitKiosk()` (arresto immediato del Foreground Service con `ACTION_STOP`, `finishAffinity()` e kill del processo Android). Rimosso qualsiasi elemento grafico nativo sovrapposto alla UI (chiave inglese rimossa).
+      - **Interfaccia Bridge Javascript (`window.AXLKiosk`):** Esposizione dei metodi `reload()`, `showIpConfig()`, `exitKiosk()` e `getKioskTelemetry()`.
       - [ ] """ Dettaglio esplicito delle integrazioni Android native: `AlarmClock` (sveglie/timer), `CalendarContract` (eventi Google) e `AudioManager` (gestione volume/media)."""
 
-15. [ ] **Telemetria Hardware Kiosk (Galaxy A33):**
-    * Monitoraggio metriche fisiche del dispositivo Android tramite API native (`BatteryManager`, `ActivityManager`):
+15. [x] **Telemetria Hardware Kiosk (Galaxy A33) & Tasto Dedicato Visore:**
+    * Monitoraggio metriche fisiche del dispositivo Android tramite API native (`BatteryManager`, `ActivityManager` in `KioskTelemetry.kt`):
       - Livello batteria (%), stato di ricarica (AC/Batteria), temperatura batteria (°C, essenziale per prevenire surriscaldamenti sul kiosk fisso).
-      - RAM usata/disponibile e potenza segnale Wi-Fi (dBm).
-    * Invio payload telemetria al Master via WebSocket (`KIOSK_TELEMETRY`) e switch visivo sul pannello HUD Visore.
-    * Integrazione comandi vocali A-X-L (*"mostra telemetria kiosk"*, *"telemetria telefono"*, *"stato batteria"*).
+      - RAM usata/disponibile e potenza segnale Wi-Fi RSSI (dBm).
+    * **Pulsante KIOSK TELEM su Schermo (Esclusivo Android Kiosk):** Aggiunto pulsante `KIOSK TELEM` nella tray superiore tra `SLAVE TELEM` e `SECURITY MODE`. Il pulsante appare unicamente quando il visore è aperto all'interno dell'app Kiosk Android, rimanendo invisibile su normali browser PC.
+    * **Pannello HUD Kiosk Dedicato:** Mappatura automatica sui 4 riquadri glassmorphic (Info Dispositivo, RAM, Stato Batteria/Carica e Segnale Wi-Fi RSSI).
+    * **Comandi Vocali Bivalenti:** Integrazione in `commands.py` e `brain_gemini.py` dei comandi vocali (*"mostra telemetria kiosk"*, *"telemetria telefono"*, *"stato batteria"*, ecc.).
 
 15. [ ] adding terminal commands linke mc server
 16. [ ] lingua ui dall'ingranaggio

@@ -19,11 +19,15 @@
     const ctx = canvas ? canvas.getContext("2d") : null;
     const clockTime = document.getElementById("clock-time");
     const clockDate = document.getElementById("clock-date");
+    const brandNodeTag = document.getElementById("brand-node-tag");
     const secModeBadge = document.getElementById("sec-mode-badge");
     const modeSelectorPopup = document.getElementById("mode-selector-popup");
-    const connBadge = document.getElementById("connection-badge");
+    const connStatus = document.getElementById("connection-status");
+    const connStatusText = document.getElementById("connection-status-text");
+    const connBadge = connStatus; // alias for backwards compatibility
     const serverTelemBtn = document.getElementById("server-telem-btn");
     const slaveTelemBtn = document.getElementById("slave-telem-btn");
+    const kioskTelemBtn = document.getElementById("kiosk-telem-btn");
     const telemetryBtn = slaveTelemBtn; // alias for backwards compatibility
     const telemTitle = document.getElementById("telem-title");
     const stateLabel = document.getElementById("visor-state-label");
@@ -211,11 +215,26 @@
     const clientEnv = detectClientEnvironment();
     window.axlClient = clientEnv;
 
+    function updateBrandNodeTag(assignedTag) {
+        if (!brandNodeTag) return;
+        if (assignedTag) {
+            brandNodeTag.textContent = assignedTag;
+            return;
+        }
+        const isKiosk = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            (window.axlClient && window.axlClient.isKiosk) ||
+            (navigator.userAgent && navigator.userAgent.includes("AXL-Kiosk"))
+        );
+        brandNodeTag.textContent = isKiosk ? "KIOSK" : "NODE-..";
+    }
+
     function updateKioskKillButton() {
         if (!settingOptKillKiosk) return;
         const isAndroidKiosk = Boolean(
             (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
-            (window.axlClient && window.axlClient.isKiosk)
+            (window.axlClient && window.axlClient.isKiosk) ||
+            (navigator.userAgent && navigator.userAgent.includes("AXL-Kiosk"))
         );
         if (isAndroidKiosk) {
             settingOptKillKiosk.disabled = false;
@@ -227,7 +246,28 @@
             settingOptKillKiosk.title = "Disponibile solo all'interno dell'app Android Kiosk (per arrestare microfono e processo)";
         }
     }
-    updateKioskKillButton();
+
+    function updateKioskUI() {
+        const isKiosk = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            (window.axlClient && window.axlClient.isKiosk) ||
+            (navigator.userAgent && navigator.userAgent.includes("AXL-Kiosk"))
+        );
+
+        if (kioskTelemBtn) {
+            if (isKiosk) {
+                kioskTelemBtn.hidden = false;
+                kioskTelemBtn.style.display = "inline-flex";
+            } else {
+                kioskTelemBtn.hidden = true;
+                kioskTelemBtn.style.display = "none";
+            }
+        }
+
+        updateKioskKillButton();
+        updateBrandNodeTag();
+    }
+    updateKioskUI();
 
     if (fullscreenBtn) {
         fullscreenBtn.addEventListener("click", () => {
@@ -256,7 +296,7 @@
             closeSettingsPopup();
         } else {
             closeModePopup();
-            updateKioskKillButton();
+            updateKioskUI();
             settingsPopup.hidden = false;
             settingsPopup.classList.add("open");
             if (settingsBtn) settingsBtn.classList.add("open");
@@ -352,12 +392,14 @@
 
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const host = window.location.host || "127.0.0.1:8000";
-        const wsUrl = `${protocol}//${host}/ws/ui`;
+        const isKioskClient = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            (window.axlClient && window.axlClient.isKiosk) ||
+            (navigator.userAgent && navigator.userAgent.includes("AXL-Kiosk"))
+        );
+        const wsUrl = `${protocol}//${host}/ws/ui?client=${isKioskClient ? "kiosk" : "browser"}`;
 
-        if (connBadge) {
-            connBadge.className = "badge badge-offline";
-            connBadge.textContent = "WS: CONNECTING";
-        }
+        updateConnectionStatus("connecting");
 
         try {
             ws = new WebSocket(wsUrl);
@@ -367,10 +409,8 @@
         }
 
         ws.onopen = () => {
-            if (connBadge) {
-                connBadge.className = "badge badge-online";
-                connBadge.textContent = "WS: ONLINE";
-            }
+            updateConnectionStatus("online");
+            updateKioskUI();
             if (isTelemetryActive) {
                 ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY" }));
             }
@@ -386,10 +426,7 @@
         };
 
         ws.onclose = () => {
-            if (connBadge) {
-                connBadge.className = "badge badge-offline";
-                connBadge.textContent = "WS: OFFLINE";
-            }
+            updateConnectionStatus("offline");
             scheduleReconnect();
         };
 
@@ -398,13 +435,30 @@
         };
     }
 
+    function updateConnectionStatus(state) {
+        if (!connStatus) return;
+        if (state === "online") {
+            connStatus.className = "brand-conn-line conn-online";
+            if (connStatusText) connStatusText.textContent = "WS: ONLINE";
+            connStatus.title = "Stato: Connesso al Master Server via WebSocket";
+        } else if (state === "connecting") {
+            connStatus.className = "brand-conn-line conn-connecting";
+            if (connStatusText) connStatusText.textContent = "WS: CONNECTING";
+            connStatus.title = "Stato: Connessione in corso al Master Server...";
+        } else {
+            connStatus.className = "brand-conn-line conn-offline";
+            if (connStatusText) connStatusText.textContent = "WS: OFFLINE";
+            connStatus.title = "Stato: Offline. Clicca per riconnettere subito";
+        }
+    }
+
     function scheduleReconnect() {
         if (wsReconnectTimeout) clearTimeout(wsReconnectTimeout);
         wsReconnectTimeout = setTimeout(connectWebSocket, 2000);
     }
 
-    if (connBadge) {
-        connBadge.addEventListener("click", () => {
+    if (connStatus) {
+        connStatus.addEventListener("click", () => {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 connectWebSocket();
             }
@@ -420,6 +474,7 @@
 
         switch (msg.type) {
             case "INIT":
+                if (msg.node_tag) updateBrandNodeTag(msg.node_tag);
                 if (msg.security_mode) updateSecurityMode(msg.security_mode);
                 if (msg.state) setVisorState(msg.state);
                 if (msg.is_muted !== undefined) updateMuteUI(msg.is_muted);
@@ -552,12 +607,18 @@
 
     function startTelemetryLoop() {
         stopTelemetryLoop();
-        if (Date.now() - lastRealTelemetryTime > 2500) {
+        if (telemetryTarget === "kiosk") {
+            fetchKioskTelemetry();
+        } else if (Date.now() - lastRealTelemetryTime > 2500) {
             updateTelemetryData(generateFallbackTelemetry(), telemetryTarget);
         }
         telemetrySimInterval = setInterval(() => {
             if (!isTelemetryActive) {
                 stopTelemetryLoop();
+                return;
+            }
+            if (telemetryTarget === "kiosk") {
+                fetchKioskTelemetry();
                 return;
             }
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -579,6 +640,90 @@
         }
     }
 
+    function fetchKioskTelemetry() {
+        if (window.AXLKiosk && typeof window.AXLKiosk.getKioskTelemetry === "function") {
+            try {
+                const raw = window.AXLKiosk.getKioskTelemetry();
+                if (raw) {
+                    const data = JSON.parse(raw);
+                    updateKioskTelemetryUI(data);
+                    return;
+                }
+            } catch (err) {
+                console.warn("[KIOSK] Telemetry bridge error:", err);
+            }
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: "REQUEST_TELEMETRY",
+                target: "kiosk"
+            }));
+        }
+    }
+
+    function updateKioskTelemetryUI(data) {
+        if (!data) return;
+        lastRealTelemetryTime = Date.now();
+
+        if (telemTitle) telemTitle.textContent = "KIOSK TELEMETRY";
+        if (telemNodeBadge) {
+            telemNodeBadge.className = "badge badge-telem-online";
+            telemNodeBadge.textContent = "NODE: KIOSK // GALAXY A33";
+        }
+
+        // 1. CPU / Android Device Info
+        const battTemp = data.battery_temp || 30.0;
+        const battPct = (data.battery_pct !== undefined && data.battery_pct >= 0) ? data.battery_pct : 88;
+        if (telemCpuUsage) telemCpuUsage.textContent = `${battPct}%`;
+        if (telemCpuTemp) telemCpuTemp.textContent = `${battTemp.toFixed(1)}°C`;
+        if (telemCpuFreq) telemCpuFreq.textContent = data.is_charging ? "CHARGING" : "DISCHARGING";
+        if (telemCpuCores) telemCpuCores.textContent = "SAMSUNG A33";
+        if (telemCpuBar) {
+            telemCpuBar.style.width = `${Math.min(100, Math.max(0, battPct))}%`;
+            telemCpuBar.className = "telem-meter-fill";
+        }
+
+        // 2. RAM Memory
+        const ramUsedPct = Math.round(data.ram_used_pct || 48);
+        const ramFreeGb = data.ram_free_mb ? (data.ram_free_mb / 1024).toFixed(1) : "3.1";
+        const ramUsedGb = (6.0 - parseFloat(ramFreeGb)).toFixed(1);
+        if (telemRamUsed) telemRamUsed.textContent = ramUsedGb;
+        if (telemRamTotal) telemRamTotal.textContent = "/ 6.0 GB";
+        if (telemRamPct) telemRamPct.textContent = `${ramUsedPct}%`;
+        if (telemRamFree) telemRamFree.textContent = `${ramFreeGb} GB`;
+        if (telemRamBar) {
+            telemRamBar.style.width = `${ramUsedPct}%`;
+            telemRamBar.className = ramUsedPct >= 85 ? "telem-meter-fill crit" : (ramUsedPct >= 70 ? "telem-meter-fill warn" : "telem-meter-fill");
+        }
+
+        // 3. Battery Health & Charging
+        if (telemGpuList) {
+            telemGpuList.innerHTML = `
+                <div class="telem-gpu-item">
+                    <div class="telem-gpu-top">
+                        <span class="telem-gpu-name">Li-Ion Battery Health</span>
+                        <span class="telem-gpu-badge">${data.is_charging ? "⚡ AC CHARGING" : "🔋 BATTERY"} // ${battPct}%</span>
+                    </div>
+                    <div class="telem-meter-track">
+                        <div class="telem-meter-fill" style="width: ${battPct}%;"></div>
+                    </div>
+                </div>
+            `;
+            if (telemGpuGlobalTemp) {
+                telemGpuGlobalTemp.textContent = `${battTemp.toFixed(1)}°C`;
+            }
+        }
+
+        // 4. Wi-Fi Wireless RSSI
+        const rssi = data.wifi_rssi_dbm || -54;
+        if (telemFanRpm) telemFanRpm.textContent = `${rssi}`;
+        if (telemFanLabel) telemFanLabel.textContent = "WI-FI SIGNAL (RSSI)";
+        if (telemFanStatus) {
+            telemFanStatus.textContent = rssi >= -65 ? "EXCELLENT" : (rssi >= -80 ? "GOOD" : "WEAK");
+            telemFanStatus.className = "telem-temp-badge";
+        }
+    }
+
     function setTelemetryMode(enabled, target, notifyServer = true) {
         isTelemetryActive = !!enabled;
         if (target) telemetryTarget = target;
@@ -591,6 +736,8 @@
         }
 
         const isServer = (telemetryTarget === "server" || telemetryTarget === "master");
+        const isKiosk = (telemetryTarget === "kiosk");
+        const isSlave = (!isServer && !isKiosk);
 
         // Mutually exclusive button states: only the active node's button is highlighted
         if (serverTelemBtn) {
@@ -600,20 +747,39 @@
         }
 
         if (slaveTelemBtn) {
-            const active = isTelemetryActive && !isServer;
+            const active = isTelemetryActive && isSlave;
             slaveTelemBtn.classList.toggle("active", active);
             slaveTelemBtn.textContent = active ? "SLAVE TELEM: ON" : "SLAVE TELEM: OFF";
+        }
+
+        if (kioskTelemBtn) {
+            const active = isTelemetryActive && isKiosk;
+            kioskTelemBtn.classList.toggle("active", active);
+            kioskTelemBtn.textContent = active ? "KIOSK TELEM: ON" : "KIOSK TELEM: OFF";
         }
 
         // Update panel titles and badge
         if (isTelemetryActive) {
             if (telemTitle) {
-                telemTitle.textContent = isServer ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
+                if (isKiosk) {
+                    telemTitle.textContent = "KIOSK TELEMETRY";
+                } else if (isServer) {
+                    telemTitle.textContent = "SERVER TELEMETRY";
+                } else {
+                    telemTitle.textContent = "SLAVE TELEMETRY";
+                }
             }
             if (telemNodeBadge) {
-                telemNodeBadge.textContent = isServer
-                    ? "NODE: MASTER // LIVE"
-                    : `NODE: [${telemetryTarget.toUpperCase()}] // LIVE`;
+                if (isKiosk) {
+                    telemNodeBadge.textContent = "NODE: KIOSK // GALAXY A33";
+                } else if (isServer) {
+                    telemNodeBadge.textContent = "NODE: MASTER // LIVE";
+                } else {
+                    telemNodeBadge.textContent = `NODE: [${telemetryTarget.toUpperCase()}] // LIVE`;
+                }
+            }
+            if (isKiosk) {
+                fetchKioskTelemetry();
             }
             startTelemetryLoop();
         } else {
@@ -637,6 +803,10 @@
     function updateTelemetryData(data, target) {
         if (!data) return;
         const tgt = target || telemetryTarget || "slave";
+        if (tgt === "kiosk" || (data && data.battery_pct !== undefined)) {
+            updateKioskTelemetryUI(data);
+            return;
+        }
         if (!data._is_fallback) {
             lastRealTelemetryTime = Date.now();
         }
@@ -801,10 +971,22 @@
         slaveTelemBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (isTelemetryActive && telemetryTarget !== "server" && telemetryTarget !== "master") {
+            if (isTelemetryActive && telemetryTarget === "slave") {
                 setTelemetryMode(false, "slave", true);
             } else {
                 setTelemetryMode(true, "slave", true);
+            }
+        });
+    }
+
+    if (kioskTelemBtn) {
+        kioskTelemBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (isTelemetryActive && telemetryTarget === "kiosk") {
+                setTelemetryMode(false, "kiosk", true);
+            } else {
+                setTelemetryMode(true, "kiosk", true);
             }
         });
     }

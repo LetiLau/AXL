@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css?v=5.0">
+    <link rel="stylesheet" href="style.css?v=5.3">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -28,7 +28,11 @@
             <div class="hud-brand-wrap">
                 <div class="hud-brand">
                     <div class="brand-title">A-X-L</div>
-                    <div class="brand-sub">TACTICAL AI // NODE-01</div>
+                    <div class="brand-sub">TACTICAL AI // <span id="brand-node-tag">NODE-01</span></div>
+                    <div id="connection-status" class="brand-conn-line conn-offline" title="Stato Connessione WebSocket (Clicca per riconnettere se offline)">
+                        <span class="conn-dot"></span>
+                        <span id="connection-status-text">WS: OFFLINE</span>
+                    </div>
                 </div>
                 <button type="button" id="server-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Master Server">SERVER TELEM: OFF</button>
             </div>
@@ -40,6 +44,7 @@
 
             <div class="hud-status-tray">
                 <button type="button" id="slave-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Slave PC">SLAVE TELEM: OFF</button>
+                <button type="button" id="kiosk-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Kiosk Android" hidden>KIOSK TELEM: OFF</button>
                 
                 <div class="mode-badge-wrapper">
                     <button type="button" id="sec-mode-badge" class="badge badge-friendly mode-unlocked" title="Clicca per impostare Restrict o Paranoid">MODE: FRIENDLY ▾</button>
@@ -49,8 +54,6 @@
                         <button type="button" class="mode-option-btn opt-paranoid" data-mode="paranoid">🚨 PARANOID (Solo Owner)</button>
                     </div>
                 </div>
-
-                <div id="connection-badge" class="badge badge-offline" title="Stato Connessione WebSocket">WS: OFFLINE</div>
                 
                 <div class="settings-badge-wrapper">
                     <button type="button" id="settings-btn" class="badge badge-icon-btn" title="A-X-L Strumenti &amp; Controlli Rapidi" aria-label="Settings">
@@ -62,19 +65,41 @@
                     <div id="settings-popup" class="mode-selector-popup settings-popup" hidden>
                         <div class="mode-popup-header">A-X-L // STRUMENTI &amp; CONTROLLI:</div>
                         <button type="button" class="mode-option-btn opt-setting" id="setting-opt-reload">
-                            <span class="setting-opt-icon">🔄</span> Ricarica Pagina (Reload UI)
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                                <path d="M3 3v5h5"/>
+                                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+                                <path d="M21 21v-5h-5"/>
+                            </svg>
+                            <span>Ricarica Pagina (Reload UI)</span>
                         </button>
                         <button type="button" class="mode-option-btn opt-setting" id="setting-opt-ip">
-                            <span class="setting-opt-icon">⚙️</span> Configura / Info IP Master
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                            </svg>
+                            <span>Configura / Info IP Master</span>
                         </button>
                         <button type="button" class="mode-option-btn opt-setting" id="setting-opt-reconnect">
-                            <span class="setting-opt-icon">🔁</span> Riconnetti WebSocket
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                            </svg>
+                            <span>Riconnetti WebSocket</span>
                         </button>
                         <button type="button" class="mode-option-btn opt-setting" id="setting-opt-lang">
-                            <span class="setting-opt-icon">🌐</span> Lingua UI: ENG ▾
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="2" y1="12" x2="22" y2="12"/>
+                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                            </svg>
+                            <span>Lingua UI: ENG ▾</span>
                         </button>
-                        <button type="button" class="mode-option-btn opt-setting opt-kill-kiosk disabled-muted" id="setting-opt-kill-kiosk" disabled title="Disponibile solo dall'app Android Kiosk (per arrestare microfono e processo)">
-                            <span class="setting-opt-icon">🛑</span> Arresta Kiosk &amp; Mic
+                        <button type="button" class="mode-option-btn opt-setting opt-kill-kiosk disabled-muted" id="setting-opt-kill-kiosk" disabled title="Disponibile solo all'interno dell'app Android Kiosk (per arrestare microfono e processo)">
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+                                <line x1="12" y1="2" x2="12" y2="12"/>
+                            </svg>
+                            <span>Arresta Kiosk &amp; Mic</span>
                         </button>
                     </div>
                 </div>
@@ -279,6 +304,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <script src="app.js?v=5.0"></script>
+    <script src="app.js?v=5.3"></script>
 </body>
 </html>

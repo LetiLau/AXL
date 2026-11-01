@@ -144,19 +144,28 @@ class MainActivity : AppCompatActivity() {
             @JavascriptInterface
             fun exitKiosk() {
                 runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Arresto A-X-L Kiosk...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Arresto A-X-L Kiosk e Microfono...", Toast.LENGTH_SHORT).show()
                     val stopIntent = Intent(this@MainActivity, AudioStreamService::class.java).apply {
                         action = AudioStreamService.ACTION_STOP
                     }
                     startService(stopIntent)
+                    stopService(stopIntent)
                     webView.loadUrl("about:blank")
                     finishAffinity()
-                    android.os.Process.killProcess(android.os.Process.myPid())
                 }
             }
 
             @JavascriptInterface
             fun isKiosk(): Boolean = true
+
+            @JavascriptInterface
+            fun getKioskTelemetry(): String {
+                return try {
+                    KioskTelemetry.collect(this@MainActivity).toString()
+                } catch (e: Exception) {
+                    "{}"
+                }
+            }
         }, "AXLKiosk")
 
         webView.webViewClient = object : WebViewClient() {

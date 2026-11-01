@@ -7,7 +7,7 @@ import time
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -66,6 +66,8 @@ class StreamManager:
         self.tts: Optional[PiperTTSEngine] = None
         self.active_client: Optional[WebSocket] = None
         self.ui_clients: Set[WebSocket] = set()
+        self.ui_client_info: Dict[WebSocket, dict] = {}
+        self._assigned_browser_nodes: Set[int] = set()
         self.is_speaking: bool = False
         self.stop_speech_requested: bool = False
         self.is_muted: bool = False
@@ -75,6 +77,7 @@ class StreamManager:
         self._enrollment_task: Optional[asyncio.Task] = None
         self.telemetry_active: bool = False
         self.telemetry_target: str = "fedora"
+        self.last_kiosk_telemetry: Optional[dict] = None
         self._telemetry_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
 
@@ -132,9 +135,15 @@ class StreamManager:
             await self.broadcast_ui(payload)
 
     async def set_telemetry_mode(self, enabled: bool, target: str = "slave"):
-        """Activates or deactivates live telemetry streaming mode for server or slave."""
+        """Activates or deactivates live telemetry streaming mode for server, slave, or kiosk."""
         self.telemetry_active = enabled
-        self.telemetry_target = "server" if str(target).lower().strip() in ("server", "master", "thinkpad", "locale", "local") else "slave"
+        target_norm = str(target).lower().strip()
+        if target_norm in ("server", "master", "thinkpad", "locale", "local"):
+            self.telemetry_target = "server"
+        elif target_norm in ("kiosk", "android", "phone", "galaxy", "a33"):
+            self.telemetry_target = "kiosk"
+        else:
+            self.telemetry_target = "slave"
         logger.info(f"[TELEMETRY MODE] State updated: {enabled} (target: {self.telemetry_target})")
 
         # Broadcast state change to UI
@@ -150,6 +159,12 @@ class StreamManager:
                     "type": "TELEMETRY_UPDATE",
                     "target": self.telemetry_target,
                     "data": self._collect_local_telemetry(),
+                })
+            elif self.telemetry_target == "kiosk" and self.last_kiosk_telemetry:
+                await self.broadcast_ui({
+                    "type": "TELEMETRY_UPDATE",
+                    "target": "kiosk",
+                    "data": self.last_kiosk_telemetry,
                 })
             if self._telemetry_task is None or self._telemetry_task.done():
                 self._telemetry_task = asyncio.create_task(self._telemetry_poll_loop())
@@ -203,11 +218,30 @@ class StreamManager:
         finally:
             logger.info("[TELEMETRY STREAM] Background poller loop terminated.")
 
-    async def register_ui(self, websocket: WebSocket):
-        """Registers a connected Web UI client and sends initial state synchronization."""
+    async def register_ui(self, websocket: WebSocket, is_kiosk: bool = False):
+        """Registers a connected Web UI client and sends initial state synchronization with assigned node tag."""
         await websocket.accept()
         self.ui_clients.add(websocket)
-        logger.info(f"UI client attached. Active UI clients: {len(self.ui_clients)}")
+
+        if is_kiosk:
+            node_tag = "KIOSK"
+            node_num = None
+        else:
+            node_num = 1
+            while node_num in self._assigned_browser_nodes:
+                node_num += 1
+            self._assigned_browser_nodes.add(node_num)
+            node_tag = f"NODE-{node_num:02d}"
+
+        self.ui_client_info[websocket] = {
+            "is_kiosk": is_kiosk,
+            "node_num": node_num,
+            "node_tag": node_tag,
+        }
+
+        logger.info(
+            f"UI client attached: [{node_tag}] (is_kiosk={is_kiosk}). Active UI clients: {len(self.ui_clients)}"
+        )
         sec_mode = self.verifier.security_mode if self.verifier else "friendly"
         state = self.pipeline.state if self.pipeline else "IDLE"
         ui_state = "LISTENING" if state == "LISTENING_COMMAND" else ("SPEAKING" if self.is_speaking else "IDLE")
@@ -218,25 +252,34 @@ class StreamManager:
             "is_muted": self.is_muted,
             "telemetry_active": self.telemetry_active,
             "telemetry_target": self.telemetry_target,
+            "node_tag": node_tag,
+            "is_kiosk": is_kiosk,
         })
 
     async def unregister_ui(self, websocket: WebSocket):
-        """Detaches a Web UI client cleanly."""
+        """Detaches a Web UI client cleanly and frees its node slot."""
         self.ui_clients.discard(websocket)
-        logger.info(f"UI client detached. Active UI clients: {len(self.ui_clients)}")
+        info = self.ui_client_info.pop(websocket, None)
+        if info and not info.get("is_kiosk"):
+            num = info.get("node_num")
+            if num is not None:
+                self._assigned_browser_nodes.discard(num)
+        node_tag = info.get("node_tag", "UNKNOWN") if info else "UNKNOWN"
+        logger.info(f"UI client [{node_tag}] detached. Active UI clients: {len(self.ui_clients)}")
 
     async def broadcast_ui(self, message: dict):
         """Dispatches an asynchronous state event to all connected Web UI clients."""
         if not self.ui_clients:
             return
         dead_clients = set()
-        for ws in self.ui_clients:
+        for ws in list(self.ui_clients):
             try:
                 await ws.send_json(message)
             except Exception:
                 dead_clients.add(ws)
         if dead_clients:
-            self.ui_clients -= dead_clients
+            for ws in dead_clients:
+                await self.unregister_ui(ws)
 
     async def connect(self, websocket: WebSocket) -> bool:
         async with self._lock:
@@ -794,7 +837,10 @@ async def audio_websocket_endpoint(websocket: WebSocket):
 @app.websocket("/ws/ui")
 async def ui_websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint serving real-time HUD telemetry and state transitions."""
-    await stream_manager.register_ui(websocket)
+    client_param = websocket.query_params.get("client", "").lower().strip()
+    ua = websocket.headers.get("user-agent", "").lower()
+    is_kiosk = ("axl-kiosk" in ua) or (client_param == "kiosk")
+    await stream_manager.register_ui(websocket, is_kiosk=is_kiosk)
     try:
         while True:
             # Accept incoming control signals from UI (e.g. toggle telemetry, target switch)
@@ -806,6 +852,14 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                     enabled = msg.get("enabled", not stream_manager.telemetry_active)
                     target = msg.get("target", stream_manager.telemetry_target)
                     await stream_manager.set_telemetry_mode(enabled, target=target)
+                elif mtype == "KIOSK_TELEMETRY":
+                    stream_manager.last_kiosk_telemetry = msg
+                    if stream_manager.telemetry_active and stream_manager.telemetry_target == "kiosk":
+                        await stream_manager.broadcast_ui({
+                            "type": "TELEMETRY_UPDATE",
+                            "target": "kiosk",
+                            "data": msg,
+                        })
                 elif mtype == "SET_SECURITY_MODE":
                     new_mode = str(msg.get("mode", "")).lower().strip()
                     cur_mode = (

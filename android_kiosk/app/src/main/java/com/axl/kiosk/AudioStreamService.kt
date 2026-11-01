@@ -81,6 +81,13 @@ class AudioStreamService : Service() {
         acquireWakeLock()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "Kiosk swiped away from recent apps: stopping microphone and background stream.")
+        stopStreaming()
+        stopSelf()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
         Log.i(TAG, "onStartCommand received action: $action")

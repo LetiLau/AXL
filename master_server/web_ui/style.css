@@ -112,6 +112,66 @@ body.hud-subdued #pixel-shift-container {
     color: var(--text-muted);
 }
 
+#brand-node-tag {
+    color: var(--text-muted);
+    font-weight: 600;
+    transition: color 0.3s ease;
+}
+
+.brand-conn-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.60rem;
+    letter-spacing: 0.12rem;
+    margin-top: 3px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.3s ease, text-shadow 0.3s ease;
+    user-select: none;
+}
+
+.brand-conn-line .conn-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.brand-conn-line.conn-online {
+    color: var(--cyan-glow);
+    text-shadow: 0 0 6px var(--cyan-glow);
+}
+.brand-conn-line.conn-online .conn-dot {
+    background: var(--cyan-glow);
+    box-shadow: 0 0 6px var(--cyan-glow);
+}
+
+.brand-conn-line.conn-offline {
+    color: var(--red-alert);
+    text-shadow: 0 0 6px var(--red-alert);
+    cursor: pointer;
+}
+.brand-conn-line.conn-offline .conn-dot {
+    background: var(--red-alert);
+    box-shadow: 0 0 6px var(--red-alert);
+}
+
+.brand-conn-line.conn-connecting {
+    color: var(--amber-warn);
+    text-shadow: 0 0 6px var(--amber-warn);
+}
+.brand-conn-line.conn-connecting .conn-dot {
+    background: var(--amber-warn);
+    box-shadow: 0 0 6px var(--amber-warn);
+    animation: alert-pulse 1s infinite;
+}
+
 .hud-center-clock {
     position: absolute;
     left: 50%;
@@ -339,8 +399,9 @@ body.hud-subdued #pixel-shift-container {
     border-color: rgba(0, 240, 255, 0.22);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 11px;
     font-size: 0.76rem;
+    letter-spacing: 0.03rem;
 }
 
 .mode-option-btn.opt-setting:hover {
@@ -350,9 +411,35 @@ body.hud-subdued #pixel-shift-container {
     transform: translateX(2px);
 }
 
-.mode-option-btn.opt-setting .setting-opt-icon {
-    font-size: 0.95rem;
-    line-height: 1;
+.setting-opt-svg {
+    width: 17px;
+    height: 17px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    fill: none;
+    flex-shrink: 0;
+    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.25s ease;
+    filter: drop-shadow(0 0 4px rgba(0, 240, 255, 0.45));
+}
+
+.mode-option-btn.opt-setting:hover .setting-opt-svg {
+    filter: drop-shadow(0 0 8px currentColor);
+}
+
+#setting-opt-reload:hover .setting-opt-svg {
+    transform: rotate(180deg);
+}
+
+#setting-opt-ip:hover .setting-opt-svg {
+    transform: rotate(-25deg);
+}
+
+#setting-opt-reconnect:hover .setting-opt-svg {
+    transform: scale(1.15) rotate(15deg);
+}
+
+#setting-opt-lang:hover .setting-opt-svg {
+    transform: rotate(30deg);
 }
 
 .mode-option-btn.opt-setting.opt-kill-kiosk:not(:disabled) {
@@ -361,11 +448,21 @@ body.hud-subdued #pixel-shift-container {
     border-color: rgba(255, 0, 59, 0.4);
 }
 
+.mode-option-btn.opt-setting.opt-kill-kiosk .setting-opt-svg {
+    stroke: var(--red-alert);
+    filter: drop-shadow(0 0 4px rgba(255, 0, 59, 0.5));
+}
+
 .mode-option-btn.opt-setting.opt-kill-kiosk:not(:disabled):hover {
     background: rgba(255, 0, 59, 0.22);
     border-color: var(--red-alert);
     box-shadow: 0 0 14px rgba(255, 0, 59, 0.45);
     transform: translateX(2px);
+}
+
+.mode-option-btn.opt-setting.opt-kill-kiosk:not(:disabled):hover .setting-opt-svg {
+    transform: scale(1.18);
+    filter: drop-shadow(0 0 8px var(--red-alert));
 }
 
 .mode-option-btn.opt-setting:disabled,
