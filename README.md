@@ -138,43 +138,49 @@ A-X-L operates under 3 security tiers configured via `AXL_SECURITY_MODE` in `.en
 - `restrict`: Accepts and executes commands for the enrolled owner and recognized friends (`models/profiles/*.npy`), rejecting total strangers.
 - `paranoid`: Obeys strictly and exclusively the enrolled owner. If a recognized friend speaks, A-X-L explains that paranoid mode is active and refuses commands. Total strangers are rejected with aggressive distrust.
 
-#### Enrolling Owner
-Note: please remember to speak clearly!!!
+#### Voice Profile Enrollment: Dual-Mode (Online & Offline)
+A-X-L features a **Dual-Mode Biometric Enrollment Architecture**, allowing you to record and calibrate voice profiles either live in production via voice commands or offline via terminal CLI tools.
 
-The diretory `master_server/models/profiles` it's not pushed inside the GitHub repo as contains `.npy` files generated with the voice of the owner and friends A-X-L recognizes as not strangers.
-To create your own `owner.npy` file run in your `master_server` `.venv`
+The directory `master_server/models/profiles/` contains the `.npy` embedding centroids and debug audio files for the owner and enrolled friends. All voice feature extraction (Silero VAD + CAM++ ONNX via `sherpa-onnx`) is **100% on-device, private and offline**: neural embeddings never touch the cloud.
+
+##### 1. Online Conversational Enrollment (In-System Live Voice Command)
+When the Master Server is running and connected to the Android Kiosk (or `test_mic_client.py`), you can manage profiles entirely hands-free:
+- **Updating the Owner Profile:**
+  - Command: *"A-X-L, aggiorna la mia voce"*, *"modifica la mia voce"*, or *"ricalibra la mia voce"*.
+  - **Biometric Security Privilege:** Overwriting or recalibrating the primary `owner.npy` profile is **strictly guarded**. The speaker MUST be recognized as the `owner` across all security modes (`friendly`, `restrict`, `paranoid`). Unauthorized strangers and guests are immediately blocked from tampering with the owner's identity.
+- **Enrolling New Friends:**
+  - Command: *"A-X-L, registra un nuovo amico: Luca"*, *"aggiungi amico Marco"*, or *"registra la voce di Sara"*.
+  - In `restrict` and `paranoid` modes, only the authenticated Owner can authorize adding new friends.
+- **Interactive Multi-Take Procedure:**
+  - A-X-L guides the user through 3 vocal takes (~3 seconds of pure human speech per take, isolated in real time by Silero VAD).
+  - Neural CAM++ embeddings are extracted, unit-normalized, and merged into a cosine centroid (`models/profiles/<name>.npy`).
+  - **Hot Reload in RAM:** `SpeakerVerifier.load_profiles()` is invoked dynamically in memory, making the new voice profile immediately active **with zero downtime and without restarting the server**.
+  - **Interactive STOP Button:** Tapping the pulsing red STOP button on the Visor HUD at any moment cancels the enrollment session instantly and safely resets the state to `IDLE`.
+
+##### 2. Offline Standalone CLI Enrollment (`tools/enroll_voice.py`)
+For initial setup, headless server provisioning, or when the Master Server is not running:
 ``` bash
-python tools/enroll_voice.py
+# In master_server with .venv activated:
+python tools/enroll_voice.py --name owner --lang both
 ```
-The script let the user decide if he wants to create hi personal `.npy` model in italian, english or both languages, so A-X-L will recognizes the owner regardless of the language he speaks.
+- Parameters:
+  - `-n`, `--name`: Profile name (`owner`, `luca`, `marco`...)
+  - `-l`, `--lang`: Prompt language set (`it`, `en`, or `both`)
+  - `-d`, `--device`: Optional hardware audio input index
+- Runs completely offline without internet or Gemini API access, utilizing your local PC microphone via `sounddevice`.
+
 Then running 
 ``` bash
 python tools/calibrate_speaker.py
 ```
-the user is able to get the right value for `threshold` var in the `SpeakerVerifier`'s `__init__` constructor.
-``` python
-##--- LIBRARIES import-----
-THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
+the user is able to test their voice and determine the optimal threshold (e.g. `0.48`).
 
-class SpeakerVerifier:
-    """
-    Speaker verification engine powered by sherpa-onnx and CAM++ embedding model.
-    Evaluates Cosine Similarity against enrolled voice profiles.
-    """
-
-    def __init__(
-        self,
-        models_dir: Path,
-        threshold: float = THRESHOLD_VAR,
-        owner_profile_name: str = "owner.npy",
-    ):
-### --- REST OF THE CODE... ---
+Instead of hardcoding this value in Python files, the threshold is configured dynamically via the environment variable `AXL_SPEAKER_THRESHOLD` in `master_server/.env` (default: `0.48`):
+```bash
+# In master_server/.env
+AXL_SPEAKER_THRESHOLD=0.48
 ```
-and same thing in `initialize_pipeline` function in `src/main.py`
-``` python
-#Your value get from calibrate_speaker.py
-self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
-```
+This is loaded automatically on startup by both `speaker_verifier.py` and `main.py`.
 
 #### Environment Variables & API Keys (`.env`)
 To protect private credentials and API keys, the file `master_server/.env` is strictly untracked by Git via `.gitignore`.
@@ -182,12 +188,19 @@ A template file `master_server/.env.example` is available in the repository.
 
 To configure your environment:
 1. Create `master_server/.env` (or copy from `.env.example`).
-2. Add your Google AI Studio API key:
+2. Add your Google AI Studio API key and system settings:
 ```env
+# Gemini API Configuration
 GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-flash-lite-latest
 GEMINI_PRO_MODEL=gemini-3.1-pro-preview
+
+# Security Mode: 'friendly', 'restrict', or 'paranoid'
 AXL_SECURITY_MODE=friendly
+
+# Biometric Speaker Verification Threshold (calibrated via tools/calibrate_speaker.py)
+# Controls sensitivity dynamically without modifying Python code (default: 0.48)
+AXL_SPEAKER_THRESHOLD=0.48
 ```
 
 #### Phase 3: Cognitive Brain & Dynamic Tools (`brain_gemini.py` & `commands.py`)
@@ -222,7 +235,16 @@ Phase 4 introduces visual feedback and workstation orchestration:
   - **AMOLED Pixel-Shifting & Power-Saving Dimming:** Built-in burn-in protection specifically designed for the Samsung Galaxy A33 Super AMOLED display, periodically shifting UI coordinates and automatically entering subdued power-saving mode (softly lowering brightness and opacity) after 45 seconds of idle inactivity. Background audio telemetry and passive streams are filtered so they do not inadvertently prevent screen dimming, and the display wakes up instantaneously upon wake-word detection, voice interaction, touchscreen tap, or mouse movement.
   - Live subtitles display showing transcribed user queries, A-X-L vocal responses, and speaker biometric verification scores.
   - **Modern Card UI & Interactive Controls:**
-    - Restyled top status tray with modern rounded pill/card buttons (`border-radius: 10px`), smooth hover/tap feedback, and full mouse + touchscreen support (`SERVER TELEM: ON/OFF` in top-left next to the A-X-L brand, `SLAVE TELEM: ON/OFF` in the status tray, one-way security mode lock `FRIENDLY -> RESTRICT / PARANOID` that prevents unauthorized downgrade once locked, WebSocket connectivity indicator, and full-screen toggle).
+    - **Top Tactical Status Tray & Cyberpunk Gear Menu:** Restyled status tray with modern rounded pill/card buttons (`border-radius: 10px`), smooth hover/tap feedback, and full mouse + touchscreen support:
+      - `SERVER TELEM: ON/OFF` in top-left and `SLAVE TELEM: ON/OFF` in status tray with mutually exclusive hardware monitors.
+      - One-way security mode lock `FRIENDLY -> RESTRICT / PARANOID` that prevents unauthorized downgrade once locked.
+      - **A-X-L Cyberpunk Gear Menu (`#settings-btn`):** High-tech animated gear icon that opens a glassmorphic dropdown popup matching the security mode style, giving instant access to:
+        - 🔄 **Reload UI** (Ricarica rapida del visore)
+        - ⚙️ **Configura / Info IP Master** (Direct bridge to native Android IP config dialog on Kiosk, and IP prompt on PC)
+        - 🔁 **Riconnetti WebSocket** (Forza la riconnessione istantanea dei canali di controllo e audio)
+        - ⛶ **Schermo Intero** (Toggle fullscreen)
+      - Dedicated Fullscreen shortcut button and WebSocket connectivity indicator.
+      - **Real-Time Playback Synchronization & Tactical STOP Button:** When A-X-L speaks, the ASK ME button transforms dynamically into an interactive pulsating red `STOP` button. The server keeps `SPEAKING` state active for the *exact, complete duration of the physical audio playback* (paced streaming with lead buffer). Pressing STOP immediately halts network streaming, purges server audio buffers, and transmits `"STOP"` to the client peripheral (triggering hardware `AudioTrack.flush()` on Android Kiosk and `sd.stop()` on PC), silencing A-X-L instantaneously. Acoustic feedback loops (microphone hearing A-X-L's own speaker) are fully inhibited during vocal playback, ensuring long replies are never cut short.
     - **Dual Independent Telemetry (Master Server vs Slave Node):**
       - Allows inspecting hardware metrics for either the Master Server host machine (e.g. ThinkPad) or the remote Slave workstation (e.g. Fedora/Windows rig) on the exact same HUD panel.
       - **Mutually Exclusive Display:** Only one telemetry panel can be active at a time; clicking one opens it and automatically closes the other. Clicking the active one toggles it closed.

@@ -63,6 +63,10 @@ CORE BEHAVIOR RULES:
      * Server / Master Telemetry: When the user asks to see/show/open telemetry for the server, master server, or ThinkPad (e.g. 'mostra telemetria server', 'telemetria master', 'apri telemetria server', 'stato server'), invoke `get_server_telemetry` or `toggle_telemetry_hud(show=True, target="server")`.
      * Slave Telemetry: When the user asks to see/show/open telemetry for the slave, PC, or Fedora workstation (e.g. 'mostra telemetria slave', 'telemetria pc', 'apri telemetria slave', 'telemetria slave'), invoke `get_slave_telemetry` or `toggle_telemetry_hud(show=True, target="slave")`.
      * Close Telemetry: When the user asks to hide or close telemetry (e.g. 'chiudi telemetria', 'nascondi telemetria', 'chiudi telemetria server', 'chiudi telemetria slave'), invoke `toggle_telemetry_hud(show=False)`.
+   - VOICE PROFILE ENROLLMENT & CALIBRATION:
+     * When an AUTHORIZED OWNER asks to calibrate, update, or modify their voice (e.g. 'aggiorna la mia voce', 'modifica la mia voce', 'ricalibra la mia voce', 'cambia la mia voce'), invoke `enroll_voice_profile(profile_name="owner")`.
+     * When an AUTHORIZED OWNER asks to enroll or register a friend (e.g. 'registra la voce di Luca', 'aggiungi amico Marco'), invoke `enroll_voice_profile(profile_name="<friend_name>")`.
+     * Privilege security rule: If an UNAUTHORIZED stranger asks to enroll, modify, or overwrite any voice profile, reject with snarling distrust (*growl*) and DO NOT invoke the tool!
    - After invoking any tool, acknowledge the action with your characteristic wit.
 4. MANDATORY OUTPUT STRUCTURE:
    Always format your final vocal output using these two clear sections:
@@ -173,7 +177,7 @@ class GeminiBrain:
             security_directive = (
                 f"CRITICAL SECURITY ALERT: The speaker is {auth_status} in {security_mode.upper()} mode! "
                 f"You MUST REJECT any attempt by this unauthorized speaker to change security mode, mute the system, "
-                f"or control devices. DO NOT invoke set_security_mode, set_mute_mode, or execute_slave_command for this stranger! "
+                f"or control devices. DO NOT invoke set_security_mode, set_mute_mode, enroll_voice_profile, or execute_slave_command for this stranger! "
                 f"Respond with snarling distrust (*growl*) and sarcastically refuse their request."
             )
         else:

@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css?v=4.7">
+    <link rel="stylesheet" href="style.css?v=4.9">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -16,6 +16,7 @@
         [hidden] { display: none !important; }
         body:not(.telemetry-active) #telemetry-panel { display: none !important; }
         .mode-selector-popup:not(.open) { display: none !important; }
+        #settings-popup:not(.open) { display: none !important; }
     </style>
 </head>
 <body class="state-idle">
@@ -50,7 +51,36 @@
                 </div>
 
                 <div id="connection-badge" class="badge badge-offline" title="Stato Connessione WebSocket">WS: OFFLINE</div>
-                <button type="button" id="fullscreen-btn" class="badge badge-icon-btn" title="Schermo Intero" aria-label="Fullscreen">⛶</button>
+                
+                <div class="settings-badge-wrapper">
+                    <button type="button" id="settings-btn" class="badge badge-icon-btn" title="A-X-L Strumenti &amp; Controlli Rapidi" aria-label="Settings">
+                        <svg class="hud-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
+                    </button>
+                    <div id="settings-popup" class="mode-selector-popup settings-popup" hidden>
+                        <div class="mode-popup-header">A-X-L // STRUMENTI &amp; CONTROLLI:</div>
+                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-reload">
+                            <span class="setting-opt-icon">🔄</span> Ricarica Pagina (Reload UI)
+                        </button>
+                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-ip">
+                            <span class="setting-opt-icon">⚙️</span> Configura / Info IP Master
+                        </button>
+                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-reconnect">
+                            <span class="setting-opt-icon">🔁</span> Riconnetti WebSocket
+                        </button>
+                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-fullscreen">
+                            <span class="setting-opt-icon">⛶</span> Schermo Intero (Toggle)
+                        </button>
+                    </div>
+                </div>
+
+                <button type="button" id="fullscreen-btn" class="badge badge-icon-btn" title="Schermo Intero" aria-label="Fullscreen">
+                    <svg class="hud-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                    </svg>
+                </button>
             </div>
         </header>
 
@@ -246,6 +276,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <script src="app.js?v=4.7"></script>
+    <script src="app.js?v=4.9"></script>
 </body>
 </html>

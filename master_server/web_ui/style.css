@@ -196,7 +196,7 @@ body.hud-subdued #pixel-shift-container {
 }
 
 /* Security Mode Button & Wrapper */
-.mode-badge-wrapper {
+.mode-badge-wrapper, .settings-badge-wrapper {
     position: relative;
     display: inline-flex;
 }
@@ -313,6 +313,48 @@ body.hud-subdued #pixel-shift-container {
     box-shadow: 0 0 12px rgba(255, 0, 59, 0.4);
 }
 
+/* Quick Actions & Settings Dropdown Popup */
+.settings-popup {
+    min-width: 260px;
+    right: 0;
+}
+
+#settings-btn .hud-icon-svg {
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.25s ease;
+}
+
+#settings-btn:hover .hud-icon-svg {
+    transform: rotate(60deg);
+}
+
+#settings-btn.open .hud-icon-svg {
+    transform: rotate(90deg);
+    stroke: var(--cyan-glow);
+    filter: drop-shadow(0 0 8px var(--cyan-glow));
+}
+
+.mode-option-btn.opt-setting {
+    color: var(--cyan-glow);
+    background: rgba(0, 240, 255, 0.05);
+    border-color: rgba(0, 240, 255, 0.22);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.76rem;
+}
+
+.mode-option-btn.opt-setting:hover {
+    background: rgba(0, 240, 255, 0.16);
+    border-color: var(--cyan-glow);
+    box-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
+    transform: translateX(2px);
+}
+
+.mode-option-btn.opt-setting .setting-opt-icon {
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
 /* Connection Status Badge */
 .badge-online {
     background: linear-gradient(135deg, rgba(0, 240, 255, 0.1) 0%, rgba(0, 136, 255, 0.04) 100%);
@@ -327,8 +369,8 @@ body.hud-subdued #pixel-shift-container {
     cursor: pointer;
 }
 
-/* Fullscreen Button */
-#fullscreen-btn, .badge-icon-btn {
+/* Top Action Badges (Reload & Fullscreen) */
+#fullscreen-btn, #reload-ui-btn, .badge-icon-btn {
     background: linear-gradient(135deg, rgba(0, 240, 255, 0.08) 0%, rgba(0, 136, 255, 0.02) 100%);
     border: 1.5px solid rgba(0, 240, 255, 0.35);
     color: var(--cyan-glow);
@@ -345,15 +387,36 @@ body.hud-subdued #pixel-shift-container {
     touch-action: manipulation;
 }
 
-#fullscreen-btn:hover {
+.badge-icon-btn .hud-icon-svg {
+    width: 17px;
+    height: 17px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    fill: none;
+    display: block;
+    pointer-events: none;
+    transition: transform 0.3s ease, filter 0.25s ease;
+}
+
+#fullscreen-btn:hover, #reload-ui-btn:hover, .badge-icon-btn:hover {
     background: rgba(0, 240, 255, 0.2);
     border-color: var(--cyan-glow);
     box-shadow: 0 4px 14px rgba(0, 240, 255, 0.3);
     transform: translateY(-1px);
 }
 
-#fullscreen-btn:active {
+.badge-icon-btn:hover .hud-icon-svg {
+    filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.8));
+}
+
+#fullscreen-btn:active, #reload-ui-btn:active, .badge-icon-btn:active {
     transform: translateY(0) scale(0.95);
+}
+
+#reload-ui-btn:active .hud-icon-svg,
+#reload-ui-btn.reloading .hud-icon-svg {
+    transform: rotate(360deg);
+    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ==========================================================================
@@ -943,6 +1006,33 @@ body.telemetry-active .telemetry-panel {
 }
 .badge-ask-btn.ask-paranoid:hover:not(:disabled) {
     box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
+}
+
+/* STOP Button State while A-X-L is speaking */
+.badge-ask-btn.ask-stop {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.95) 0%, rgba(185, 28, 28, 0.98) 100%) !important;
+    border-color: #ef4444 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.75) !important;
+    animation: pulse-stop 1.1s infinite ease-in-out !important;
+    cursor: pointer !important;
+}
+
+.badge-ask-btn.ask-stop:hover {
+    background: linear-gradient(135deg, rgba(252, 100, 100, 1) 0%, rgba(220, 38, 38, 1) 100%) !important;
+    box-shadow: 0 0 24px rgba(239, 68, 68, 0.95) !important;
+    transform: translateY(-2px);
+}
+
+@keyframes pulse-stop {
+    0%, 100% {
+        box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 24px rgba(239, 68, 68, 0.95);
+        transform: scale(1.03);
+    }
 }
 
 .badge-ask-btn.listening {

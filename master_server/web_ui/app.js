@@ -35,6 +35,12 @@
     const userTranscript = document.getElementById("user-transcript");
     const axlReply = document.getElementById("axl-reply");
     const fullscreenBtn = document.getElementById("fullscreen-btn");
+    const settingsBtn = document.getElementById("settings-btn");
+    const settingsPopup = document.getElementById("settings-popup");
+    const settingOptReload = document.getElementById("setting-opt-reload");
+    const settingOptIp = document.getElementById("setting-opt-ip");
+    const settingOptReconnect = document.getElementById("setting-opt-reconnect");
+    const settingOptFullscreen = document.getElementById("setting-opt-fullscreen");
     const muteBtn = document.getElementById("mute-btn");
     const muteBtnIcon = document.getElementById("mute-btn-icon");
     const muteBtnLabel = document.getElementById("mute-btn-label");
@@ -173,8 +179,37 @@
     updateClock();
 
     // ==========================================================================
-    // 3. FULLSCREEN CONTROLLER
+    // 3. FULLSCREEN & RELOAD CONTROLLERS + CLIENT ENVIRONMENT DETECTION
     // ==========================================================================
+    function detectClientEnvironment() {
+        const ua = navigator.userAgent || "";
+        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        const isMobileUa = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+        const isAndroidWv = /;\s*wv\s*\)/i.test(ua) || (ua.includes("Version/4.0") && isMobileUa);
+        const isKiosk = ua.includes("AXL-Kiosk") || (new URLSearchParams(window.location.search).get("client") === "kiosk");
+
+        let clientType = "desktop";
+        if (isKiosk || isAndroidWv) {
+            clientType = "kiosk";
+        } else if (isMobileUa || isTouch) {
+            clientType = "mobile";
+        }
+
+        body.classList.remove("client-desktop", "client-mobile", "client-kiosk");
+        body.classList.add(`client-${clientType}`);
+
+        console.log(`[HUD] Client environment detected: ${clientType.toUpperCase()} (UA: ${ua})`);
+        return {
+            clientType,
+            isKiosk: clientType === "kiosk",
+            isMobile: clientType === "mobile" || clientType === "kiosk",
+            isDesktop: clientType === "desktop",
+            isTouch
+        };
+    }
+    const clientEnv = detectClientEnvironment();
+    window.axlClient = clientEnv;
+
     if (fullscreenBtn) {
         fullscreenBtn.addEventListener("click", () => {
             if (!document.fullscreenElement) {
@@ -184,6 +219,98 @@
             }
         });
     }
+
+    function closeSettingsPopup() {
+        if (settingsPopup) {
+            settingsPopup.classList.remove("open");
+            settingsPopup.hidden = true;
+        }
+        if (settingsBtn) {
+            settingsBtn.classList.remove("open");
+        }
+    }
+
+    function toggleSettingsPopup() {
+        if (!settingsPopup) return;
+        const isOpen = settingsPopup.classList.contains("open");
+        if (isOpen) {
+            closeSettingsPopup();
+        } else {
+            closeModePopup();
+            settingsPopup.hidden = false;
+            settingsPopup.classList.add("open");
+            if (settingsBtn) settingsBtn.classList.add("open");
+        }
+    }
+
+    if (settingsBtn) {
+        settingsBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleSettingsPopup();
+        });
+    }
+
+    if (settingOptReload) {
+        settingOptReload.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSettingsPopup();
+            if (window.AXLKiosk && typeof window.AXLKiosk.reload === "function") {
+                window.AXLKiosk.reload();
+            } else {
+                window.location.reload(true);
+            }
+        });
+    }
+
+    if (settingOptIp) {
+        settingOptIp.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSettingsPopup();
+            if (window.AXLKiosk && typeof window.AXLKiosk.showIpConfig === "function") {
+                window.AXLKiosk.showIpConfig();
+            } else {
+                const currentHost = window.location.host;
+                const newHost = prompt("Configura Host / Indirizzo IP del Master Server:", currentHost);
+                if (newHost && newHost.trim() && newHost.trim() !== currentHost) {
+                    window.location.href = `${window.location.protocol}//${newHost.trim()}/ui`;
+                }
+            }
+        });
+    }
+
+    if (settingOptReconnect) {
+        settingOptReconnect.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSettingsPopup();
+            connectWebSocket();
+            if (axlReply && currentState !== "SPEAKING") {
+                axlReply.textContent = "Tentativo di riconnessione WebSocket in corso...";
+            }
+        });
+    }
+
+    if (settingOptFullscreen) {
+        settingOptFullscreen.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSettingsPopup();
+            if (fullscreenBtn) {
+                fullscreenBtn.click();
+            }
+        });
+    }
+
+    document.addEventListener("click", (e) => {
+        if (settingsPopup && settingsPopup.classList.contains("open")) {
+            if (!settingsPopup.contains(e.target) && e.target !== settingsBtn) {
+                closeSettingsPopup();
+            }
+        }
+    });
 
     // ==========================================================================
     // 4. WEBSOCKET HUD CLIENT
@@ -670,7 +797,19 @@
 
     function updateAskButton() {
         if (!askBtn) return;
-        askBtn.classList.remove("ask-friendly", "ask-restrict", "ask-paranoid");
+        askBtn.classList.remove("ask-friendly", "ask-restrict", "ask-paranoid", "ask-stop");
+
+        // When A-X-L is speaking, dynamically transform ASK button into an interactive red STOP button!
+        if (currentState === "SPEAKING") {
+            askBtn.disabled = false;
+            askBtn.classList.remove("disabled-muted", "listening");
+            askBtn.classList.add("ask-stop");
+            if (askBtnIcon) askBtnIcon.textContent = "⏹️";
+            if (askBtnLabel) askBtnLabel.textContent = "STOP";
+            askBtn.title = "Interrompi la risposta vocale di A-X-L";
+            return;
+        }
+
         askBtn.classList.add(`ask-${securityMode}`);
         const listening = currentState === "LISTENING";
         askBtn.classList.toggle("listening", listening);
@@ -699,6 +838,16 @@
         askBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
+
+            // If clicked while A-X-L is speaking, immediately abort vocal delivery!
+            if (currentState === "SPEAKING") {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "STOP_SPEECH" }));
+                }
+                setVisorState("IDLE");
+                return;
+            }
+
             if (askBtn.disabled || isMuted) return;
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: "ASK_START" }));
@@ -761,6 +910,7 @@
                 if (isOpen) {
                     closeModePopup();
                 } else {
+                    closeSettingsPopup();
                     modeSelectorPopup.hidden = false;
                     modeSelectorPopup.classList.add("open");
                 }
@@ -768,7 +918,7 @@
         });
     }
 
-    document.querySelectorAll(".mode-option-btn").forEach((btn) => {
+    document.querySelectorAll(".mode-option-btn[data-mode]").forEach((btn) => {
         btn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();

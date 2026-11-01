@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -112,14 +113,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupWebView() {
+        // Enable Chrome remote inspection over USB (chrome://inspect)
+        WebView.setWebContentsDebuggingEnabled(true)
+
         webView.setBackgroundColor(Color.BLACK)
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.cacheMode = WebSettings.LOAD_DEFAULT
+        // Bypass webview cache during development so edits to CSS/JS reflect immediately on reload
+        settings.cacheMode = WebSettings.LOAD_NO_CACHE
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
+        // Tag User-Agent so the Web UI detects it's running inside the official Android Kiosk app
+        val defaultUa = settings.userAgentString ?: ""
+        if (!defaultUa.contains("AXL-Kiosk")) {
+            settings.userAgentString = "$defaultUa AXL-Kiosk/1.0"
+        }
+
+        // Bridge Web UI settings clicks directly to native Android Kiosk dialogs
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun showIpConfig() {
+                runOnUiThread { showIpConfigDialog() }
+            }
+
+            @JavascriptInterface
+            fun reload() {
+                runOnUiThread { reloadKioskWebUi() }
+            }
+
+            @JavascriptInterface
+            fun isKiosk(): Boolean = true
+        }, "AXLKiosk")
 
         webView.webViewClient = object : WebViewClient() {
             override fun onReceivedError(
@@ -153,9 +179,42 @@ class MainActivity : AppCompatActivity() {
             showIpConfigDialog()
         }
 
+        // Tap on gear icon: quick action menu (Reload, IP config, Reconnect)
         btnSettings.setOnClickListener {
-            showIpConfigDialog()
+            showKioskQuickMenu()
         }
+
+        // Long press on gear icon: immediate 1-touch reload!
+        btnSettings.setOnLongClickListener {
+            reloadKioskWebUi()
+            true
+        }
+    }
+
+    private fun showKioskQuickMenu() {
+        val options = arrayOf(
+            "🔄 Ricarica Pagina (Reload UI)",
+            "⚙️ Configura IP Master Server",
+            "🔁 Riconnetti Audio & Telemetria"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("A-X-L Kiosk Menu")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> reloadKioskWebUi()
+                    1 -> showIpConfigDialog()
+                    2 -> reconnectAudioService()
+                }
+            }
+            .setNegativeButton("Chiudi", null)
+            .show()
+    }
+
+    private fun reloadKioskWebUi() {
+        Toast.makeText(this, "Ricarica Visore in corso...", Toast.LENGTH_SHORT).show()
+        hasPageError = false
+        webView.clearCache(true)
+        webView.reload()
     }
 
     private fun loadVisorUi() {

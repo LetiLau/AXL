@@ -129,17 +129,35 @@ async def audio_client(
 
             async def receive_worker():
                 while True:
-                    first_chunk = await websocket.recv()
-                    if isinstance(first_chunk, bytes):
+                    first_msg = await websocket.recv()
+                    if isinstance(first_msg, str):
+                        if first_msg == "STOP":
+                            sd.stop()
+                            sys.stdout.write("\n>>> [A-X-L SILENCED] Playback aborted via STOP request <<<\n")
+                            sys.stdout.flush()
+                        continue
+
+                    if isinstance(first_msg, bytes):
                         # Gather all consecutive chunks of the incoming vocal utterance
-                        chunks = [first_chunk]
+                        chunks = [first_msg]
+                        aborted = False
                         while True:
                             try:
-                                next_chunk = await asyncio.wait_for(websocket.recv(), timeout=0.15)
-                                if isinstance(next_chunk, bytes):
-                                    chunks.append(next_chunk)
+                                next_msg = await asyncio.wait_for(websocket.recv(), timeout=0.40)
+                                if isinstance(next_msg, str):
+                                    if next_msg == "STOP":
+                                        sd.stop()
+                                        aborted = True
+                                        sys.stdout.write("\n>>> [A-X-L SILENCED] Playback aborted via STOP request <<<\n")
+                                        sys.stdout.flush()
+                                        break
+                                elif isinstance(next_msg, bytes):
+                                    chunks.append(next_msg)
                             except asyncio.TimeoutError:
                                 break
+
+                        if aborted or not chunks:
+                            continue
 
                         full_speech = b"".join(chunks)
                         duration_sec = len(full_speech) / 32000.0

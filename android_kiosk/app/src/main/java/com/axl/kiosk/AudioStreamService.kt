@@ -291,6 +291,19 @@ class AudioStreamService : Service() {
                     }
                 }
 
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    if (text == "STOP") {
+                        try {
+                            audioTrack?.pause()
+                            audioTrack?.flush()
+                            audioTrack?.play()
+                            Log.i(TAG, "[AUDIO TRACK] Audio playback flushed and aborted by Master request.")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed flushing AudioTrack: ${e.message}")
+                        }
+                    }
+                }
+
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     Log.w(TAG, "Audio WS failure: ${t.message}. Will retry in 3s...")
                     audioWebSocket = null

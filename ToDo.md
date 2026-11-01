@@ -90,6 +90,11 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
       - Disaccoppiati i messaggi di telemetria e mic passivi: il timer di inattività (impostato a 45 secondi in stato `IDLE`) si attiva all'avvio e viene resettato unicamente da azioni intenzionali (wake-word vocale, cambio stato, trascrizione del parlato, risposta vocale di A-X-L, click sui pulsanti, tocco touch o movimento del mouse).
       - Transizione fluida CSS (`filter: brightness(0.55); opacity: 0.35;` con transizione a 1.2s) che riduce luminosità e contrasto a riposo per massima durata del pannello Super AMOLED del Galaxy A33 ed azzeramento del rischio burn-in.
       - Risveglio istantaneo a piena luminosità appena l'utente parla o interagisce con il visore.
+    * **Menu Rapido Impostazioni Cyberpunk (Gear Dropdown) & Tasto STOP Sincronizzato:**
+      - **Ingranaggio Cyberpunk & Menu a Tendina (`#settings-popup`):** Sostituito il semplice tasto reload con un'icona ingranaggio animata in stile HUD ciano, che apre un menu a scomparsa glassmorphic coerente con lo stile di `MODE: FRIENDLY`. Opzioni: Ricarica Visore, Configura/Info IP Master (con bridge nativo su Android e prompt su PC), Riconnetti WebSocket e Schermo Intero.
+      - **Sincronizzazione Reale Tasto STOP & Durata Riproduzione:** Corretto il ciclo di vita dello stato `SPEAKING`. In precedenza la trasmissione WiFi terminava in 0.3s e riportava il visore in `IDLE`, facendo sparire il tasto STOP mentre l'altoparlante del client continuava a parlare per 10 secondi. Ora `speak_text()` mantiene `is_speaking = True` e il tasto rosso STOP pulsante per l'intera durata effettiva dell'audio.
+      - **Silenziamento Istantaneo (Vocal Abort):** La pressione di STOP sul visore invia il comando di abort a livello di rete, azzera i buffer del server e invia `"STOP"` al client audio, scatenando lo svuotamento hardware (`AudioTrack.flush()` su Android e `sd.stop()` su PC) per zittire A-X-L all'istante.
+      - **Risoluzione Troncamento Messaggi Lunghi:** Eliminata l'alterazione forzata della punteggiatura (sostituzione dei punti con virgole) che causava l'esaurimento del buffer prosodico neurale di Edge-TTS e Piper, e inibito l'audio microfonico per tutta la durata del parlato per evitare che A-X-L si auto-ascoltasse e interrompesse le proprie risposte lunghe.
 11. [x] **Nodo Slave (Fedora/Windows):** Scrittura di `slave_daemon.py` per esporre telemetria (`psutil`: CPU, RAM, temperature, GPU dedicate/integrate, ventole) e ricevere dal Master i webhook per eseguire script o comandi di sistema. Visualizzazione split-layout HUD in tempo reale sul visore.
 
 #### FASE 5: App Android "Thin Kiosk" (Galaxy A33)
@@ -136,7 +141,21 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
     * Integrazione Spotify & Smart Apps:
       - Supporto comandi vocali A-X-L per avvio playlist/brani Spotify (via Spotify Connect, Web API, o Android Intent).
       - Predisposizione comandi per app smart domestiche (es. app lavastoviglie, smart home appliance con notifiche di stato e avvio programmato).
-17. [ ] **enrolling new friend command** must create a way to enroll new friend and calculate `THRESHOLD_VAR` for each user? find a better way
+17. [x] **Comando Vocale Biometric Enrollment & Calibrazione Dual-Mode (Online & Offline):**
+    * **Architettura Duale (Online Conversazionale vs Offline CLI):**
+      - **Modalità Online (In-System Live Voice Enrollment - Opzione A):**
+        - Attivabile a voce direttamente dal Kiosk Android o PC mic (*"A-X-L aggiorna la mia voce"*, *"ricalibra la mia voce"*, *"registra un nuovo amico: Luca"*, *"aggiungi amico Marco"*).
+        - Gestita dal tool Gemini Function Calling `enroll_voice_profile` unito a Guardrail deterministico sincrono di sicurezza su intent (`detect_enrollment_intent`).
+        - Procedura guidata a 3 take da 3.0s di pura voce isolata da Silero VAD, con prompt vocali Piper TTS intercalati da feedback canino chill (`*pant*`).
+        - Calcolo centroide CAM++ neurale (`sherpa-onnx`), salvataggio profilo `models/profiles/<nome>.npy` + WAV di audit, e **ricaricamento a caldo in memoria RAM (`verifier.load_profiles()`) senza alcun riavvio del server**.
+      - **Modalità Offline (CLI Standalone Tool `tools/enroll_voice.py`):**
+        - Tool Python autonomo da eseguire via terminale quando il server non è attivo, senza connessione a internet né chiamate API Gemini.
+        - Identico motore matematico (Silero VAD + CAM++ ONNX) per garantire una corrispondenza biometrica al 100% tra profili generati offline e online.
+    * **Biometric Privilege Enforcement sull'Enrollment:**
+      - **Protezione Assoluta del Profilo Owner:** Per aggiornare, ricalibrare o modificare la voce dell'Owner, il parlante DEVE essere riconosciuto come `owner` in TUTTE le modalità di sicurezza (`friendly`, `restrict`, `paranoid`). A estranei e ospiti è vietata la sovrascrittura del profilo principale.
+      - **Registrazione Nuovi Amici:** Nelle modalità protette (`restrict` e `paranoid`), solo l'Owner può abilitare l'enrollment di un nuovo amico. Richieste da parte di sconosciuti vengono respinte con ringhio (`*growl*`).
+    * **Integrazione con Tasto STOP:** Se premuto durante l'enrollment, il tasto rosso STOP interrompe all'istante l'acquisizione audio e ripristina la macchina a stati finiti su `IDLE`.
+    * **Evoluzione Futura (Opzione C - Modal HUD Touchscreen):** Predisposta interfaccia visiva con barra di caricamento Take (0-100%) da integrare nel Visore una volta riorganizzato il layout responsive dei bottoni sul Kiosk.
 
 #### FASE 8: Deploy su ThinkPad Debian 12
 

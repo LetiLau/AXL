@@ -442,6 +442,71 @@ def set_mute_mode(enabled: bool = True) -> str:
     return "Microfoni riattivati."
 
 
+def enroll_voice_profile(profile_name: str = "owner") -> str:
+    """
+    Avvia la procedura di calibrazione e registrazione biometrica della voce (enrollment vocale).
+    Usare questo tool quando:
+    1. L'Owner chiede di aggiornare, modificare o ricalibrare la propria voce ('owner').
+    2. L'Owner chiede di registrare o aggiungere un amico ('luca', 'marco', ecc.).
+
+    Vincoli di sicurezza biometrica:
+    - La modifica del profilo 'owner' è consentita SOLO all'Owner attualmente autenticato.
+    - La registrazione di un nuovo amico è consentita SOLO all'Owner (o utenti autorizzati in friendly).
+    - Agli estranei non autorizzati è severamente vietato registrare o modificare profili.
+
+    Args:
+        profile_name: Nome del profilo da calibrare/registrare (es. 'owner', 'luca', 'marco').
+    """
+    global _AUTH_CONTEXT
+    sec_mode = _AUTH_CONTEXT.get("security_mode", "friendly")
+    is_auth = _AUTH_CONTEXT.get("is_authorized", True)
+    identity = _AUTH_CONTEXT.get("identity", "stranger")
+
+    clean_name = re.sub(r"[^a-zA-Z0-9_\-]", "", str(profile_name).lower().strip())
+    if not clean_name:
+        clean_name = "owner"
+
+    logger.info(
+        f"[COMMAND: enroll_voice_profile] Request for '{clean_name}' by '{identity}' "
+        f"(mode: '{sec_mode}', authorized: {is_auth})"
+    )
+
+    # 1. Modifica del profilo Owner:
+    # L'Owner può essere modificato solo da un utente già riconosciuto come 'owner'
+    if clean_name == "owner":
+        if identity.lower() != "owner":
+            logger.warning(
+                f"[ENROLL SECURITY REJECTED] Caller '{identity}' cannot modify 'owner' profile in mode '{sec_mode}'."
+            )
+            return (
+                "COMANDO RIFIUTATO: Accesso biometrico negato. Solo il proprietario autenticato "
+                "può aggiornare o ricalibrare la firma vocale principale dell'Owner."
+            )
+    else:
+        # 2. Registrazione di un amico:
+        if sec_mode in ["restrict", "paranoid"] and identity.lower() != "owner":
+            logger.warning(
+                f"[ENROLL SECURITY REJECTED] Caller '{identity}' cannot enroll friend '{clean_name}' in mode '{sec_mode}'."
+            )
+            return (
+                f"COMANDO RIFIUTATO: Solo l'Owner può autorizzare la registrazione di un nuovo amico ('{clean_name}')."
+            )
+        if not is_auth:
+            return (
+                "COMANDO RIFIUTATO: Accesso negato per mancanza di privilegi biometrici."
+            )
+
+    logger.info(f"[ENROLL PRIVILEGE GRANTED] Starting voice calibration session for '{clean_name}'...")
+    notify_telemetry({
+        "type": "START_VOICE_ENROLLMENT",
+        "profile_name": clean_name,
+    })
+    return (
+        f"Calibrazione vocale autorizzata per il profilo '{clean_name}'. "
+        f"Avvio la procedura di registrazione dei campioni audio."
+    )
+
+
 # ==============================================================================
 # INTENT PARSING & GUARDRAILS
 # Guarantees that critical system commands execute even if an LLM hallucinates
@@ -595,6 +660,53 @@ def detect_telemetry_intent(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def detect_enrollment_intent(text: str) -> Optional[Dict[str, str]]:
+    """
+    Rileva se l'utente ha espresso l'intento di aggiornare la propria voce (owner)
+    o registrare/aggiungere la voce di un amico.
+    Restituisce un dizionario con 'profile_name' se rilevato, altrimenti None.
+    """
+    if not text:
+        return None
+    lower = text.lower().strip()
+
+    # 1. Pattern per registrazione amico / terzo (priorità a nomi specifici)
+    # Es. "registra la voce di Luca", "registra un nuovo amico: Marco", "aggiungi amico Giovanni"
+    friend_match_alt = re.search(
+        r"\b(?:registra|calibra|salva|aggiungi)\s+(?:la\s+voce\s+di|il\s+profilo\s+di|l['\s]amico|l['\s]amica|amico|amica)\s*(?:di|per|:)?\s+([a-zA-Z0-9_\-]+)\b",
+        lower
+    )
+    if friend_match_alt:
+        name = friend_match_alt.group(1).strip()
+        if name and name not in ["la", "il", "un", "una", "mia", "mio", "owner"]:
+            return {"profile_name": name}
+
+    friend_match = re.search(
+        r"\b(?:registra|aggiungi|salva|crea|memorizza)\s+(?:un\s+)?(?:nuovo\s+)?(?:profilo|amico|amica)\s*(?:di|per|:)?\s+([a-zA-Z0-9_\-]+)\b",
+        lower
+    )
+    if friend_match:
+        name = friend_match.group(1).strip()
+        stop_words = ["la", "il", "un", "una", "nuovo", "nuova", "profilo", "voce", "amico", "owner", "mia", "mio"]
+        if name and name not in stop_words:
+            return {"profile_name": name}
+
+    # 2. Pattern per aggiornamento voce proprietario (owner)
+    owner_patterns = [
+        r"\b(aggiorn\w*|modific\w*|ricalibr\w*|cambi\w*|riconfigur\w*)\s+(la\s+)?(mia\s+)?voce\b",
+        r"\b(aggiorn\w*|modific\w*|ricalibr\w*|cambi\w*|registr\w*|riconfigur\w*)\s+(il\s+)?(mio\s+)?profilo(\s+vocale)?\b",
+        r"\b(registr\w*)\s+(la\s+)?mia\s+voce\b",
+        r"\b(calibr\w*|calibrazione)\s+(della\s+|la\s+)?(mia\s+)?voce\b",
+        r"\bnuova\s+calibrazione(\s+vocale)?\b",
+        r"\b(update|change|recalibrate)\s+my\s+voice\b",
+        r"\bvoice\s+enrollment\b",
+    ]
+    if any(re.search(p, lower) for p in owner_patterns):
+        return {"profile_name": "owner"}
+
+    return None
+
+
 # Registry of tools exposed to Gemini function calling
 REGISTERED_TOOLS: List[Callable[..., Any]] = [
     get_current_time,
@@ -608,6 +720,7 @@ REGISTERED_TOOLS: List[Callable[..., Any]] = [
     execute_slave_command,
     set_security_mode,
     set_mute_mode,
+    enroll_voice_profile,
 ]
 
 # Lookup map for runtime dynamic dispatching

@@ -4,9 +4,15 @@ import logging
 import math
 import os
 import time
+import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional, Set
+from typing import List, Optional, Set
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(dotenv_path=BASE_DIR / ".env")
+MODELS_DIR = BASE_DIR / "models"
 
 import httpx
 import psutil
@@ -24,6 +30,7 @@ from speaker_verifier import SpeakerVerifier
 from tts_engine import PiperTTSEngine
 from telemetry_utils import collect_system_telemetry
 from commands import (
+    detect_enrollment_intent,
     detect_security_mode_in_reply,
     detect_security_mode_intent,
     detect_telemetry_intent,
@@ -33,7 +40,7 @@ from commands import (
     set_command_auth_context,
 )
 
-THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
+THRESHOLD_VAR = float(os.getenv("AXL_SPEAKER_THRESHOLD", "0.48"))  # Configurable via .env, calibrated with tools/calibrate_speaker.py
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,9 +53,6 @@ logging.getLogger("google_genai").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("websockets").setLevel(logging.WARNING)
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-MODELS_DIR = BASE_DIR / "models"
 
 
 class StreamManager:
@@ -63,7 +67,12 @@ class StreamManager:
         self.active_client: Optional[WebSocket] = None
         self.ui_clients: Set[WebSocket] = set()
         self.is_speaking: bool = False
+        self.stop_speech_requested: bool = False
         self.is_muted: bool = False
+        self.is_enrolling: bool = False
+        self.enrollment_target: Optional[str] = None
+        self.enrollment_queue: asyncio.Queue = asyncio.Queue()
+        self._enrollment_task: Optional[asyncio.Task] = None
         self.telemetry_active: bool = False
         self.telemetry_target: str = "fedora"
         self._telemetry_task: Optional[asyncio.Task] = None
@@ -106,6 +115,11 @@ class StreamManager:
                 self.audio_buffer.clear()
             logger.info(f"[MUTE CONTROLLER] Mute mode updated by command: {self.is_muted}")
             await self.broadcast_ui({"type": "MUTE_STATE", "muted": self.is_muted})
+            return
+
+        if ptype == "START_VOICE_ENROLLMENT":
+            pname = payload.get("profile_name", "owner")
+            self.start_voice_enrollment(pname)
             return
 
         enabled = payload.get("enabled", self.telemetry_active)
@@ -356,6 +370,31 @@ class StreamManager:
                     logger.info(f"[COMMAND GUARDRAIL] Toggling telemetry HUD: show={req_show}, target={req_tgt}")
                     await self.set_telemetry_mode(req_show, target=req_tgt)
 
+            # Guardrail 4: Voice Enrollment Intent
+            enroll_intent = detect_enrollment_intent(transcript)
+            if enroll_intent is not None and not self.is_enrolling:
+                target_profile = enroll_intent.get("profile_name", "owner")
+                can_enroll = False
+                if target_profile == "owner":
+                    if sec_mode in ["restrict", "paranoid"]:
+                        can_enroll = is_authorized and (identity.lower() == "owner")
+                    else:
+                        can_enroll = is_authorized and (identity.lower() == "owner" or "owner" not in self.verifier.enrolled_profiles)
+                else:
+                    if sec_mode in ["restrict", "paranoid"]:
+                        can_enroll = is_authorized and (identity.lower() == "owner")
+                    else:
+                        can_enroll = is_authorized
+
+                if can_enroll:
+                    logger.info(f"[COMMAND GUARDRAIL] Initiating voice calibration session for '{target_profile}'")
+                    self.start_voice_enrollment(target_profile)
+                else:
+                    logger.warning(
+                        f"[COMMAND GUARDRAIL] Blocked unauthorized voice enrollment attempt for '{target_profile}' "
+                        f"from speaker '{identity}' in '{sec_mode}' mode."
+                    )
+
             # Broadcast dialogue subtitles to connected HUD visors
             await self.broadcast_ui({
                 "type": "TRANSCRIPT",
@@ -366,27 +405,262 @@ class StreamManager:
             # 4. Neural Text-To-Speech Synthesis & Streaming via WebSocket
             if vocal_reply and self.tts and self.active_client:
                 logger.info("[TTS STREAM] Synthesizing and streaming response to client...")
-                self.is_speaking = True
+                await self.speak_text(vocal_reply)
+                if not self.stop_speech_requested:
+                    logger.info("[TTS STREAM] Vocal response fully delivered.")
+
+    async def speak_text(self, text: str) -> bool:
+        """
+        Synthesizes and streams a vocal response to the active client.
+        Crucially maintains is_speaking = True and UI state = SPEAKING for the full
+        duration of the actual audio playback so the STOP button remains active.
+        """
+        if not text or not self.tts or not self.active_client:
+            return False
+        self.is_speaking = True
+        self.stop_speech_requested = False
+        await self.broadcast_ui({
+            "type": "STATE_CHANGE",
+            "state": "SPEAKING",
+            "label": "VOCAL TRANSMISSION // STREAMING PCM",
+        })
+        try:
+            pcm_bytes = await self.tts.synthesize_bytes(text)
+            if not pcm_bytes:
+                return False
+
+            total_duration_sec = len(pcm_bytes) / 32000.0
+            logger.info(f"[TTS STREAM] Total vocal response duration: {total_duration_sec:.2f}s ({len(pcm_bytes)} bytes)")
+
+            chunk_size = 1280  # 40ms @ 16kHz 16-bit Mono
+            playback_start_time = time.monotonic()
+            bytes_sent = 0
+            total_bytes = len(pcm_bytes)
+
+            for offset in range(0, total_bytes, chunk_size):
+                if self.stop_speech_requested:
+                    logger.info("[TTS STREAM] Speech transmission interrupted by user STOP.")
+                    return False
+                chunk = pcm_bytes[offset : offset + chunk_size]
+                if self.active_client:
+                    await self.active_client.send_bytes(chunk)
+                bytes_sent += len(chunk)
+
+                # Pace transmission so client buffer neither starves nor overflows
+                elapsed = time.monotonic() - playback_start_time
+                sent_audio_time = bytes_sent / 32000.0
+                lead_time = sent_audio_time - elapsed
+                if lead_time > 0.35:
+                    await asyncio.sleep(lead_time - 0.20)
+
+            # Audio chunks have been completely transmitted over the network.
+            # Keep is_speaking = True until the physical speaker finishes playback!
+            while not self.stop_speech_requested:
+                elapsed = time.monotonic() - playback_start_time
+                remaining = total_duration_sec - elapsed
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(0.1, remaining))
+
+            if not self.stop_speech_requested:
+                logger.info(f"[TTS STREAM] Vocal response playback fully completed ({total_duration_sec:.2f}s).")
+            return not self.stop_speech_requested
+        except Exception as exc:
+            logger.error(f"[TTS STREAM ERROR] Failed sending audio: {exc}")
+            return False
+        finally:
+            self.is_speaking = False
+            self.stop_speech_requested = False
+            await asyncio.sleep(0.15)
+            await self.broadcast_ui({
+                "type": "STATE_CHANGE",
+                "state": "IDLE",
+            })
+
+    def start_voice_enrollment(self, profile_name: str):
+        """Starts an asynchronous interactive voice calibration session."""
+        if self.is_enrolling:
+            logger.warning(f"[VOICE ENROLLMENT] Session already in progress for '{self.enrollment_target}'.")
+            return
+        self.is_enrolling = True
+        self.enrollment_target = profile_name
+        self._enrollment_task = asyncio.create_task(self._run_enrollment_session(profile_name))
+
+    async def _run_enrollment_session(self, profile_name: str):
+        """
+        Executes a 3-take conversational voice calibration session directly via the active audio client.
+        Isolates pure human speech with Silero VAD, computes CAM++ centroid, and dynamically updates profiles in RAM.
+        """
+        logger.info(f"=== [VOICE ENROLLMENT] Starting online calibration for '{profile_name}' ===")
+        vad = self.pipeline.vad if self.pipeline else None
+        if not vad or not self.verifier:
+            logger.error("[VOICE ENROLLMENT] Pipeline VAD or SpeakerVerifier not available!")
+            self.is_enrolling = False
+            return
+
+        # Wait briefly for any ongoing vocal reply to complete
+        while self.is_speaking:
+            await asyncio.sleep(0.1)
+
+        try:
+            target_samples = int(3.0 * 16000)  # 3.0s pure speech = 48,000 samples
+            takes_samples: List[np.ndarray] = []
+            prompts = [
+                f"*pant* Iniziamo la calibrazione vocale per {profile_name}. Campione uno di tre: parla chiaramente per tre secondi dopo il verso. *pant*",
+                f"Primo campione acquisito. Campione due di tre: dimmi un'altra frase qualsiasi. *pant*",
+                f"Ottimo lavoro. Terzo e ultimo campione: continua a parlare ancora un momento. *pant*",
+            ]
+
+            for take_idx in range(1, 4):
+                if self.stop_speech_requested:
+                    logger.info("[VOICE ENROLLMENT] Cancelled by user STOP.")
+                    break
+
+                # 1. Vocal prompt to user
+                success = await self.speak_text(prompts[take_idx - 1])
+                if not success or self.stop_speech_requested:
+                    logger.info("[VOICE ENROLLMENT] Interrupted during vocal prompt.")
+                    break
+
+                # 2. Flush enrollment queue of stale frames
+                while not self.enrollment_queue.empty():
+                    try:
+                        self.enrollment_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+
+                # 3. Update Visor UI state
                 await self.broadcast_ui({
                     "type": "STATE_CHANGE",
-                    "state": "SPEAKING",
-                    "label": "VOCAL TRANSMISSION // STREAMING PCM",
+                    "state": "LISTENING",
+                    "label": f"ACQUISIZIONE VOCE // TAKE {take_idx}/3 (0%)",
                 })
-                try:
-                    async for audio_chunk in self.tts.synthesize_stream(vocal_reply):
-                        if self.active_client:
-                            await self.active_client.send_bytes(audio_chunk)
-                    logger.info("[TTS STREAM] Vocal response fully delivered.")
-                except Exception as exc:
-                    logger.error(f"[TTS STREAM ERROR] Failed sending audio: {exc}")
-                finally:
-                    # Small grace period (200ms) before re-enabling mic listening to absorb room decay
-                    await asyncio.sleep(0.2)
-                    self.is_speaking = False
-                    await self.broadcast_ui({
-                        "type": "STATE_CHANGE",
-                        "state": "IDLE",
-                    })
+
+                # 4. Gather pure speech with Silero VAD
+                vad.reset_state()
+                collected_speech: List[np.ndarray] = []
+                collected_samples = 0
+                take_start = time.monotonic()
+                timeout_sec = 14.0
+                vad_residual = bytearray()
+                last_reported_pct = -1
+
+                while collected_samples < target_samples:
+                    if self.stop_speech_requested:
+                        break
+                    if time.monotonic() - take_start > timeout_sec:
+                        logger.warning(
+                            f"[VOICE ENROLLMENT] Take {take_idx} timeout (collected {collected_samples}/{target_samples} samples)."
+                        )
+                        break
+
+                    try:
+                        data = await asyncio.wait_for(self.enrollment_queue.get(), timeout=0.5)
+                    except asyncio.TimeoutError:
+                        continue
+
+                    vad_residual.extend(data)
+                    # Silero VAD window is 512 samples = 1024 bytes (16-bit)
+                    while len(vad_residual) >= 1024:
+                        window_bytes = vad_residual[:1024]
+                        del vad_residual[:1024]
+
+                        samples_int16 = np.frombuffer(window_bytes, dtype=np.int16)
+                        samples_f32 = samples_int16.astype(np.float32) / 32768.0
+
+                        prob = vad.process_window(samples_f32)
+                        if prob >= 0.50:
+                            collected_speech.append(samples_int16)
+                            collected_samples += len(samples_int16)
+
+                            pct = min(100, int((collected_samples / target_samples) * 100))
+                            if pct // 10 != last_reported_pct:
+                                last_reported_pct = pct // 10
+                                await self.broadcast_ui({
+                                    "type": "STATE_CHANGE",
+                                    "state": "LISTENING",
+                                    "label": f"ACQUISIZIONE VOCE // TAKE {take_idx}/3 ({pct}%)",
+                                })
+
+                if self.stop_speech_requested:
+                    break
+
+                if collected_samples >= 24000:  # At least 1.5s pure speech required
+                    take_audio = np.concatenate(collected_speech)
+                    takes_samples.append(take_audio)
+                    logger.info(f"[VOICE ENROLLMENT] Take {take_idx}/3 collected successfully ({len(take_audio)} samples).")
+                else:
+                    logger.warning(f"[VOICE ENROLLMENT] Take {take_idx}/3 failed: insufficient speech frames.")
+                    await self.speak_text("*growl* Campione non sufficiente. Calibrazione interrotta.")
+                    break
+
+            # 5. Process embeddings and save profile
+            if len(takes_samples) == 3 and not self.stop_speech_requested:
+                logger.info(f"[VOICE ENROLLMENT] Computing neural CAM++ embeddings for '{profile_name}'...")
+                await self.broadcast_ui({
+                    "type": "STATE_CHANGE",
+                    "state": "THINKING",
+                    "label": "ELABORAZIONE CENTROIDE BIOMETRICO...",
+                })
+
+                embeddings = []
+                for idx, t_audio in enumerate(takes_samples, 1):
+                    emb = await asyncio.to_thread(self.verifier.extract_embedding, t_audio)
+                    if emb is not None:
+                        norm = np.linalg.norm(emb)
+                        if norm > 0:
+                            embeddings.append(emb / norm)
+                            logger.info(f"[VOICE ENROLLMENT] Take {idx} embedding generated (norm: {norm:.4f}).")
+
+                if len(embeddings) == 3:
+                    centroid = np.mean(embeddings, axis=0)
+                    centroid = centroid / np.linalg.norm(centroid)
+
+                    for i, emb in enumerate(embeddings, 1):
+                        sim = float(np.dot(emb, centroid))
+                        logger.info(f"[VOICE ENROLLMENT] Take {i} vs Centroid: {sim:.4f}")
+
+                    out_profile = self.verifier.profiles_dir / f"{profile_name}.npy"
+                    np.save(out_profile, centroid)
+
+                    # Save debug WAV for human audit
+                    try:
+                        all_audio = np.concatenate(takes_samples)
+                        debug_wav = self.verifier.profiles_dir / f"{profile_name}_debug_voice.wav"
+                        with wave.open(str(debug_wav), "wb") as wf:
+                            wf.setnchannels(1)
+                            wf.setsampwidth(2)
+                            wf.setframerate(16000)
+                            wf.writeframes(all_audio.tobytes())
+                    except Exception as err:
+                        logger.warning(f"Could not save debug WAV: {err}")
+
+                    # Dynamic in-memory reload
+                    self.verifier.load_profiles()
+                    logger.info(f">>> [VOICE ENROLLMENT SUCCESS] Profile '{profile_name}' enrolled and loaded in RAM! <<<")
+
+                    await self.speak_text(
+                        f"*bark* Calibrazione completata, capo! Il profilo vocale di {profile_name} è registrato e attivo nel sistema."
+                    )
+                else:
+                    logger.error("[VOICE ENROLLMENT ERROR] Failed extracting embeddings.")
+                    await self.speak_text("*growl* Errore durante l'estrazione degli embedding. Riprova più tardi.")
+            else:
+                if not self.stop_speech_requested:
+                    logger.info("[VOICE ENROLLMENT] Enrollment aborted due to incomplete takes.")
+        except Exception as exc:
+            logger.error(f"[VOICE ENROLLMENT ERROR] Exception in enrollment session: {exc}", exc_info=True)
+            if not self.stop_speech_requested:
+                await self.speak_text("*growl* Si è verificato un errore durante la calibrazione.")
+        finally:
+            self.is_enrolling = False
+            self.enrollment_target = None
+            self.stop_speech_requested = False
+            await self.broadcast_ui({
+                "type": "STATE_CHANGE",
+                "state": "IDLE",
+                "label": "SURVEILLANCE // PASSIVE IDLE",
+            })
 
 
 stream_manager = StreamManager()
@@ -437,6 +711,14 @@ async def audio_websocket_endpoint(websocket: WebSocket):
 
             # Inhibit audio ingestion while A-X-L is speaking or muted
             if stream_manager.is_speaking or stream_manager.is_muted:
+                continue
+
+            # Route incoming audio directly to the enrollment queue during calibration
+            if stream_manager.is_enrolling:
+                try:
+                    stream_manager.enrollment_queue.put_nowait(data)
+                except asyncio.QueueFull:
+                    pass
                 continue
 
             stream_manager.audio_buffer.write(data)
@@ -549,6 +831,26 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         stream_manager.audio_buffer.clear()
                     logger.info(f"[MUTE CONTROLLER] Mute state updated via UI: {stream_manager.is_muted}")
                     await stream_manager.broadcast_ui({"type": "MUTE_STATE", "muted": stream_manager.is_muted})
+                elif mtype == "STOP_SPEECH":
+                    logger.info("[STOP BUTTON] User requested immediate vocal/enrollment abort.")
+                    stream_manager.stop_speech_requested = True
+                    stream_manager.is_speaking = False
+                    stream_manager.is_enrolling = False
+                    if stream_manager._enrollment_task and not stream_manager._enrollment_task.done():
+                        stream_manager._enrollment_task.cancel()
+                    if stream_manager.pipeline:
+                        stream_manager.pipeline.reset()
+                    stream_manager.audio_buffer.clear()
+                    if stream_manager.active_client:
+                        try:
+                            await stream_manager.active_client.send_text("STOP")
+                        except Exception:
+                            pass
+                    await stream_manager.broadcast_ui({
+                        "type": "STATE_CHANGE",
+                        "state": "IDLE",
+                        "label": "SURVEILLANCE // PASSIVE IDLE",
+                    })
                 elif mtype == "ASK_START":
                     # Push-to-ask: skips the wake-word. Speaker verification still applies afterwards.
                     if stream_manager.is_speaking:
