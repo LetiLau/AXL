@@ -18,9 +18,11 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -47,13 +49,14 @@ class AudioStreamService : Service() {
 
         const val ACTION_START = "com.axl.kiosk.START_STREAM"
         const val ACTION_STOP = "com.axl.kiosk.STOP_STREAM"
+        const val ACTION_RECONNECT = "com.axl.kiosk.RECONNECT"
     }
 
-    private val serviceJob = Job()
-    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    private var streamJob: Job? = null
+    private var streamScope: CoroutineScope? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
-    private var isRunning = AtomicBoolean(false)
+    private val isRunning = AtomicBoolean(false)
 
     // Audio In / Out
     private var audioRecord: AudioRecord? = null
@@ -65,7 +68,9 @@ class AudioStreamService : Service() {
         .retryOnConnectionFailure(true)
         .build()
 
+    @Volatile
     private var audioWebSocket: WebSocket? = null
+    @Volatile
     private var controlWebSocket: WebSocket? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -78,31 +83,48 @@ class AudioStreamService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
-        if (action == ACTION_STOP) {
-            stopStreaming()
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        Log.i(TAG, "onStartCommand received action: $action")
 
-        if (!isRunning.get()) {
-            isRunning.set(true)
-            val notification = buildForegroundNotification()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                } else {
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                }
-                startForeground(NOTIFICATION_ID, notification, serviceType)
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
+        when (action) {
+            ACTION_STOP -> {
+                stopStreaming()
+                stopSelf()
+                return START_NOT_STICKY
             }
-
-            initAudioHardware()
-            startSocketsAndPipelines()
+            ACTION_RECONNECT -> {
+                Log.i(TAG, "Reconnecting sockets with updated server configuration...")
+                // Force close existing sockets so the reconnect loop reconnects with new URL
+                audioWebSocket?.close(1000, "Reconnecting with new address")
+                controlWebSocket?.close(1000, "Reconnecting with new address")
+                audioWebSocket = null
+                controlWebSocket = null
+                return START_STICKY
+            }
+            ACTION_START -> {
+                startForegroundNotification()
+                if (!isRunning.get()) {
+                    isRunning.set(true)
+                    initAudioHardware()
+                    startPipelines()
+                }
+            }
         }
 
         return START_STICKY
+    }
+
+    private fun startForegroundNotification() {
+        val notification = buildForegroundNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            startForeground(NOTIFICATION_ID, notification, serviceType)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun createNotificationChannel() {
@@ -140,13 +162,13 @@ class AudioStreamService : Service() {
     }
 
     private fun initAudioHardware() {
-        // 1. AudioTrack Setup (Output)
+        // 1. AudioTrack Setup (Speaker Output)
         val minTrackBuf = AudioTrack.getMinBufferSize(
             SAMPLE_RATE,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        val trackBufSize = maxOf(minTrackBuf, CHUNK_SIZE_BYTES * 4)
+        val trackBufSize = maxOf(minTrackBuf, CHUNK_SIZE_BYTES * 8)
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -159,39 +181,41 @@ class AudioStreamService : Service() {
             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
             .build()
 
-        audioTrack = AudioTrack(
-            audioAttributes,
-            audioFormatOut,
-            trackBufSize,
-            AudioTrack.MODE_STREAM,
-            AudioManager.AUDIO_SESSION_ID_GENERATE
-        )
         try {
+            audioTrack = AudioTrack(
+                audioAttributes,
+                audioFormatOut,
+                trackBufSize,
+                AudioTrack.MODE_STREAM,
+                AudioManager.AUDIO_SESSION_ID_GENERATE
+            )
             audioTrack?.play()
-            Log.i(TAG, "AudioTrack initialized and playing.")
+            Log.i(TAG, "AudioTrack initialized successfully and in PLAYING state.")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start AudioTrack: ${e.message}", e)
+            Log.e(TAG, "Failed to initialize AudioTrack: ${e.message}", e)
         }
 
-        // 2. AudioRecord Setup (Input)
+        // 2. AudioRecord Setup (Microphone Input)
         val minRecordBuf = AudioRecord.getMinBufferSize(
             SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        val recordBufSize = maxOf(minRecordBuf, CHUNK_SIZE_BYTES * 4)
+        val recordBufSize = maxOf(minRecordBuf, CHUNK_SIZE_BYTES * 8)
 
         try {
-            audioRecord = AudioRecord(
+            // First attempt: VOICE_RECOGNITION (prefers clean beamformed speech without echo)
+            var record = AudioRecord(
                 MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
                 recordBufSize
             )
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                // Fallback to standard MIC if VOICE_RECOGNITION fails
-                audioRecord = AudioRecord(
+            if (record.state != AudioRecord.STATE_INITIALIZED) {
+                Log.w(TAG, "VOICE_RECOGNITION not initialized, falling back to MIC source.")
+                record.release()
+                record = AudioRecord(
                     MediaRecorder.AudioSource.MIC,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
@@ -199,8 +223,14 @@ class AudioStreamService : Service() {
                     recordBufSize
                 )
             }
-            audioRecord?.startRecording()
-            Log.i(TAG, "AudioRecord initialized and recording.")
+
+            if (record.state == AudioRecord.STATE_INITIALIZED) {
+                record.startRecording()
+                audioRecord = record
+                Log.i(TAG, "AudioRecord initialized and recording successfully.")
+            } else {
+                Log.e(TAG, "AudioRecord failed to initialize in any audio source mode.")
+            }
         } catch (e: SecurityException) {
             Log.e(TAG, "Missing RECORD_AUDIO permission: ${e.message}")
         } catch (e: Exception) {
@@ -208,24 +238,30 @@ class AudioStreamService : Service() {
         }
     }
 
-    private fun startSocketsAndPipelines() {
-        // Pipeline 1: Binary Audio WebSocket
-        serviceScope.launch {
-            connectAudioWebSocket()
+    private fun startPipelines() {
+        streamJob?.cancel()
+        val job = SupervisorJob()
+        streamJob = job
+        val scope = CoroutineScope(Dispatchers.IO + job)
+        streamScope = scope
+
+        // Pipeline 1: Binary Audio WebSocket (Send mic PCM, receive Piper TTS PCM)
+        scope.launch {
+            runAudioWebSocketLoop()
         }
 
         // Pipeline 2: JSON Control WebSocket (Telemetry & Intents)
-        serviceScope.launch {
-            connectControlWebSocket()
+        scope.launch {
+            runControlWebSocketLoop()
         }
 
-        // Pipeline 3: Continuous Mic Recording Loop
-        serviceScope.launch {
+        // Pipeline 3: Continuous Mic Recording & Streaming Loop
+        scope.launch {
             recordAndStreamMic()
         }
 
         // Pipeline 4: Periodic Kiosk Telemetry Broadcast (every 5 seconds)
-        serviceScope.launch {
+        scope.launch {
             while (isActive && isRunning.get()) {
                 sendKioskTelemetry()
                 delay(5000)
@@ -233,20 +269,22 @@ class AudioStreamService : Service() {
         }
     }
 
-    private suspend fun connectAudioWebSocket() {
-        while (serviceScope.isActive && isRunning.get()) {
+    private suspend fun runAudioWebSocketLoop() {
+        while (streamScope?.isActive == true && isRunning.get()) {
             val url = KioskConfig.getAudioWsUrl(this@AudioStreamService)
-            Log.i(TAG, "Connecting Audio WebSocket to: $url")
+            Log.i(TAG, "Connecting Audio WS to: $url")
+
+            val closedSignal = CompletableDeferred<Unit>()
             val request = Request.Builder().url(url).build()
 
-            val listener = object : WebSocketListener() {
+            val ws = okHttpClient.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    Log.i(TAG, "Audio WebSocket Connected!")
+                    Log.i(TAG, ">>> [AUDIO WS CONNECTED] Bidirectional audio link established with Master! <<<")
                     audioWebSocket = webSocket
                 }
 
                 override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                    // Outbound audio from ThinkPad (Piper TTS stream) -> Play to Phone Speaker
+                    // Outbound audio from Master (Piper TTS stream) -> Play through Phone Speaker
                     val raw = bytes.toByteArray()
                     if (raw.isNotEmpty() && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
                         audioTrack?.write(raw, 0, raw.size)
@@ -254,30 +292,36 @@ class AudioStreamService : Service() {
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    Log.w(TAG, "Audio WebSocket failed: ${t.message}. Reconnecting in 3s...")
+                    Log.w(TAG, "Audio WS failure: ${t.message}. Will retry in 3s...")
                     audioWebSocket = null
+                    if (!closedSignal.isCompleted) closedSignal.complete(Unit)
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    Log.i(TAG, "Audio WebSocket closed ($code: $reason)")
+                    Log.i(TAG, "Audio WS closed ($code: $reason). Will retry...")
                     audioWebSocket = null
+                    if (!closedSignal.isCompleted) closedSignal.complete(Unit)
                 }
-            }
+            })
 
-            okHttpClient.newWebSocket(request, listener)
-            delay(5000)
+            // Wait until this connection closes before attempting a new one!
+            closedSignal.await()
+            audioWebSocket = null
+            delay(3000)
         }
     }
 
-    private suspend fun connectControlWebSocket() {
-        while (serviceScope.isActive && isRunning.get()) {
+    private suspend fun runControlWebSocketLoop() {
+        while (streamScope?.isActive == true && isRunning.get()) {
             val url = KioskConfig.getControlWsUrl(this@AudioStreamService)
-            Log.i(TAG, "Connecting Control WebSocket to: $url")
+            Log.i(TAG, "Connecting Control WS to: $url")
+
+            val closedSignal = CompletableDeferred<Unit>()
             val request = Request.Builder().url(url).build()
 
-            val listener = object : WebSocketListener() {
+            val ws = okHttpClient.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    Log.i(TAG, "Control WebSocket Connected!")
+                    Log.i(TAG, ">>> [CONTROL WS CONNECTED] Kiosk telemetry and intent link established! <<<")
                     controlWebSocket = webSocket
                     sendKioskTelemetry()
                 }
@@ -295,28 +339,32 @@ class AudioStreamService : Service() {
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    Log.w(TAG, "Control WebSocket failed: ${t.message}. Reconnecting in 5s...")
+                    Log.w(TAG, "Control WS failure: ${t.message}. Will retry in 4s...")
                     controlWebSocket = null
+                    if (!closedSignal.isCompleted) closedSignal.complete(Unit)
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    Log.i(TAG, "Control WebSocket closed ($code: $reason)")
+                    Log.i(TAG, "Control WS closed ($code: $reason). Will retry...")
                     controlWebSocket = null
+                    if (!closedSignal.isCompleted) closedSignal.complete(Unit)
                 }
-            }
+            })
 
-            okHttpClient.newWebSocket(request, listener)
-            delay(6000)
+            closedSignal.await()
+            controlWebSocket = null
+            delay(4000)
         }
     }
 
     private fun recordAndStreamMic() {
         val buffer = ByteArray(CHUNK_SIZE_BYTES)
-        while (serviceScope.isActive && isRunning.get()) {
+        Log.i(TAG, "Mic recording loop running. Buffer chunk: $CHUNK_SIZE_BYTES bytes.")
+        while (streamScope?.isActive == true && isRunning.get()) {
             val recorder = audioRecord
             if (recorder != null && recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 var bytesReadTotal = 0
-                while (bytesReadTotal < CHUNK_SIZE_BYTES) {
+                while (bytesReadTotal < CHUNK_SIZE_BYTES && streamScope?.isActive == true) {
                     val read = recorder.read(
                         buffer,
                         bytesReadTotal,
@@ -325,6 +373,12 @@ class AudioStreamService : Service() {
                     if (read > 0) {
                         bytesReadTotal += read
                     } else {
+                        Log.w(TAG, "AudioRecord read returned error code: $read")
+                        try {
+                            Thread.sleep(10)
+                        } catch (_: InterruptedException) {
+                            break
+                        }
                         break
                     }
                 }
@@ -343,6 +397,7 @@ class AudioStreamService : Service() {
                 }
             }
         }
+        Log.i(TAG, "Mic recording loop exited.")
     }
 
     private fun sendKioskTelemetry() {
@@ -357,7 +412,9 @@ class AudioStreamService : Service() {
 
     private fun stopStreaming() {
         isRunning.set(false)
-        serviceJob.cancel()
+        streamJob?.cancel()
+        streamJob = null
+        streamScope = null
 
         try {
             audioRecord?.stop()
@@ -375,6 +432,8 @@ class AudioStreamService : Service() {
             audioWebSocket?.close(1000, "Service stopped")
             controlWebSocket?.close(1000, "Service stopped")
         } catch (_: Exception) {}
+        audioWebSocket = null
+        controlWebSocket = null
 
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()

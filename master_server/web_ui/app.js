@@ -39,6 +39,7 @@
     const muteBtnIcon = document.getElementById("mute-btn-icon");
     const muteBtnLabel = document.getElementById("mute-btn-label");
     const askBtn = document.getElementById("ask-btn");
+    const askBtnIcon = document.getElementById("ask-btn-icon");
     const askBtnLabel = document.getElementById("ask-btn-label");
 
     // --- Telemetry Elements ---
@@ -673,18 +674,32 @@
         askBtn.classList.add(`ask-${securityMode}`);
         const listening = currentState === "LISTENING";
         askBtn.classList.toggle("listening", listening);
-        askBtn.disabled = currentState !== "IDLE";
-        if (askBtnLabel) askBtnLabel.textContent = listening ? "LISTENING..." : "ASK ME...";
-        askBtn.title = securityMode === "friendly"
-            ? "Fai una domanda senza dire la wake-word"
-            : "Fai una domanda senza wake-word (verifica vocale ancora attiva)";
+
+        // When microphone is muted, ASK is strictly disabled and unclickable
+        if (isMuted) {
+            askBtn.disabled = true;
+            askBtn.classList.add("disabled-muted");
+            if (askBtnIcon) askBtnIcon.textContent = "🔇";
+            if (askBtnLabel) askBtnLabel.textContent = "MIC MUTO";
+            askBtn.title = "Microfono disattivato: sblocca prima il pulsante MUTE per abilitare le richieste vocali.";
+        } else {
+            askBtn.disabled = currentState !== "IDLE";
+            askBtn.classList.remove("disabled-muted");
+            if (askBtnIcon) askBtnIcon.textContent = listening ? "🎙️" : "💬";
+            if (askBtnLabel) askBtnLabel.textContent = listening ? "LISTENING..." : "ASK ME...";
+            askBtn.title = listening
+                ? "Ascolto in corso..."
+                : (securityMode === "friendly"
+                    ? "Fai una domanda senza dire la wake-word"
+                    : "Fai una domanda senza wake-word (verifica vocale ancora attiva)");
+        }
     }
 
     if (askBtn) {
         askBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (askBtn.disabled) return;
+            if (askBtn.disabled || isMuted) return;
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: "ASK_START" }));
             } else {
@@ -1114,5 +1129,6 @@
     renderVisor();
     startAudioReactiveLoop();
     resetInactivityTimer();
+    updateAskButton();
 
 })();

@@ -30,6 +30,7 @@ from commands import (
     is_mute_in_reply,
     is_mute_intent,
     register_telemetry_listener,
+    set_command_auth_context,
 )
 
 THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
@@ -63,7 +64,6 @@ class StreamManager:
         self.ui_clients: Set[WebSocket] = set()
         self.is_speaking: bool = False
         self.is_muted: bool = False
-        self.ask_while_muted: bool = False
         self.telemetry_active: bool = False
         self.telemetry_target: str = "fedora"
         self._telemetry_task: Optional[asyncio.Task] = None
@@ -282,6 +282,14 @@ class StreamManager:
                 f">>> [AUTH REJECTED] Identity: {identity.upper()} | Score: {sim_score:.3f} | Mode: {sec_mode} <<<"
             )
 
+        # Set biometric authorization context for tool invocation (AFC)
+        set_command_auth_context(
+            is_authorized=is_authorized,
+            identity=identity,
+            security_mode=sec_mode,
+            similarity_score=sim_score,
+        )
+
         # Broadcast biometric verification event to connected HUD visors
         await self.broadcast_ui({
             "type": "AUTH_EVENT",
@@ -309,21 +317,34 @@ class StreamManager:
             # --- Synchronous Intent Guardrails (Guarantees 100% action execution fidelity) ---
             # Guardrail 1: Mute Command (checks both user transcript and spoken confirmation)
             mute_triggered = is_mute_intent(transcript) or is_mute_in_reply(vocal_reply)
+            can_mute = is_authorized or (sec_mode == "friendly")
             if not self.is_muted and mute_triggered:
-                logger.info(f"[COMMAND GUARDRAIL] Engaging mute mode (transcript: '{transcript}' | reply: '{vocal_reply[:60]}...').")
-                await self.handle_telemetry_event({"type": "SET_MUTE", "muted": True})
+                if can_mute:
+                    logger.info(f"[COMMAND GUARDRAIL] Engaging mute mode (transcript: '{transcript}' | reply: '{vocal_reply[:60]}...').")
+                    await self.handle_telemetry_event({"type": "SET_MUTE", "muted": True})
+                else:
+                    logger.warning(
+                        f"[COMMAND GUARDRAIL] Blocked unauthorized mute attempt from speaker '{identity}' in '{sec_mode}' mode."
+                    )
 
             # Guardrail 2: Security Mode Command (checks both user transcript and spoken confirmation)
             req_mode = detect_security_mode_intent(transcript) or detect_security_mode_in_reply(vocal_reply)
             if req_mode and self.verifier and req_mode != self.verifier.security_mode:
-                can_switch = is_authorized or (sec_mode == "friendly")
+                can_switch = False
+                if sec_mode == "friendly":
+                    can_switch = True
+                elif sec_mode == "restrict":
+                    can_switch = is_authorized
+                elif sec_mode == "paranoid":
+                    can_switch = is_authorized and (identity.lower() == "owner")
+
                 if can_switch:
                     logger.info(f"[COMMAND GUARDRAIL] Switching security mode to '{req_mode}' (speaker: {identity}).")
                     await self.handle_telemetry_event({"type": "SECURITY_MODE", "mode": req_mode})
                 else:
                     logger.warning(
                         f"[COMMAND GUARDRAIL] Blocked unauthorized security mode switch to '{req_mode}' "
-                        f"from speaker '{identity}' (score: {sim_score:.3f})."
+                        f"from speaker '{identity}' (score: {sim_score:.3f}, mode: '{sec_mode}')."
                     )
 
             # Guardrail 3: Telemetry HUD Command
@@ -414,8 +435,8 @@ async def audio_websocket_endpoint(websocket: WebSocket):
             if len(data) % 2 != 0:
                 continue
 
-            # Inhibit audio ingestion while A-X-L is speaking or muted (except a one-shot ASK while muted)
-            if stream_manager.is_speaking or (stream_manager.is_muted and not stream_manager.ask_while_muted):
+            # Inhibit audio ingestion while A-X-L is speaking or muted
+            if stream_manager.is_speaking or stream_manager.is_muted:
                 continue
 
             stream_manager.audio_buffer.write(data)
@@ -470,7 +491,6 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                         )
 
                     elif ev_type == "SILENCE_RESET":
-                        stream_manager.ask_while_muted = False
                         silence_time = ev.get("silence_sec", 0.0)
                         reason = ev.get("reason", "unknown")
                         logger.info(
@@ -531,17 +551,14 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                     await stream_manager.broadcast_ui({"type": "MUTE_STATE", "muted": stream_manager.is_muted})
                 elif mtype == "ASK_START":
                     # Push-to-ask: skips the wake-word. Speaker verification still applies afterwards.
-                    # Allowed even while muted (one-shot question: the mute state is kept afterwards).
                     if stream_manager.is_speaking:
                         logger.info("[ASK BUTTON] Ignored (A-X-L is speaking).")
+                    elif stream_manager.is_muted:
+                        logger.warning("[ASK BUTTON] Ignored: microphone is muted.")
                     elif not stream_manager.active_client or not stream_manager.pipeline:
                         logger.warning("[ASK BUTTON] Ignored: no audio source connected.")
                     elif stream_manager.pipeline.force_listen():
-                        stream_manager.ask_while_muted = stream_manager.is_muted
-                        logger.info(
-                            "[ASK BUTTON] Listening started without wake-word"
-                            + (" (one-shot while muted)." if stream_manager.is_muted else ".")
-                        )
+                        logger.info("[ASK BUTTON] Listening started without wake-word.")
                         await stream_manager.broadcast_ui({
                             "type": "STATE_CHANGE",
                             "state": "LISTENING",

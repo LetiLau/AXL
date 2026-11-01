@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.webkit.WebResourceError
@@ -29,6 +30,10 @@ import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val TAG = "AXL-MainActivity"
+    }
+
     private lateinit var webView: WebView
     private lateinit var layoutOffline: LinearLayout
     private lateinit var tvTargetUrl: TextView
@@ -43,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     ) { permissions ->
         val recordAudioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
         if (recordAudioGranted) {
+            Log.i(TAG, "RECORD_AUDIO permission granted by user.")
             startAudioService()
         } else {
             Toast.makeText(
@@ -79,6 +85,15 @@ class MainActivity : AppCompatActivity() {
 
         // 4. Load the Web UI
         loadVisorUi()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        setupImmersiveFullscreen()
+        // Ensure service is running if permissions are already granted
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startAudioService()
+        }
     }
 
     private fun setupImmersiveFullscreen() {
@@ -131,7 +146,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupListeners() {
         btnRetry.setOnClickListener {
             loadVisorUi()
-            startAudioService()
+            reconnectAudioService()
         }
 
         btnChangeIp.setOnClickListener {
@@ -187,9 +202,9 @@ class MainActivity : AppCompatActivity() {
                 val newPort = etPort.text.toString().toIntOrNull() ?: 8000
                 if (newHost.isNotBlank()) {
                     KioskConfig.saveServerAddress(this, newHost, newPort)
+                    Toast.makeText(this, "IP impostato: $newHost:$newPort", Toast.LENGTH_SHORT).show()
                     loadVisorUi()
-                    // Restart background service to point to new address
-                    restartAudioService()
+                    reconnectAudioService()
                 }
             }
             .setNegativeButton("Annulla", null)
@@ -235,14 +250,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun restartAudioService() {
-        val stopIntent = Intent(this, AudioStreamService::class.java).apply {
-            action = AudioStreamService.ACTION_STOP
+    private fun reconnectAudioService() {
+        val reconnectIntent = Intent(this, AudioStreamService::class.java).apply {
+            action = AudioStreamService.ACTION_RECONNECT
         }
-        startService(stopIntent)
-        webView.postDelayed({
-            startAudioService()
-        }, 500)
+        startService(reconnectIntent)
+        // Also call start just in case it wasn't running
+        startAudioService()
     }
 
     override fun onDestroy() {

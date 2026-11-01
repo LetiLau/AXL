@@ -26,6 +26,35 @@ _TELEMETRY_LISTENER: Optional[Callable[[Dict[str, Any]], Any]] = None
 
 _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
 
+# Active utterance biometric context set per turn before LLM execution
+_AUTH_CONTEXT: Dict[str, Any] = {
+    "is_authorized": True,
+    "identity": "owner",
+    "security_mode": "friendly",
+    "similarity_score": 1.0,
+}
+
+
+def set_command_auth_context(
+    is_authorized: bool,
+    identity: str,
+    security_mode: str,
+    similarity_score: float = 1.0,
+):
+    """Updates the active utterance biometric context before LLM tool execution."""
+    global _AUTH_CONTEXT
+    _AUTH_CONTEXT = {
+        "is_authorized": bool(is_authorized),
+        "identity": str(identity),
+        "security_mode": str(security_mode).lower(),
+        "similarity_score": float(similarity_score),
+    }
+
+
+def get_command_auth_context() -> Dict[str, Any]:
+    global _AUTH_CONTEXT
+    return dict(_AUTH_CONTEXT)
+
 
 def register_telemetry_listener(callback: Callable[[Dict[str, Any]], Any]):
     """Registers a listener (e.g. Master StreamManager) to broadcast telemetry events to the Web UI."""
@@ -145,6 +174,20 @@ def execute_slave_command(command: str, target: str = "fedora") -> str:
         command: Command or action identifier to run (e.g. 'lock_screen', 'sleep', 'mute', 'open_terminal').
         target: Target slave node (default: 'fedora').
     """
+    global _AUTH_CONTEXT
+    sec_mode = _AUTH_CONTEXT.get("security_mode", "friendly")
+    is_auth = _AUTH_CONTEXT.get("is_authorized", True)
+    identity = _AUTH_CONTEXT.get("identity", "stranger")
+
+    if sec_mode in ["restrict", "paranoid"] and not is_auth:
+        logger.warning(
+            f"[COMMAND: execute_slave_command] BLOCKED! Speaker '{identity}' is UNAUTHORIZED to execute slave commands in '{sec_mode}' mode."
+        )
+        return (
+            f"COMANDO RIFIUTATO: L'utente '{identity}' non è autorizzato ad eseguire comandi di sistema sullo slave "
+            f"in modalità {sec_mode.upper()}."
+        )
+
     logger.info(f"[COMMAND: execute_slave_command] Target: '{target}' | Command: '{command}'")
     slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
     try:
@@ -305,6 +348,24 @@ def set_security_mode(mode: str) -> str:
     Args:
         mode: La modalità da attivare: 'friendly', 'restrict' o 'paranoid'.
     """
+    global _AUTH_CONTEXT
+    sec_mode = _AUTH_CONTEXT.get("security_mode", "friendly")
+    is_auth = _AUTH_CONTEXT.get("is_authorized", True)
+    identity = _AUTH_CONTEXT.get("identity", "stranger")
+    sim_score = _AUTH_CONTEXT.get("similarity_score", 0.0)
+
+    # Biometric privilege enforcement:
+    # 1. In FRIENDLY mode: any user can change security mode.
+    # 2. In RESTRICT mode: ONLY authorized users (owner or registered friends) can change mode.
+    # 3. In PARANOID mode: ONLY the owner can change mode.
+    is_privilege_granted = False
+    if sec_mode == "friendly":
+        is_privilege_granted = True
+    elif sec_mode == "restrict":
+        is_privilege_granted = is_auth
+    elif sec_mode == "paranoid":
+        is_privilege_granted = is_auth and (identity.lower() == "owner")
+
     clean_mode = str(mode).lower().strip()
     mapping = {
         "friendly": "friendly",
@@ -326,8 +387,19 @@ def set_security_mode(mode: str) -> str:
         "massima sicurezza": "paranoid",
     }
     resolved_mode = mapping.get(clean_mode, clean_mode)
+
+    if not is_privilege_granted:
+        logger.warning(
+            f"[COMMAND: set_security_mode] BLOCKED! Speaker '{identity}' is UNAUTHORIZED to switch security mode "
+            f"from '{sec_mode}' to '{resolved_mode}' (biometric score: {sim_score:.3f})."
+        )
+        return (
+            f"COMANDO RIFIUTATO: L'utente '{identity}' non dispone dell'autorizzazione biometrica per cambiare la modalità "
+            f"di sicurezza (modalità corrente: {sec_mode.upper()}). Ordine respinto con diffidenza."
+        )
+
     if resolved_mode in ["friendly", "restrict", "paranoid"]:
-        logger.info(f"[COMMAND: set_security_mode] Switched to '{resolved_mode}'")
+        logger.info(f"[COMMAND: set_security_mode] Switched to '{resolved_mode}' by authorized speaker '{identity}'")
         os.environ["AXL_SECURITY_MODE"] = resolved_mode
         notify_telemetry({"type": "SECURITY_MODE", "mode": resolved_mode})
         labels = {
@@ -348,6 +420,20 @@ def set_mute_mode(enabled: bool = True) -> str:
     Args:
         enabled: True per silenziare i microfoni, False per riattivare l'ascolto.
     """
+    global _AUTH_CONTEXT
+    sec_mode = _AUTH_CONTEXT.get("security_mode", "friendly")
+    is_auth = _AUTH_CONTEXT.get("is_authorized", True)
+    identity = _AUTH_CONTEXT.get("identity", "stranger")
+
+    if enabled and sec_mode in ["restrict", "paranoid"] and not is_auth:
+        logger.warning(
+            f"[COMMAND: set_mute_mode] BLOCKED! Speaker '{identity}' is UNAUTHORIZED to mute A-X-L in '{sec_mode}' mode."
+        )
+        return (
+            f"COMANDO RIFIUTATO: L'utente '{identity}' non è autorizzato a disattivare l'ascolto di A-X-L "
+            f"in modalità {sec_mode.upper()}. Ordine ignorato."
+        )
+
     notify_telemetry({"type": "SET_MUTE", "muted": bool(enabled)})
     if enabled:
         logger.info("[COMMAND: set_mute_mode] Mute mode engaged via voice command.")

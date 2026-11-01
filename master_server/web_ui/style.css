@@ -956,6 +956,17 @@ body.telemetry-active .telemetry-panel {
     animation: none;
 }
 
+.badge-ask-btn.disabled-muted {
+    opacity: 0.3 !important;
+    cursor: not-allowed !important;
+    filter: grayscale(0.85) brightness(0.7);
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    color: var(--text-dim) !important;
+    box-shadow: none !important;
+    animation: none !important;
+}
+
 .badge-mute-btn.muted {
     background: linear-gradient(135deg, rgba(255, 0, 59, 0.25) 0%, rgba(180, 0, 30, 0.12) 100%);
     color: var(--red-alert);
