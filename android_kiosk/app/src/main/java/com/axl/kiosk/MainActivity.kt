@@ -40,7 +40,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTargetUrl: TextView
     private lateinit var btnRetry: Button
     private lateinit var btnChangeIp: Button
-    private lateinit var btnSettings: ImageButton
 
     private var hasPageError = false
 
@@ -76,7 +75,6 @@ class MainActivity : AppCompatActivity() {
         tvTargetUrl = findViewById(R.id.tvTargetUrl)
         btnRetry = findViewById(R.id.btnRetry)
         btnChangeIp = findViewById(R.id.btnChangeIp)
-        btnSettings = findViewById(R.id.btnSettings)
 
         setupWebView()
         setupListeners()
@@ -144,6 +142,20 @@ class MainActivity : AppCompatActivity() {
             }
 
             @JavascriptInterface
+            fun exitKiosk() {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Arresto A-X-L Kiosk...", Toast.LENGTH_SHORT).show()
+                    val stopIntent = Intent(this@MainActivity, AudioStreamService::class.java).apply {
+                        action = AudioStreamService.ACTION_STOP
+                    }
+                    startService(stopIntent)
+                    webView.loadUrl("about:blank")
+                    finishAffinity()
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
+            }
+
+            @JavascriptInterface
             fun isKiosk(): Boolean = true
         }, "AXLKiosk")
 
@@ -178,36 +190,6 @@ class MainActivity : AppCompatActivity() {
         btnChangeIp.setOnClickListener {
             showIpConfigDialog()
         }
-
-        // Tap on gear icon: quick action menu (Reload, IP config, Reconnect)
-        btnSettings.setOnClickListener {
-            showKioskQuickMenu()
-        }
-
-        // Long press on gear icon: immediate 1-touch reload!
-        btnSettings.setOnLongClickListener {
-            reloadKioskWebUi()
-            true
-        }
-    }
-
-    private fun showKioskQuickMenu() {
-        val options = arrayOf(
-            "🔄 Ricarica Pagina (Reload UI)",
-            "⚙️ Configura IP Master Server",
-            "🔁 Riconnetti Audio & Telemetria"
-        )
-        AlertDialog.Builder(this)
-            .setTitle("A-X-L Kiosk Menu")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> reloadKioskWebUi()
-                    1 -> showIpConfigDialog()
-                    2 -> reconnectAudioService()
-                }
-            }
-            .setNegativeButton("Chiudi", null)
-            .show()
     }
 
     private fun reloadKioskWebUi() {

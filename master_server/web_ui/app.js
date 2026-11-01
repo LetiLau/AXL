@@ -40,7 +40,8 @@
     const settingOptReload = document.getElementById("setting-opt-reload");
     const settingOptIp = document.getElementById("setting-opt-ip");
     const settingOptReconnect = document.getElementById("setting-opt-reconnect");
-    const settingOptFullscreen = document.getElementById("setting-opt-fullscreen");
+    const settingOptLang = document.getElementById("setting-opt-lang");
+    const settingOptKillKiosk = document.getElementById("setting-opt-kill-kiosk");
     const muteBtn = document.getElementById("mute-btn");
     const muteBtnIcon = document.getElementById("mute-btn-icon");
     const muteBtnLabel = document.getElementById("mute-btn-label");
@@ -210,6 +211,24 @@
     const clientEnv = detectClientEnvironment();
     window.axlClient = clientEnv;
 
+    function updateKioskKillButton() {
+        if (!settingOptKillKiosk) return;
+        const isAndroidKiosk = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            (window.axlClient && window.axlClient.isKiosk)
+        );
+        if (isAndroidKiosk) {
+            settingOptKillKiosk.disabled = false;
+            settingOptKillKiosk.classList.remove("disabled-muted");
+            settingOptKillKiosk.title = "Arresta l'app Kiosk e rilascia subito il microfono in background";
+        } else {
+            settingOptKillKiosk.disabled = true;
+            settingOptKillKiosk.classList.add("disabled-muted");
+            settingOptKillKiosk.title = "Disponibile solo all'interno dell'app Android Kiosk (per arrestare microfono e processo)";
+        }
+    }
+    updateKioskKillButton();
+
     if (fullscreenBtn) {
         fullscreenBtn.addEventListener("click", () => {
             if (!document.fullscreenElement) {
@@ -237,6 +256,7 @@
             closeSettingsPopup();
         } else {
             closeModePopup();
+            updateKioskKillButton();
             settingsPopup.hidden = false;
             settingsPopup.classList.add("open");
             if (settingsBtn) settingsBtn.classList.add("open");
@@ -293,13 +313,25 @@
         });
     }
 
-    if (settingOptFullscreen) {
-        settingOptFullscreen.addEventListener("click", (e) => {
+    if (settingOptLang) {
+        settingOptLang.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
             closeSettingsPopup();
-            if (fullscreenBtn) {
-                fullscreenBtn.click();
+            if (axlReply && currentState !== "SPEAKING") {
+                axlReply.textContent = "Lingua interfaccia: ENG (Default). Switch ITA/ENG attivo nelle prossime versioni.";
+            }
+        });
+    }
+
+    if (settingOptKillKiosk) {
+        settingOptKillKiosk.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (settingOptKillKiosk.disabled) return;
+            closeSettingsPopup();
+            if (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") {
+                window.AXLKiosk.exitKiosk();
             }
         });
     }

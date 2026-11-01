@@ -60,17 +60,4 @@
             android:textColor="#00FFCC" />
     </LinearLayout>
 
-    <!-- Discreet Settings Gear Button (Hidden by default since now integrated in Web UI) -->
-    <ImageButton
-        android:id="@+id/btnSettings"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="top|end"
-        android:layout_margin="12dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Impostazioni IP"
-        android:alpha="0.25"
-        android:visibility="gone"
-        android:src="@android:drawable/ic_menu_preferences" />
-
 </FrameLayout>

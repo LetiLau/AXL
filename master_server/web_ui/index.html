@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css?v=4.9">
+    <link rel="stylesheet" href="style.css?v=5.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -70,8 +70,11 @@
                         <button type="button" class="mode-option-btn opt-setting" id="setting-opt-reconnect">
                             <span class="setting-opt-icon">🔁</span> Riconnetti WebSocket
                         </button>
-                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-fullscreen">
-                            <span class="setting-opt-icon">⛶</span> Schermo Intero (Toggle)
+                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-lang">
+                            <span class="setting-opt-icon">🌐</span> Lingua UI: ENG ▾
+                        </button>
+                        <button type="button" class="mode-option-btn opt-setting opt-kill-kiosk disabled-muted" id="setting-opt-kill-kiosk" disabled title="Disponibile solo dall'app Android Kiosk (per arrestare microfono e processo)">
+                            <span class="setting-opt-icon">🛑</span> Arresta Kiosk &amp; Mic
                         </button>
                     </div>
                 </div>
@@ -276,6 +279,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <script src="app.js?v=4.9"></script>
+    <script src="app.js?v=5.0"></script>
 </body>
 </html>

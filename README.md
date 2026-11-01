@@ -105,8 +105,8 @@ The Android companion application is built as a pure Kotlin Thin-Client Kiosk:
 - **Target / Compile SDK:** Modern Android SDK (API 34+)
 - **Architecture:** Pure Kotlin (Zero NDK/JNI overhead). Employs `AudioRecord` (16kHz 16-bit Mono PCM) and `AudioTrack` paired with `OkHttp` WebSockets for ultra-low latency bidirectional audio transport with the Master Server.
 - **Key Modules:**
-  - `MainActivity.kt`: Immersive sticky fullscreen kiosk WebView hosting the Master HUD (`/ui`) with OLED burn-in protection.
-  - `AudioStreamService.kt`: Persistent Foreground Service orchestrating raw PCM capture and Piper TTS audio playback.
+  - `MainActivity.kt`: Immersive sticky fullscreen kiosk WebView hosting the Master HUD (`/ui`) with OLED burn-in protection. Integrates pure HTML/JS HUD quick controls via JavascriptInterface (`window.AXLKiosk` for reload, IP config dialog, and clean exit), eliminating native floating buttons.
+  - `AudioStreamService.kt`: Persistent Foreground Service orchestrating raw PCM capture and Piper TTS audio playback. Supports `ACTION_STOP` intent broadcast to cleanly release microphone hardware locks on app exit.
   - `IntentExecutor.kt`: Native Android Intent bridge (Media/Volume control, Spotify launch, alarms, smart appliance app dispatch).
   - `KioskTelemetry.kt`: Hardware health monitor streaming battery level, battery charging state, battery temperature (°C) and RAM usage directly into A-X-L's HUD.
 

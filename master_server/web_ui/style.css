@@ -355,6 +355,28 @@ body.hud-subdued #pixel-shift-container {
     line-height: 1;
 }
 
+.mode-option-btn.opt-setting.opt-kill-kiosk:not(:disabled) {
+    color: var(--red-alert);
+    background: rgba(255, 0, 59, 0.08);
+    border-color: rgba(255, 0, 59, 0.4);
+}
+
+.mode-option-btn.opt-setting.opt-kill-kiosk:not(:disabled):hover {
+    background: rgba(255, 0, 59, 0.22);
+    border-color: var(--red-alert);
+    box-shadow: 0 0 14px rgba(255, 0, 59, 0.45);
+    transform: translateX(2px);
+}
+
+.mode-option-btn.opt-setting:disabled,
+.mode-option-btn.opt-setting.disabled-muted {
+    opacity: 0.35 !important;
+    cursor: not-allowed !important;
+    filter: grayscale(0.85);
+    transform: none !important;
+    box-shadow: none !important;
+}
+
 /* Connection Status Badge */
 .badge-online {
     background: linear-gradient(135deg, rgba(0, 240, 255, 0.1) 0%, rgba(0, 136, 255, 0.04) 100%);
