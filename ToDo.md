@@ -105,6 +105,13 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 14. **WebView Kiosk & Intent Receiver:** Configurazione di `MainActivity.kt` per mostrare la Web UI ospitata sul ThinkPad e ricezione di comandi JSON sul WebSocket per lanciare `Intent` Android (sveglie, apertura app, controlli media).
 """ Dettaglio esplicito delle integrazioni Android native: `AlarmClock` (sveglie/timer), `CalendarContract` (eventi Google) e `AudioManager` (gestione volume/media)."""
 
+14. [ ] **Telemetria Hardware Kiosk (Galaxy A33):**
+    * Monitoraggio metriche fisiche del dispositivo Android tramite API native (`BatteryManager`, `ActivityManager`):
+      - Livello batteria (%), stato di ricarica (AC/Batteria), temperatura batteria (°C, essenziale per prevenire surriscaldamenti sul kiosk fisso).
+      - RAM usata/disponibile e potenza segnale Wi-Fi (dBm).
+    * Invio payload telemetria al Master via WebSocket (`KIOSK_TELEMETRY`) e switch visivo sul pannello HUD Visore.
+    * Integrazione comandi vocali A-X-L (*"mostra telemetria kiosk"*, *"telemetria telefono"*, *"stato batteria"*).
+
 #### FASE 6: Animazioni Espressive Web UI (Video Neon / Avatar Reattivo)
 
 15. [ ] **Avatar Dinamico A-X-L nel Visore (Video / Animazioni Contestuali):**

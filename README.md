@@ -95,6 +95,21 @@ sudo dnf install -y portaudio
 #### Testing
 The `master_server/tools` directory contains the file `test_mic_client.py`. I have used it to test the system before I made the Kotlin app to record the audio.
 
+#### Android Kiosk App Setup (`android_kiosk`)
+The Android companion application is built as a pure Kotlin Thin-Client Kiosk:
+- **Project Template:** Empty Views Activity (Android Studio)
+- **Application Name:** `AXL Kiosk`
+- **Package Name:** `com.axl.kiosk`
+- **Language:** Kotlin with Kotlin DSL (`build.gradle.kts`)
+- **Minimum SDK:** `API 26` (Android 8.0 Oreo) — provides maximum stability and ensures compatibility with approximately **99.1%** of active Android devices worldwide.
+- **Target / Compile SDK:** Modern Android SDK (API 34+)
+- **Architecture:** Pure Kotlin (Zero NDK/JNI overhead). Employs `AudioRecord` (16kHz 16-bit Mono PCM) and `AudioTrack` paired with `OkHttp` WebSockets for ultra-low latency bidirectional audio transport with the Master Server.
+- **Key Modules:**
+  - `MainActivity.kt`: Immersive sticky fullscreen kiosk WebView hosting the Master HUD (`/ui`) with OLED burn-in protection.
+  - `AudioStreamService.kt`: Persistent Foreground Service orchestrating raw PCM capture and Piper TTS audio playback.
+  - `IntentExecutor.kt`: Native Android Intent bridge (Media/Volume control, Spotify launch, alarms, smart appliance app dispatch).
+  - `KioskTelemetry.kt`: Hardware health monitor streaming battery level, battery charging state, battery temperature (°C) and RAM usage directly into A-X-L's HUD.
+
 #### Technical Mechanism
 ##### WakeWord and command detection
 `Note: The wakeWord is` _AXL_ `pronunced as `**"ÀK-səl"**` or `**"ÀK-s'l"**` without the 'e'.`
