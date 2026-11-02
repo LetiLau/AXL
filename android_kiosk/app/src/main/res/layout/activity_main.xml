@@ -17,7 +17,8 @@
         android:id="@+id/layoutOffline"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#E6000000"
+        android:background="#F2000000"
+        android:elevation="6dp"
         android:gravity="center"
         android:orientation="vertical"
         android:padding="24dp"
@@ -42,22 +43,41 @@
             android:textSize="14sp" />
 
         <Button
-            android:id="@+id/btnRetry"
+            android:id="@+id/btnChangeIp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
             android:backgroundTint="#00FFCC"
-            android:text="Riconnetti"
-            android:textColor="#000000" />
+            android:text="⚙️ Configura IP Master"
+            android:textColor="#000000"
+            android:textStyle="bold" />
 
         <Button
-            android:id="@+id/btnChangeIp"
+            android:id="@+id/btnRetry"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Configura IP Server"
+            android:text="Riprova Connessione"
             android:textColor="#00FFCC" />
     </LinearLayout>
+
+    <!-- Always Visible Floating Setup Button (Top-Right) -->
+    <Button
+        android:id="@+id/btnFloatingSetup"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="12dp"
+        android:elevation="12dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="0dp"
+        android:paddingBottom="0dp"
+        android:backgroundTint="#3300FFCC"
+        android:text="⚙️ IP"
+        android:textColor="#00FFCC"
+        android:textSize="11sp" />
 
 </FrameLayout>

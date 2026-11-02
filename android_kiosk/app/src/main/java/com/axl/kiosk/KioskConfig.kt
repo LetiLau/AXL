@@ -7,12 +7,17 @@ object KioskConfig {
     private const val PREFS_NAME = "axl_kiosk_prefs"
     private const val KEY_HOST = "master_host"
     private const val KEY_PORT = "master_port"
+    private const val KEY_CONFIGURED = "is_configured"
 
     private const val DEFAULT_HOST = "192.168.1.100"
     private const val DEFAULT_PORT = 8000
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    fun isConfigured(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_CONFIGURED, false)
     }
 
     fun getHost(context: Context): String {
@@ -27,6 +32,7 @@ object KioskConfig {
         getPrefs(context).edit()
             .putString(KEY_HOST, host.trim())
             .putInt(KEY_PORT, port)
+            .putBoolean(KEY_CONFIGURED, true)
             .apply()
     }
 

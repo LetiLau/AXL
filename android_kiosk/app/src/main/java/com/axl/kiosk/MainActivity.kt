@@ -40,8 +40,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTargetUrl: TextView
     private lateinit var btnRetry: Button
     private lateinit var btnChangeIp: Button
+    private lateinit var btnFloatingSetup: Button
 
     private var hasPageError = false
+    private var isPageLoaded = false
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var connectionWatchdog: Runnable? = null
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -75,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         tvTargetUrl = findViewById(R.id.tvTargetUrl)
         btnRetry = findViewById(R.id.btnRetry)
         btnChangeIp = findViewById(R.id.btnChangeIp)
+        btnFloatingSetup = findViewById(R.id.btnFloatingSetup)
 
         setupWebView()
         setupListeners()
@@ -82,8 +87,13 @@ class MainActivity : AppCompatActivity() {
         // 3. Check and request permissions
         checkAndRequestPermissions()
 
-        // 4. Load the Web UI
-        loadVisorUi()
+        // 4. Initial load or first-time setup prompt
+        if (!KioskConfig.isConfigured(this)) {
+            showOfflineScreen()
+            showIpConfigDialog()
+        } else {
+            loadVisorUi()
+        }
     }
 
     override fun onResume() {
@@ -183,8 +193,11 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                connectionWatchdog?.let { mainHandler.removeCallbacks(it) }
                 if (!hasPageError) {
+                    isPageLoaded = true
                     layoutOffline.visibility = View.GONE
+                    btnFloatingSetup.visibility = View.GONE
                 }
             }
         }
@@ -199,6 +212,16 @@ class MainActivity : AppCompatActivity() {
         btnChangeIp.setOnClickListener {
             showIpConfigDialog()
         }
+
+        btnFloatingSetup.setOnClickListener {
+            showIpConfigDialog()
+        }
+
+        // Long press anywhere on the root container opens the IP config dialog
+        findViewById<View>(R.id.main_container).setOnLongClickListener {
+            showIpConfigDialog()
+            true
+        }
     }
 
     private fun reloadKioskWebUi() {
@@ -210,15 +233,29 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadVisorUi() {
         hasPageError = false
+        isPageLoaded = false
         val uiUrl = KioskConfig.getUiUrl(this)
         tvTargetUrl.text = uiUrl
-        layoutOffline.visibility = View.GONE
+
+        // Watchdog: if server does not respond within 4 seconds, show offline/IP setup screen
+        connectionWatchdog?.let { mainHandler.removeCallbacks(it) }
+        val watchdog = Runnable {
+            if (!isPageLoaded && !isFinishing) {
+                Log.w(TAG, "Web UI load timed out, displaying offline setup overlay.")
+                showOfflineScreen()
+            }
+        }
+        connectionWatchdog = watchdog
+        mainHandler.postDelayed(watchdog, 4000)
+
         webView.loadUrl(uiUrl)
     }
 
     private fun showOfflineScreen() {
+        connectionWatchdog?.let { mainHandler.removeCallbacks(it) }
         tvTargetUrl.text = KioskConfig.getUiUrl(this)
         layoutOffline.visibility = View.VISIBLE
+        btnFloatingSetup.visibility = View.VISIBLE
     }
 
     private fun showIpConfigDialog() {
@@ -311,6 +348,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        connectionWatchdog?.let { mainHandler.removeCallbacks(it) }
         webView.destroy()
     }
 }
