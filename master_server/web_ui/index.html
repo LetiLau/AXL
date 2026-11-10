@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css?v=4.5">
+    <link rel="stylesheet" href="style.css?v=8.9">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -16,7 +16,30 @@
         [hidden] { display: none !important; }
         body:not(.telemetry-active) #telemetry-panel { display: none !important; }
         .mode-selector-popup:not(.open) { display: none !important; }
+        #settings-popup:not(.open) { display: none !important; }
+        #telem-popup:not(.open) { display: none !important; }
     </style>
+    <script>
+        (function() {
+            try {
+                var ua = navigator.userAgent || "";
+                var isKiosk = Boolean(
+                    (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+                    ua.includes("AXL-Kiosk") ||
+                    (new URLSearchParams(window.location.search).get("client") === "kiosk")
+                );
+                var isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+                var isTablet = !isKiosk && (
+                    (/iPad|Tablet|PlayBook/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) ||
+                    (isTouch && Math.min(window.innerWidth, window.innerHeight) >= 600 && Math.max(window.innerWidth, window.innerHeight) >= 900)
+                );
+                var isMobilePhone = !isTablet && !isKiosk && (/Android|iPhone|iPod|Mobile/i.test(ua) || (isTouch && (window.innerWidth <= 899 || window.innerHeight <= 520)));
+                var ctype = isKiosk ? "client-kiosk" : (isTablet ? "client-tablet" : (isMobilePhone ? "client-mobile" : "client-desktop"));
+                document.documentElement.classList.add(ctype);
+                if (isTablet) document.documentElement.classList.add("client-desktop");
+            } catch (e) {}
+        })();
+    </script>
 </head>
 <body class="state-idle">
     <!-- AMOLED Pure Black Shield & Pixel-Shift Wrapper -->
@@ -27,9 +50,35 @@
             <div class="hud-brand-wrap">
                 <div class="hud-brand">
                     <div class="brand-title">A-X-L</div>
-                    <div class="brand-sub">TACTICAL AI // NODE-01</div>
+                    <div class="brand-sub">TACTICAL AI // <span id="brand-node-tag">NODE-01</span></div>
+                    <div id="connection-status" class="brand-conn-line conn-offline" title="Stato Connessione WebSocket (Clicca per riconnettere se offline)">
+                        <span class="conn-dot"></span>
+                        <span id="connection-status-text">WS: OFFLINE</span>
+                    </div>
                 </div>
-                <button type="button" id="server-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Master Server">SERVER TELEM: OFF</button>
+
+                <!-- Unified Telemetry Dropdown (Consolidates Server, Slave, Kiosk, Split) -->
+                <div class="telem-badge-wrapper">
+                    <button type="button" id="telem-btn" class="badge badge-telem-btn" title="Apri selettore telemetria hardware">TELEM: OFF ▾</button>
+                    <div id="telem-popup" class="mode-selector-popup telem-popup" hidden>
+                        <div class="mode-popup-header">TELEMETRIA HARDWARE:</div>
+                        <button type="button" class="mode-option-btn opt-telem" id="telem-opt-server" data-target="server">
+                            <span class="telem-opt-indicator"></span>
+                            <span>🖥️ Master Server</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-telem" id="telem-opt-slave" data-target="slave">
+                            <span class="telem-opt-indicator"></span>
+                            <span>💻 Slave PC (Fedora)</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-telem disabled-muted" id="telem-opt-kiosk" data-target="kiosk" disabled title="Disponibile solo all'interno dell'app Android Kiosk">
+                            <span class="telem-opt-indicator"></span>
+                            <span>📱 Android Kiosk (A33)</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-telem opt-close-telem" id="telem-opt-close">
+                            <span>✕ Chiudi Telemetria</span>
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="hud-center-clock">
@@ -38,21 +87,105 @@
             </div>
 
             <div class="hud-status-tray">
-                <button type="button" id="slave-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Slave PC">SLAVE TELEM: OFF</button>
-                
                 <div class="mode-badge-wrapper">
-                    <button type="button" id="sec-mode-badge" class="badge badge-friendly mode-unlocked" title="Clicca per impostare Restrict o Paranoid">MODE: FRIENDLY ▾</button>
+                    <button type="button" id="sec-mode-badge" class="badge badge-friendly mode-unlocked" title="Clicca per visualizzare o cambiare modalità di sicurezza">MODE: FRIENDLY ▾</button>
                     <div id="mode-selector-popup" class="mode-selector-popup" hidden>
-                        <div class="mode-popup-header">IMPOSTA SICUREZZA (BLOCCO VOCALE):</div>
-                        <button type="button" class="mode-option-btn opt-restrict" data-mode="restrict">🔒 RESTRICT (Owner &amp; Friends)</button>
-                        <button type="button" class="mode-option-btn opt-paranoid" data-mode="paranoid">🚨 PARANOID (Solo Owner)</button>
+                        <div id="mode-popup-header" class="mode-popup-header">IMPOSTA SICUREZZA (BLOCCO VOCALE):</div>
+                        <button type="button" class="mode-option-btn opt-friendly" data-mode="friendly" id="mode-opt-friendly">
+                            <span class="mode-opt-icon">🟢</span>
+                            <span class="mode-opt-text">FRIENDLY (Accesso Libero)</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-restrict" data-mode="restrict" id="mode-opt-restrict">
+                            <span class="mode-opt-icon">🔒</span>
+                            <span class="mode-opt-text">RESTRICT (Owner &amp; Friends)</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-paranoid" data-mode="paranoid" id="mode-opt-paranoid">
+                            <span class="mode-opt-icon">🚨</span>
+                            <span class="mode-opt-text">PARANOID (Solo Owner)</span>
+                        </button>
+                        <div id="mode-popup-lock-msg" class="mode-popup-lock-msg" style="display: none;">🔒 Sblocco consentito solo dall'Owner a voce</div>
+                    </div>
+                </div>
+                
+                <div class="settings-badge-wrapper">
+                    <button type="button" id="settings-btn" class="badge badge-icon-btn" title="A-X-L Strumenti &amp; Controlli Rapidi" aria-label="Settings">
+                        <svg class="hud-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
+                    </button>
+                    <div id="settings-popup" class="mode-selector-popup settings-popup" hidden>
+                        <div class="mode-popup-header">A-X-L // STRUMENTI &amp; CONTROLLI:</div>
+                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-reload">
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                                <path d="M3 3v5h5"/>
+                                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+                                <path d="M21 21v-5h-5"/>
+                            </svg>
+                            <span>Ricarica Pagina (Reload UI)</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-ip">
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                            </svg>
+                            <span>Configura / Info IP Master</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-reconnect">
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                            </svg>
+                            <span>Riconnetti WebSocket</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-setting" id="setting-opt-lang">
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="2" y1="12" x2="22" y2="12"/>
+                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                            </svg>
+                            <span>Lingua UI: ENG ▾</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-setting opt-kill-kiosk disabled-muted" id="setting-opt-kill-kiosk" disabled title="Disponibile solo all'interno dell'app Android Kiosk (per arrestare microfono e processo)">
+                            <svg class="setting-opt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+                                <line x1="12" y1="2" x2="12" y2="12"/>
+                            </svg>
+                            <span>Arresta Kiosk &amp; Mic</span>
+                        </button>
                     </div>
                 </div>
 
-                <div id="connection-badge" class="badge badge-offline" title="Stato Connessione WebSocket">WS: OFFLINE</div>
-                <button type="button" id="fullscreen-btn" class="badge badge-icon-btn" title="Schermo Intero" aria-label="Fullscreen">⛶</button>
+                <button type="button" id="fullscreen-btn" class="badge badge-icon-btn" title="Schermo Intero" aria-label="Fullscreen">
+                    <svg class="hud-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                    </svg>
+                </button>
             </div>
         </header>
+
+        <!-- Master Server Mini Sparklines (Live Status under header line, right-aligned) -->
+        <div id="server-mini-telem" class="server-mini-telem" title="Master Server: Live Status (CPU, GPU, MEM)">
+            <div class="mini-telem-group" id="mini-cpu-group" title="CPU Load &amp; Temperature">
+                <span class="mini-telem-label">CPU</span>
+                <span id="mini-cpu-temp" class="mini-telem-temp">--°C</span>
+                <div class="mini-track">
+                    <div id="mini-cpu-fill" class="mini-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+            <div class="mini-telem-group" id="mini-gpu-group" title="GPU Load">
+                <span class="mini-telem-label">GPU</span>
+                <div class="mini-track">
+                    <div id="mini-gpu-fill" class="mini-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+            <div class="mini-telem-group" id="mini-mem-group" title="Memory (RAM) Usage">
+                <span class="mini-telem-label">MEM</span>
+                <div class="mini-track">
+                    <div id="mini-mem-fill" class="mini-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+        </div>
 
         <!-- Main Visor Stage (Centered in normal mode, Split Layout in Telemetry Mode) -->
         <main id="visor-stage" class="visor-stage">
@@ -72,9 +205,9 @@
 
                 <div class="telem-grid">
                     <!-- CPU Monitor Card -->
-                    <div class="telem-card">
+                    <div class="telem-card telem-cpu-card">
                         <div class="telem-card-header">
-                            <span class="telem-card-label">CPU CORE LOAD</span>
+                            <span id="telem-cpu-card-title" class="telem-card-label">CPU CORE LOAD</span>
                             <span id="telem-cpu-temp" class="telem-temp-badge">44°C</span>
                         </div>
                         <div class="telem-stat-row">
@@ -83,11 +216,11 @@
                             </div>
                             <div class="telem-sub-metric">
                                 <div class="telem-sub-line">
-                                    <span class="sub-lbl">CLOCK:</span>
+                                    <span id="telem-cpu-sub1-lbl" class="sub-lbl">CLOCK:</span>
                                     <span id="telem-cpu-freq" class="sub-val">2800 MHz</span>
                                 </div>
                                 <div class="telem-sub-line">
-                                    <span class="sub-lbl">CORES:</span>
+                                    <span id="telem-cpu-sub2-lbl" class="sub-lbl">CORES:</span>
                                     <span id="telem-cpu-cores" class="sub-val">4 Cores</span>
                                 </div>
                             </div>
@@ -98,9 +231,9 @@
                     </div>
 
                     <!-- RAM Memory Card -->
-                    <div class="telem-card">
+                    <div class="telem-card telem-ram-card">
                         <div class="telem-card-header">
-                            <span class="telem-card-label">MEMORY USAGE</span>
+                            <span id="telem-ram-card-title" class="telem-card-label">MEMORY USAGE</span>
                             <span id="telem-ram-pct" class="telem-temp-badge">46%</span>
                         </div>
                         <div class="telem-stat-row">
@@ -123,7 +256,7 @@
                     <!-- GPU(s) Card (Dedicated and/or Integrated) -->
                     <div class="telem-card telem-gpu-card">
                         <div class="telem-card-header">
-                            <span class="telem-card-label">GRAPHICS (GPU)</span>
+                            <span id="telem-gpu-card-title" class="telem-card-label">GRAPHICS (GPU)</span>
                             <span id="telem-gpu-global-temp" class="telem-temp-badge">45°C</span>
                         </div>
                         <div id="telem-gpu-list" class="telem-gpu-list">
@@ -140,20 +273,20 @@
                     </div>
 
                     <!-- Fans & Cooling Card -->
-                    <div class="telem-card">
+                    <div class="telem-card telem-fan-card">
                         <div class="telem-card-header">
-                            <span class="telem-card-label">COOLING FAN</span>
+                            <span id="telem-fan-card-title" class="telem-card-label">COOLING FAN</span>
                             <span id="telem-fan-status" class="telem-temp-badge">ACTIVE</span>
                         </div>
                         <div class="telem-stat-row">
                             <div class="telem-main-metric">
                                 <span id="telem-fan-rpm" class="telem-val-large">1680</span>
-                                <span class="telem-unit">RPM</span>
+                                <span id="telem-fan-unit" class="telem-unit">RPM</span>
                             </div>
                             <div class="telem-sub-metric">
                                 <div class="telem-sub-line">
-                                    <span class="sub-lbl">SENSOR:</span>
-                                    <span id="telem-fan-label" class="sub-val">CPU FAN</span>
+                                    <span id="telem-fan-label" class="sub-lbl">SENSOR:</span>
+                                    <span id="telem-fan-subval" class="sub-val">CPU FAN</span>
                                 </div>
                             </div>
                         </div>
@@ -191,13 +324,18 @@
                 </div>
 
             </div>
+
+            <!-- Predisposed Slot for Future Music Player Widget (A-X-L x Samsung One UI Style) -->
+            <aside id="music-player-panel" class="music-player-panel" hidden style="display: none;">
+                <!-- Future One UI / A-X-L Music Interface -->
+            </aside>
         </main>
 
         <!-- Biometric Telemetry & Speech Subtitles Tray -->
         <footer class="hud-footer">
             
-            <!-- Tactical Action Strip: MIC (left) / ASK ME (right) -->
-            <div class="hud-action-strip">
+            <!-- Tactical Action Strip (On PC: [MIC] left, [ASK ME] right across top. On Kiosk: stacked next to Subtitles) -->
+            <div class="hud-action-bar">
                 <button type="button" id="mute-btn" class="badge badge-mute-btn" title="Disattiva ascolto microfono (Può essere riattivato solo cliccando qui)">
                     <span id="mute-btn-icon" class="mute-icon">🎙️</span>
                     <span id="mute-btn-label">MIC: ATTIVO</span>
@@ -246,6 +384,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <script src="app.js?v=4.5"></script>
+    <script src="app.js?v=8.9"></script>
 </body>
 </html>

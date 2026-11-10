@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 import psutil
 import requests
 from telemetry_utils import collect_system_telemetry
+from task_manager import task_manager
 
 logger = logging.getLogger("AXL-Commands")
 
@@ -25,6 +26,35 @@ _TELEMETRY_LISTENER: Optional[Callable[[Dict[str, Any]], Any]] = None
 
 
 _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
+
+# Active utterance biometric context set per turn before LLM execution
+_AUTH_CONTEXT: Dict[str, Any] = {
+    "is_authorized": True,
+    "identity": "owner",
+    "security_mode": "friendly",
+    "similarity_score": 1.0,
+}
+
+
+def set_command_auth_context(
+    is_authorized: bool,
+    identity: str,
+    security_mode: str,
+    similarity_score: float = 1.0,
+):
+    """Updates the active utterance biometric context before LLM tool execution."""
+    global _AUTH_CONTEXT
+    _AUTH_CONTEXT = {
+        "is_authorized": bool(is_authorized),
+        "identity": str(identity),
+        "security_mode": str(security_mode).lower(),
+        "similarity_score": float(similarity_score),
+    }
+
+
+def get_command_auth_context() -> Dict[str, Any]:
+    global _AUTH_CONTEXT
+    return dict(_AUTH_CONTEXT)
 
 
 def register_telemetry_listener(callback: Callable[[Dict[str, Any]], Any]):
@@ -83,6 +113,14 @@ def set_timer(duration_seconds: int, label: str = "Timer") -> str:
     except RuntimeError:
         pass
 
+    # Dispatch native Android Intent to Kiosk if connected
+    notify_telemetry({
+        "type": "INTENT",
+        "action": "set_timer",
+        "seconds": int(duration_seconds),
+        "message": label,
+    })
+
     mins = duration_seconds // 60
     secs = duration_seconds % 60
     time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
@@ -98,8 +136,24 @@ def set_alarm(time_str: str, label: str = "Alarm") -> str:
         label: Reason or label for the alarm (e.g. 'Work', 'Workout').
     """
     logger.info(f"[COMMAND: set_alarm] Time: {time_str} | Label: '{label}'")
-    # Will be dispatched to Android Intent (AlarmClock) in Phase 5
-    return f"Alarm '{label}' scheduled for {time_str}."
+    hour = 8
+    minutes = 0
+    try:
+        parts = time_str.strip().split(":")
+        hour = int(parts[0])
+        minutes = int(parts[1]) if len(parts) > 1 else 0
+    except Exception:
+        pass
+
+    # Dispatch native Android Intent to Kiosk
+    notify_telemetry({
+        "type": "INTENT",
+        "action": "set_alarm",
+        "hour": hour,
+        "minutes": minutes,
+        "message": label,
+    })
+    return f"Alarm '{label}' scheduled for {hour:02d}:{minutes:02d}."
 
 
 def get_current_time() -> str:
@@ -134,7 +188,90 @@ def media_control(action: str, target: str = "local") -> str:
         target: Target playback device ('local', 'fedora', 'android').
     """
     logger.info(f"[COMMAND: media_control] Action: '{action}' | Target: '{target}'")
+    notify_telemetry({
+        "type": "INTENT",
+        "action": "media_control",
+        "command": action,
+        "target": target,
+    })
     return f"Media command '{action}' dispatched to target '{target}'."
+
+
+def add_task(text: str) -> str:
+    """
+    Adds a new task to the user's to-do task list.
+    
+    Args:
+        text: Description of the task to add (e.g. 'comprare il latte', 'studiare per l'esame').
+    """
+    res = task_manager.add_task(text)
+    if "error" in res:
+        return f"Errore nell'aggiunta del compito: {res['error']}"
+    return f"Ho aggiunto '{text}' alla tua lista dei compiti (ID #{res['id']})."
+
+
+def list_tasks() -> str:
+    """
+    Returns the list of active to-do tasks and reminders.
+    """
+    tasks = task_manager.list_tasks(include_completed=False)
+    if not tasks:
+        return "Non hai compiti in sospeso nella tua lista."
+    task_lines = [f"- #{t['id']}: {t['text']}" for t in tasks]
+    return f"Ecco i tuoi compiti attivi:\n" + "\n".join(task_lines)
+
+
+def complete_task(task_id: int) -> str:
+    """
+    Marks a task as completed given its numeric ID.
+    
+    Args:
+        task_id: The numeric ID of the task to complete.
+    """
+    success = task_manager.complete_task(task_id)
+    if success:
+        return f"Compito #{task_id} contrassegnato come completato."
+    return f"Nessun compito trovato con ID #{task_id}."
+
+
+def create_calendar_event(title: str, date_time: str = "", description: str = "") -> str:
+    """
+    Creates an event or appointment in the calendar and synchronizes it with Android / Google Calendar.
+    
+    Args:
+        title: Title of the event (e.g. 'Visita dentista', 'Riunione con Marco').
+        date_time: Date and time of the event (e.g. '2026-11-12 15:30' or '17:00').
+        description: Optional notes or description.
+    """
+    ev = task_manager.add_calendar_event(title, date_time_str=date_time, description=description)
+    if "error" in ev:
+        return f"Errore nella creazione dell'evento: {ev['error']}"
+
+    # Dispatch to Android Kiosk over WebSocket
+    notify_telemetry({
+        "type": "INTENT",
+        "action": "add_calendar_event",
+        "title": ev["title"],
+        "description": ev.get("description", ""),
+        "begin_time": ev["begin_time_ms"],
+        "end_time": ev["end_time_ms"],
+    })
+    return f"Evento '{title}' programmato per {ev['date_time']} e inviato al calendario."
+
+
+def get_calendar_events(today_only: bool = True) -> str:
+    """
+    Returns the scheduled calendar events and appointments (defaults to today's events).
+    
+    Args:
+        today_only: If True, returns only events scheduled for today. If False, returns all upcoming events.
+    """
+    events = task_manager.list_calendar_events(today_only=today_only)
+    scope = "per oggi" if today_only else "in programma"
+    if not events:
+        return f"Non ci sono eventi sul calendario {scope}."
+    lines = [f"- #{e['id']}: {e['title']} alle {e['date_time']}" for e in events]
+    return f"Eventi sul calendario {scope}:\n" + "\n".join(lines)
 
 
 def execute_slave_command(command: str, target: str = "fedora") -> str:
@@ -145,6 +282,20 @@ def execute_slave_command(command: str, target: str = "fedora") -> str:
         command: Command or action identifier to run (e.g. 'lock_screen', 'sleep', 'mute', 'open_terminal').
         target: Target slave node (default: 'fedora').
     """
+    global _AUTH_CONTEXT
+    sec_mode = _AUTH_CONTEXT.get("security_mode", "friendly")
+    is_auth = _AUTH_CONTEXT.get("is_authorized", True)
+    identity = _AUTH_CONTEXT.get("identity", "stranger")
+
+    if sec_mode in ["restrict", "paranoid"] and not is_auth:
+        logger.warning(
+            f"[COMMAND: execute_slave_command] BLOCKED! Speaker '{identity}' is UNAUTHORIZED to execute slave commands in '{sec_mode}' mode."
+        )
+        return (
+            f"COMANDO RIFIUTATO: L'utente '{identity}' non è autorizzato ad eseguire comandi di sistema sullo slave "
+            f"in modalità {sec_mode.upper()}."
+        )
+
     logger.info(f"[COMMAND: execute_slave_command] Target: '{target}' | Command: '{command}'")
     slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
     try:
@@ -269,23 +420,30 @@ def get_slave_telemetry(target: str = "slave") -> str:
 
 def toggle_telemetry_hud(show: bool = True, target: str = "slave") -> str:
     """
-    Shows or hides the live hardware telemetry HUD monitor on the left of the Visor screen.
+    Shows or hides the live hardware telemetry HUD monitor on the Visor screen.
     Call this when the user asks to see/show/open or hide/close telemetry, system stats, or hardware monitors.
 
     Args:
-        show: True to show the telemetry monitor panel on the left, False to hide it.
-        target: Target node to monitor: 'server' (for the Master Server host machine) or 'slave' (for the remote PC / workstation node). Default is 'slave'.
+        show: True to show the telemetry monitor panel on the Visor, False to hide it.
+        target: Target node to monitor: 'server' (Master Server host), 'slave' (remote PC / workstation node), or 'kiosk' (Galaxy A33 kiosk). Default is 'slave'.
     """
     clean_target = str(target).lower().strip()
     if clean_target in ["server", "master", "thinkpad", "locale", "local"]:
         resolved_target = "server"
+    elif clean_target in ["kiosk", "android", "telefono", "cellulare", "a33", "phone"]:
+        resolved_target = "kiosk"
     else:
         resolved_target = "slave"
 
     logger.info(f"[COMMAND: toggle_telemetry_hud] Show: {show} | Target: '{resolved_target}' (raw: '{target}')")
     if not show:
         notify_telemetry({"type": "TELEMETRY_MODE", "enabled": False, "target": resolved_target})
-        node_label = "del server" if resolved_target == "server" else "dello slave"
+        if resolved_target == "server":
+            node_label = "del server"
+        elif resolved_target == "kiosk":
+            node_label = "del kiosk"
+        else:
+            node_label = "dello slave"
         return f"Schermata telemetrica {node_label} chiusa. Visore ripristinato alla visuale classica."
 
     if resolved_target == "server":
@@ -305,6 +463,24 @@ def set_security_mode(mode: str) -> str:
     Args:
         mode: La modalità da attivare: 'friendly', 'restrict' o 'paranoid'.
     """
+    global _AUTH_CONTEXT
+    sec_mode = _AUTH_CONTEXT.get("security_mode", "friendly")
+    is_auth = _AUTH_CONTEXT.get("is_authorized", True)
+    identity = _AUTH_CONTEXT.get("identity", "stranger")
+    sim_score = _AUTH_CONTEXT.get("similarity_score", 0.0)
+
+    # Biometric privilege enforcement:
+    # 1. In FRIENDLY mode: any user can change security mode.
+    # 2. In RESTRICT mode: ONLY authorized users (owner or registered friends) can change mode.
+    # 3. In PARANOID mode: ONLY the owner can change mode.
+    is_privilege_granted = False
+    if sec_mode == "friendly":
+        is_privilege_granted = True
+    elif sec_mode == "restrict":
+        is_privilege_granted = is_auth
+    elif sec_mode == "paranoid":
+        is_privilege_granted = is_auth and (identity.lower() == "owner")
+
     clean_mode = str(mode).lower().strip()
     mapping = {
         "friendly": "friendly",
@@ -326,8 +502,19 @@ def set_security_mode(mode: str) -> str:
         "massima sicurezza": "paranoid",
     }
     resolved_mode = mapping.get(clean_mode, clean_mode)
+
+    if not is_privilege_granted:
+        logger.warning(
+            f"[COMMAND: set_security_mode] BLOCKED! Speaker '{identity}' is UNAUTHORIZED to switch security mode "
+            f"from '{sec_mode}' to '{resolved_mode}' (biometric score: {sim_score:.3f})."
+        )
+        return (
+            f"COMANDO RIFIUTATO: L'utente '{identity}' non dispone dell'autorizzazione biometrica per cambiare la modalità "
+            f"di sicurezza (modalità corrente: {sec_mode.upper()}). Ordine respinto con diffidenza."
+        )
+
     if resolved_mode in ["friendly", "restrict", "paranoid"]:
-        logger.info(f"[COMMAND: set_security_mode] Switched to '{resolved_mode}'")
+        logger.info(f"[COMMAND: set_security_mode] Switched to '{resolved_mode}' by authorized speaker '{identity}'")
         os.environ["AXL_SECURITY_MODE"] = resolved_mode
         notify_telemetry({"type": "SECURITY_MODE", "mode": resolved_mode})
         labels = {
@@ -348,12 +535,91 @@ def set_mute_mode(enabled: bool = True) -> str:
     Args:
         enabled: True per silenziare i microfoni, False per riattivare l'ascolto.
     """
+    global _AUTH_CONTEXT
+    sec_mode = _AUTH_CONTEXT.get("security_mode", "friendly")
+    is_auth = _AUTH_CONTEXT.get("is_authorized", True)
+    identity = _AUTH_CONTEXT.get("identity", "stranger")
+
+    if enabled and sec_mode in ["restrict", "paranoid"] and not is_auth:
+        logger.warning(
+            f"[COMMAND: set_mute_mode] BLOCKED! Speaker '{identity}' is UNAUTHORIZED to mute A-X-L in '{sec_mode}' mode."
+        )
+        return (
+            f"COMANDO RIFIUTATO: L'utente '{identity}' non è autorizzato a disattivare l'ascolto di A-X-L "
+            f"in modalità {sec_mode.upper()}. Ordine ignorato."
+        )
+
     notify_telemetry({"type": "SET_MUTE", "muted": bool(enabled)})
     if enabled:
         logger.info("[COMMAND: set_mute_mode] Mute mode engaged via voice command.")
         return "Modalità muto attivata. Ho disattivato i microfoni. Potrai riattivarmi solo premendo il pulsante MUTE sullo schermo."
     logger.info("[COMMAND: set_mute_mode] Mute mode disengaged.")
     return "Microfoni riattivati."
+
+
+def enroll_voice_profile(profile_name: str = "owner") -> str:
+    """
+    Avvia la procedura di calibrazione e registrazione biometrica della voce (enrollment vocale).
+    Usare questo tool quando:
+    1. L'Owner chiede di aggiornare, modificare o ricalibrare la propria voce ('owner').
+    2. L'Owner chiede di registrare o aggiungere un amico ('luca', 'marco', ecc.).
+
+    Vincoli di sicurezza biometrica:
+    - La modifica del profilo 'owner' è consentita SOLO all'Owner attualmente autenticato.
+    - La registrazione di un nuovo amico è consentita SOLO all'Owner (o utenti autorizzati in friendly).
+    - Agli estranei non autorizzati è severamente vietato registrare o modificare profili.
+
+    Args:
+        profile_name: Nome del profilo da calibrare/registrare (es. 'owner', 'luca', 'marco').
+    """
+    global _AUTH_CONTEXT
+    sec_mode = _AUTH_CONTEXT.get("security_mode", "friendly")
+    is_auth = _AUTH_CONTEXT.get("is_authorized", True)
+    identity = _AUTH_CONTEXT.get("identity", "stranger")
+
+    clean_name = re.sub(r"[^a-zA-Z0-9_\-]", "", str(profile_name).lower().strip())
+    if not clean_name:
+        clean_name = "owner"
+
+    logger.info(
+        f"[COMMAND: enroll_voice_profile] Request for '{clean_name}' by '{identity}' "
+        f"(mode: '{sec_mode}', authorized: {is_auth})"
+    )
+
+    # 1. Modifica del profilo Owner:
+    # L'Owner può essere modificato solo da un utente già riconosciuto come 'owner'
+    if clean_name == "owner":
+        if identity.lower() != "owner":
+            logger.warning(
+                f"[ENROLL SECURITY REJECTED] Caller '{identity}' cannot modify 'owner' profile in mode '{sec_mode}'."
+            )
+            return (
+                "COMANDO RIFIUTATO: Accesso biometrico negato. Solo il proprietario autenticato "
+                "può aggiornare o ricalibrare la firma vocale principale dell'Owner."
+            )
+    else:
+        # 2. Registrazione di un amico:
+        if sec_mode in ["restrict", "paranoid"] and identity.lower() != "owner":
+            logger.warning(
+                f"[ENROLL SECURITY REJECTED] Caller '{identity}' cannot enroll friend '{clean_name}' in mode '{sec_mode}'."
+            )
+            return (
+                f"COMANDO RIFIUTATO: Solo l'Owner può autorizzare la registrazione di un nuovo amico ('{clean_name}')."
+            )
+        if not is_auth:
+            return (
+                "COMANDO RIFIUTATO: Accesso negato per mancanza di privilegi biometrici."
+            )
+
+    logger.info(f"[ENROLL PRIVILEGE GRANTED] Starting voice calibration session for '{clean_name}'...")
+    notify_telemetry({
+        "type": "START_VOICE_ENROLLMENT",
+        "profile_name": clean_name,
+    })
+    return (
+        f"Calibrazione vocale autorizzata per il profilo '{clean_name}'. "
+        f"Avvio la procedura di registrazione dei campioni audio."
+    )
 
 
 # ==============================================================================
@@ -479,13 +745,18 @@ def detect_security_mode_intent(text: str) -> Optional[str]:
 
 
 def detect_telemetry_intent(text: str) -> Optional[Dict[str, Any]]:
-    """Detects if user utterance expressed intent to show (True) or hide (False) telemetry HUD for server or slave."""
+    """Detects if user utterance expressed intent to show (True) or hide (False) telemetry HUD for server, slave, or kiosk."""
     if not text:
         return None
     lower = text.lower().strip()
 
     # Determine target if mentioned (defaults to slave if unspecified)
-    target = "server" if any(w in lower for w in ["server", "master", "thinkpad", "locale", "local"]) else "slave"
+    if any(w in lower for w in ["server", "master", "thinkpad", "locale", "local"]):
+        target = "server"
+    elif any(w in lower for w in ["kiosk", "android", "telefono", "cellulare", "a33", "phone", "batteria"]):
+        target = "kiosk"
+    else:
+        target = "slave"
 
     # Close / Hide telemetry patterns
     if any(re.search(p, lower) for p in [
@@ -498,13 +769,60 @@ def detect_telemetry_intent(text: str) -> Optional[Dict[str, Any]]:
     # Open / Show telemetry patterns
     if any(re.search(p, lower) for p in [
         r"\b(mostra|apri|attiva|visualizza|proietta|fammi\s+vedere)\s+(la\s+)?telemetria\b",
-        r"\btelemetria\s+(del\s+|dello\s+)?(server|master|slave|pc|thinkpad|workstation)\b",
-        r"\b(server|slave|master|pc)\s+telemetr(ia|y)\b",
+        r"\btelemetria\s+(del\s+|dello\s+)?(server|master|slave|pc|thinkpad|workstation|kiosk|telefono|cellulare)\b",
+        r"\b(server|slave|master|pc|kiosk|android)\s+telemetr(ia|y)\b",
         r"\btelemetria\s+(on|aperta|attiva)\b",
-        r"\b(stato|monitor)\s+(del\s+)?(server|master|slave|pc|hardware)\b",
-        r"^(hey\s+jarvis\s+|axl\s+)?(server\s+telemetry|slave\s+telemetry|telemetria\s+server|telemetria\s+slave|telemetria\s+pc)\.?$",
+        r"\b(stato|monitor)\s+(del\s+)?(server|master|slave|pc|hardware|kiosk|telefono|batteria)\b",
+        r"^(hey\s+jarvis\s+|axl\s+)?(server\s+telemetry|slave\s+telemetry|kiosk\s+telemetry|telemetria\s+server|telemetria\s+slave|telemetria\s+pc|telemetria\s+kiosk|telemetria\s+telefono)\.?$",
     ]):
         return {"show": True, "target": target}
+
+    return None
+
+
+def detect_enrollment_intent(text: str) -> Optional[Dict[str, str]]:
+    """
+    Rileva se l'utente ha espresso l'intento di aggiornare la propria voce (owner)
+    o registrare/aggiungere la voce di un amico.
+    Restituisce un dizionario con 'profile_name' se rilevato, altrimenti None.
+    """
+    if not text:
+        return None
+    lower = text.lower().strip()
+
+    # 1. Pattern per registrazione amico / terzo (priorità a nomi specifici)
+    # Es. "registra la voce di Luca", "registra un nuovo amico: Marco", "aggiungi amico Giovanni"
+    friend_match_alt = re.search(
+        r"\b(?:registra|calibra|salva|aggiungi)\s+(?:la\s+voce\s+di|il\s+profilo\s+di|l['\s]amico|l['\s]amica|amico|amica)\s*(?:di|per|:)?\s+([a-zA-Z0-9_\-]+)\b",
+        lower
+    )
+    if friend_match_alt:
+        name = friend_match_alt.group(1).strip()
+        if name and name not in ["la", "il", "un", "una", "mia", "mio", "owner"]:
+            return {"profile_name": name}
+
+    friend_match = re.search(
+        r"\b(?:registra|aggiungi|salva|crea|memorizza)\s+(?:un\s+)?(?:nuovo\s+)?(?:profilo|amico|amica)\s*(?:di|per|:)?\s+([a-zA-Z0-9_\-]+)\b",
+        lower
+    )
+    if friend_match:
+        name = friend_match.group(1).strip()
+        stop_words = ["la", "il", "un", "una", "nuovo", "nuova", "profilo", "voce", "amico", "owner", "mia", "mio"]
+        if name and name not in stop_words:
+            return {"profile_name": name}
+
+    # 2. Pattern per aggiornamento voce proprietario (owner)
+    owner_patterns = [
+        r"\b(aggiorn\w*|modific\w*|ricalibr\w*|cambi\w*|riconfigur\w*)\s+(la\s+)?(mia\s+)?voce\b",
+        r"\b(aggiorn\w*|modific\w*|ricalibr\w*|cambi\w*|registr\w*|riconfigur\w*)\s+(il\s+)?(mio\s+)?profilo(\s+vocale)?\b",
+        r"\b(registr\w*)\s+(la\s+)?mia\s+voce\b",
+        r"\b(calibr\w*|calibrazione)\s+(della\s+|la\s+)?(mia\s+)?voce\b",
+        r"\bnuova\s+calibrazione(\s+vocale)?\b",
+        r"\b(update|change|recalibrate)\s+my\s+voice\b",
+        r"\bvoice\s+enrollment\b",
+    ]
+    if any(re.search(p, lower) for p in owner_patterns):
+        return {"profile_name": "owner"}
 
     return None
 
@@ -522,6 +840,12 @@ REGISTERED_TOOLS: List[Callable[..., Any]] = [
     execute_slave_command,
     set_security_mode,
     set_mute_mode,
+    enroll_voice_profile,
+    add_task,
+    list_tasks,
+    complete_task,
+    create_calendar_event,
+    get_calendar_events,
 ]
 
 # Lookup map for runtime dynamic dispatching

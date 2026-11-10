@@ -23,6 +23,8 @@ See the links below to read specific part of `README.md`.
 
 [setUp and progress Diary](#How-to-setUp-and-progress-Diary)
 
+[Terminal Admin Commands](terminal_commands.md)
+
 ## Architectural and Coding Info
 The project is vibe-coded : ) and designed to run in an old pc with Debian 12 LTS.
 
@@ -47,7 +49,7 @@ The system is built on a distributed, event-driven microservices architecture:
 ### Thin Client & Fault Tolerance (Galaxy A33 Kiosk)
 The Galaxy A33 runs a pure Kotlin application without NDK/JNI overhead, acting solely as an I/O peripheral:
 - **Audio Pipeline:** Streams bidirectional raw 16kHz 16-bit mono PCM audio over a dedicated WebSocket (`/ws/audio`).
-- **Visor UI:** Houses a lightweight HTML5/CSS/JS frontend inside a full-screen WebView (featuring OLED pixel-shifting protection to prevent burn-in).
+- **Visor UI:** Houses a lightweight HTML5/CSS/JS frontend inside a full-screen WebView (featuring OLED pixel-shifting protection to prevent burn-in and dynamic client identification: displaying `// KIOSK` on Android and `// NODE-n` on browser terminals).
 - **Graceful Offline Fallback:** If the Master is powered off, the UI detects the broken socket and drops into a local offline state (monochrome grayscale overlay + "Close" button) without crashing or displaying `ERR_CONNECTION_REFUSED` errors.
 - **Multi-Master Failover:** The A33 maintains the volatile conversational context client-side (last $N$ interactions). If the ThinkPad shuts down and the primary workstation takes over as the new Master, the A33 reconnects and hands over the session history during the initial handshake, preserving context transparently.
 
@@ -95,6 +97,21 @@ sudo dnf install -y portaudio
 #### Testing
 The `master_server/tools` directory contains the file `test_mic_client.py`. I have used it to test the system before I made the Kotlin app to record the audio.
 
+#### Android Kiosk App Setup (`android_kiosk`)
+The Android companion application is built as a pure Kotlin Thin-Client Kiosk:
+- **Project Template:** Empty Views Activity (Android Studio)
+- **Application Name:** `AXL Kiosk`
+- **Package Name:** `com.axl.kiosk`
+- **Language:** Kotlin with Kotlin DSL (`build.gradle.kts`)
+- **Minimum SDK:** `API 26` (Android 8.0 Oreo) — provides maximum stability and ensures compatibility with approximately **99.1%** of active Android devices worldwide.
+- **Target / Compile SDK:** Modern Android SDK (API 34+)
+- **Architecture:** Pure Kotlin (Zero NDK/JNI overhead). Employs `AudioRecord` (16kHz 16-bit Mono PCM) and `AudioTrack` paired with `OkHttp` WebSockets for ultra-low latency bidirectional audio transport with the Master Server.
+- **Key Modules:**
+  - `MainActivity.kt`: Immersive sticky fullscreen kiosk WebView hosting the Master HUD (`/ui`) with OLED burn-in protection. Integrates pure HTML/JS HUD quick controls via JavascriptInterface (`window.AXLKiosk` for reload, IP config dialog, and clean exit), eliminating native floating buttons.
+  - `AudioStreamService.kt`: Persistent Foreground Service orchestrating raw PCM capture and Piper TTS audio playback. Supports `ACTION_STOP` intent broadcast to cleanly release microphone hardware locks on app exit.
+  - `IntentExecutor.kt`: Native Android Intent bridge (Media/Volume control, Spotify launch, alarms, smart appliance app dispatch).
+  - `KioskTelemetry.kt`: Hardware health monitor streaming battery level, battery charging state, battery temperature (°C) and RAM usage directly into A-X-L's HUD.
+
 #### Technical Mechanism
 ##### WakeWord and command detection
 `Note: The wakeWord is` _AXL_ `pronunced as `**"ÀK-səl"**` or `**"ÀK-s'l"**` without the 'e'.`
@@ -123,43 +140,49 @@ A-X-L operates under 3 security tiers configured via `AXL_SECURITY_MODE` in `.en
 - `restrict`: Accepts and executes commands for the enrolled owner and recognized friends (`models/profiles/*.npy`), rejecting total strangers.
 - `paranoid`: Obeys strictly and exclusively the enrolled owner. If a recognized friend speaks, A-X-L explains that paranoid mode is active and refuses commands. Total strangers are rejected with aggressive distrust.
 
-#### Enrolling Owner
-Note: please remember to speak clearly!!!
+#### Voice Profile Enrollment: Dual-Mode (Online & Offline)
+A-X-L features a **Dual-Mode Biometric Enrollment Architecture**, allowing you to record and calibrate voice profiles either live in production via voice commands or offline via terminal CLI tools.
 
-The diretory `master_server/models/profiles` it's not pushed inside the GitHub repo as contains `.npy` files generated with the voice of the owner and friends A-X-L recognizes as not strangers.
-To create your own `owner.npy` file run in your `master_server` `.venv`
+The directory `master_server/models/profiles/` contains the `.npy` embedding centroids and debug audio files for the owner and enrolled friends. All voice feature extraction (Silero VAD + CAM++ ONNX via `sherpa-onnx`) is **100% on-device, private and offline**: neural embeddings never touch the cloud.
+
+##### 1. Online Conversational Enrollment (In-System Live Voice Command)
+When the Master Server is running and connected to the Android Kiosk (or `test_mic_client.py`), you can manage profiles entirely hands-free:
+- **Updating the Owner Profile:**
+  - Command: *"A-X-L, aggiorna la mia voce"*, *"modifica la mia voce"*, or *"ricalibra la mia voce"*.
+  - **Biometric Security Privilege:** Overwriting or recalibrating the primary `owner.npy` profile is **strictly guarded**. The speaker MUST be recognized as the `owner` across all security modes (`friendly`, `restrict`, `paranoid`). Unauthorized strangers and guests are immediately blocked from tampering with the owner's identity.
+- **Enrolling New Friends:**
+  - Command: *"A-X-L, registra un nuovo amico: Luca"*, *"aggiungi amico Marco"*, or *"registra la voce di Sara"*.
+  - In `restrict` and `paranoid` modes, only the authenticated Owner can authorize adding new friends.
+- **Interactive Multi-Take Procedure:**
+  - A-X-L guides the user through 3 vocal takes (~3 seconds of pure human speech per take, isolated in real time by Silero VAD).
+  - Neural CAM++ embeddings are extracted, unit-normalized, and merged into a cosine centroid (`models/profiles/<name>.npy`).
+  - **Hot Reload in RAM:** `SpeakerVerifier.load_profiles()` is invoked dynamically in memory, making the new voice profile immediately active **with zero downtime and without restarting the server**.
+  - **Interactive STOP Button:** Tapping the pulsing red STOP button on the Visor HUD at any moment cancels the enrollment session instantly and safely resets the state to `IDLE`.
+
+##### 2. Offline Standalone CLI Enrollment (`tools/enroll_voice.py`)
+For initial setup, headless server provisioning, or when the Master Server is not running:
 ``` bash
-python tools/enroll_voice.py
+# In master_server with .venv activated:
+python tools/enroll_voice.py --name owner --lang both
 ```
-The script let the user decide if he wants to create hi personal `.npy` model in italian, english or both languages, so A-X-L will recognizes the owner regardless of the language he speaks.
+- Parameters:
+  - `-n`, `--name`: Profile name (`owner`, `luca`, `marco`...)
+  - `-l`, `--lang`: Prompt language set (`it`, `en`, or `both`)
+  - `-d`, `--device`: Optional hardware audio input index
+- Runs completely offline without internet or Gemini API access, utilizing your local PC microphone via `sounddevice`.
+
 Then running 
 ``` bash
 python tools/calibrate_speaker.py
 ```
-the user is able to get the right value for `threshold` var in the `SpeakerVerifier`'s `__init__` constructor.
-``` python
-##--- LIBRARIES import-----
-THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
+the user is able to test their voice and determine the optimal threshold (e.g. `0.48`).
 
-class SpeakerVerifier:
-    """
-    Speaker verification engine powered by sherpa-onnx and CAM++ embedding model.
-    Evaluates Cosine Similarity against enrolled voice profiles.
-    """
-
-    def __init__(
-        self,
-        models_dir: Path,
-        threshold: float = THRESHOLD_VAR,
-        owner_profile_name: str = "owner.npy",
-    ):
-### --- REST OF THE CODE... ---
+Instead of hardcoding this value in Python files, the threshold is configured dynamically via the environment variable `AXL_SPEAKER_THRESHOLD` in `master_server/.env` (default: `0.48`):
+```bash
+# In master_server/.env
+AXL_SPEAKER_THRESHOLD=0.48
 ```
-and same thing in `initialize_pipeline` function in `src/main.py`
-``` python
-#Your value get from calibrate_speaker.py
-self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
-```
+This is loaded automatically on startup by both `speaker_verifier.py` and `main.py`.
 
 #### Environment Variables & API Keys (`.env`)
 To protect private credentials and API keys, the file `master_server/.env` is strictly untracked by Git via `.gitignore`.
@@ -167,18 +190,29 @@ A template file `master_server/.env.example` is available in the repository.
 
 To configure your environment:
 1. Create `master_server/.env` (or copy from `.env.example`).
-2. Add your Google AI Studio API key:
+2. Add your Google AI Studio API key and system settings:
 ```env
+# Gemini API Configuration
 GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-flash-lite-latest
 GEMINI_PRO_MODEL=gemini-3.1-pro-preview
+
+# Security Mode: 'friendly', 'restrict', or 'paranoid'
 AXL_SECURITY_MODE=friendly
+
+# Biometric Speaker Verification Threshold (calibrated via tools/calibrate_speaker.py)
+# Controls sensitivity dynamically without modifying Python code (default: 0.48)
+AXL_SPEAKER_THRESHOLD=0.48
+
+# OpenWakeWord Wake-Word Detection Threshold
+# Calibrated to minimize false positives during conversational Italian speech (default: 0.48)
+AXL_WAKEWORD_THRESHOLD=0.48
 ```
 
 #### Phase 3: Cognitive Brain & Dynamic Tools (`brain_gemini.py` & `commands.py`)
 In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabilities:
 - **Multimodal Audio Ingestion:** The in-memory WAV buffer generated after VAD End-of-Speech is dispatched directly to Gemini (`google-genai` SDK) without any disk I/O latency.
-- **Native Automatic Function Calling (AFC) & Deterministic Guardrails:** All system actions are neatly registered in `master_server/src/commands.py`:
+  - **Native Automatic Function Calling (AFC) & Biometric Privilege Guardrails:** All system actions are neatly registered in `master_server/src/commands.py`:
   - `set_timer(duration_seconds, label)`
   - `set_alarm(time_str, label)`
   - `get_system_status()`
@@ -187,7 +221,10 @@ In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabili
   - `set_security_mode(mode)` (switches between `friendly`, `restrict`, and `paranoid` distrust profiles)
   - `set_mute_mode(enabled)` (silences acoustic ingestion until physically unmuted via touchscreen)
   - `toggle_telemetry_hud(show, target)` (shows/hides live telemetry HUD)
-  Gemini automatically invokes the right function based on natural language intent. Furthermore, a **Dual-Layer Command Guardrail** in `main.py` analyzes the verified transcript: if a compact model (like `gemini-flash-lite`) only generates spoken text without issuing the tool call, the server synchronously executes the requested action (while strictly checking biometric privileges), guaranteeing 100% execution fidelity for muting and security modes.
+  Gemini automatically invokes the right function based on natural language intent. Crucially, critical tools (`set_security_mode`, `set_mute_mode`, `execute_slave_command`) enforce **Strict Biometric Privilege Verification** directly at execution time: if an unauthorized speaker tries to switch security modes or mute the system in `restrict` or `paranoid` mode, the tool deterministically rejects execution (`COMANDO RIFIUTATO: Accesso negato`). Furthermore, a synchronous intent guardrail in `main.py` and turn-level meta-prompt alert in `brain_gemini.py` ensure complete end-to-end immunity from LLM hallucinations or unauthorized voice overrides.
+- **Strict Tool Invocation Integrity & Metaphor Guardrails:** Operational commands (`set_timer`, `set_alarm`, etc.) are protected by strict cognitive rules: Gemini is explicitly instructed to invoke practical action tools **only** when the user has formulated a direct, explicit command (e.g. *"metti un timer di 5 minuti"*), and **never** for rhetorical jokes, metaphors, or conversational pauses. Conversely, the model is strictly forbidden from claiming in its vocal reply that an action was executed if the corresponding function tool was not genuinely called.
+- **Robust Transcription Parsing & Ambient Noise Fallback:** In scenarios where the wake-word is triggered by background ambient noise or casual speech without a direct command to A-X-L, `brain_gemini.py` provides resilient parsing: `TRANSCRIPT:` defaults cleanly to `"[Suono/Rumore ambientale]"` if no distinct user utterance is present, guarding against internal prompt leaks (such as `REPLY:` or alert tags) and keeping the Visore HUD subtitles and console logs clean and accurate.
+- **Wake-Word Sensitivity & False-Positive Filtering (`main.py`):** The OpenWakeWord inference threshold is loaded dynamically via `AXL_WAKEWORD_THRESHOLD` (default: `0.48`). This filters out accidental triggers caused by acoustic similarities in conversational Italian speech (e.g. phrases like *"viaggia"*, *"ti va"*, *"isole"*), ensuring clean activation only when the user intentionally speaks to A-X-L.
 - **Biometric Distrust Integration:** The speaker identity evaluated by CAM++ (`is_stranger` flag) is injected into the cognitive prompt:
   - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
   - If **Stranger**: A-X-L enters distrust mode, barking or sarcastically refusing to execute sensitive commands or access personal data.
@@ -204,21 +241,38 @@ Phase 4 introduces visual feedback and workstation orchestration:
 - **Cybernetic Visor Web UI (`master_server/web_ui/`):**
   - Served directly from FastAPI on `/ui` with real-time state synchronization via WebSocket `/ws/ui`.
   - Tactical HUD states: `IDLE` (passive surveillance), `LISTENING` (wake-word triggered), `THINKING` (neural cognitive inference), `SPEAKING` (vocal streaming audio visualizer), and `ALERT` (biometric breach / stranger warning).
-  - **AMOLED Pixel-Shifting:** Built-in burn-in protection specifically designed for the Samsung Galaxy A33 Super AMOLED display, periodically shifting UI coordinates and automatically entering subdued power-saving mode during inactivity.
+  - **AMOLED Pixel-Shifting & Power-Saving Dimming:** Built-in burn-in protection specifically designed for the Samsung Galaxy A33 Super AMOLED display, periodically shifting UI coordinates and automatically entering subdued power-saving mode (softly lowering brightness and opacity) after 45 seconds of idle inactivity. Background audio telemetry and passive streams are filtered so they do not inadvertently prevent screen dimming, and the display wakes up instantaneously upon wake-word detection, voice interaction, touchscreen tap, or mouse movement.
   - Live subtitles display showing transcribed user queries, A-X-L vocal responses, and speaker biometric verification scores.
   - **Modern Card UI & Interactive Controls:**
-    - Restyled top status tray with modern rounded pill/card buttons (`border-radius: 10px`), smooth hover/tap feedback, and full mouse + touchscreen support (`SERVER TELEM: ON/OFF` in top-left next to the A-X-L brand, `SLAVE TELEM: ON/OFF` in the status tray, one-way security mode lock `FRIENDLY -> RESTRICT / PARANOID` that prevents unauthorized downgrade once locked, WebSocket connectivity indicator, and full-screen toggle).
-    - **Dual Independent Telemetry (Master Server vs Slave Node):**
-      - Allows inspecting hardware metrics for either the Master Server host machine (e.g. ThinkPad) or the remote Slave workstation (e.g. Fedora/Windows rig) on the exact same HUD panel.
-      - **Mutually Exclusive Display:** Only one telemetry panel can be active at a time; clicking one opens it and automatically closes the other. Clicking the active one toggles it closed.
-      - **Universal Multi-GPU Support:** Detects any combination of dedicated (NVIDIA RTX/GTX via `nvidia-smi`, AMD Radeon, Intel Arc) and integrated GPUs (Intel UHD/Iris Xe, AMD Radeon APU) across desktops and hybrid dual-GPU laptops, displaying individual card loads, thermals, frequencies, and VRAM.
-      - **Voice Commands:** Spoken voice commands (*"mostra telemetria server"*, *"telemetria master"*, *"mostra telemetria slave"*, *"telemetria pc"*, *"chiudi telemetria"*) trigger real-time telemetry streaming for the requested machine via native tool invocation and dual-layer regex guardrails.
-    - **Dead-Center Tactical Clock:** Absolute geometric centering (`left: 50%; transform: translateX(-50%)`) ensuring the top clock (`#clock-time`) is permanently aligned to the exact horizontal center of the display, independent of asymmetric brand text or status button widths.
+    - **3-Column Anti-Collision Header Grid:** Re-engineered the top HUD header using an explicit 3-column CSS Grid (`auto 1fr auto`). The tactical clock is permanently physically pinned to the central column (`justify-self: center`), guaranteeing that brand labels on the left and status action buttons on the right can never collide or overlap on compact screens (Samsung Galaxy A33 kiosk and narrow desktop browser windows).
+    - **Unified Telemetry Dropdown (`[TELEM: OFF ▾]`):** Replaced multiple cluttered telemetry buttons (`SERVER TELEM`, `SLAVE TELEM`, `KIOSK TELEM`) with a single compact, glassmorphic dropdown badge next to the *A-X-L* brand. Features a live status dot, smooth open/close animations, and direct target selection:
+      - `Master Server (Local ThinkPad)`
+      - `Slave PC (Remote Workstation)`
+      - `Android Kiosk (Galaxy A33)` (dynamically enabled only within the native Android Kiosk app, grayed out on desktop browsers)
+      - `Chiudi Telemetria`
+    - **Single Telemetry Monitor & Cyberpunk / One UI Music Player Predisposition:**
+      - **Single Left-Panel Monitor:** Streamlined the telemetry experience by focusing on a single, highly readable monitor on the left of the central avatar, eliminating dual-monitor visual clutter on small displays.
+      - **Music Player Stage Layout (CSS Flexbox `order`):** Predisposed the Visor stage for upcoming music player widget integration (blending Samsung One UI media player aesthetics with A-X-L cyberpunk styling). When active: Music Player docks on the left (`order: 1`), Avatar stays centered (`order: 2`), and Telemetry slides to the right (`order: 3`).
+    - **Status Banner Text Formatting (Dog Avatar Subtitle):** On mobile kiosk screens, `"STANDBY // PASSIVE SURVEILLANCE"` cleanly breaks onto two lines with `"PASSIVE SURVEILLANCE"` wrapped underneath at a compact `0.68rem` font, while the `"ACOUSTIC ARRAY"` capsule is scaled down (`0.52rem`) to completely prevent overlap with bottom action buttons.
+    - **Adaptive Intelligent Footer Architecture (Desktop PC vs Kiosk/Mobile):**
+      - **Desktop PC Mode (matches wireframe notewise -4):** Action controls `[ 🎙️ MIC: ATTIVO/MUTO ]` and `[ 💬 ASK ME... / ⏹️ STOP ]` are positioned at the top of the footer (one pinned left, one pinned right) directly above the full-width Biometric Status Bar (`SPEAKER ID: OWNER | CONFIDENCE: 0.985 | SECURITY: ADMIN / AUTH`), with the Dialogue Subtitles panel stretching across the entire width underneath.
+      - **Mobile & Android Kiosk Mode (matches wireframe sketch 5):** Compact 2-row layout with the full-width Biometric Status Bar on Row 1, and on Row 2 Dialogue Subtitles on the left paired with a stacked vertical action column on the right.
+    - **Glanceable Anti-Collision Telemetry & Multi-Tier Layouts (Kiosk 2x2 vs Server/Slave Integrated Dual-GPU):**
+      - **Android Kiosk (Galaxy A33):** Symmetrical 2 rows x 2 columns grid (`cpu ram` / `gpu fan`) matching the native 4-metric nature of the device: Card 1 = `PROCESSOR (CPU)` (Exynos 1280 SoC, 8 Cores, device thermal, responsive load); Card 2 = `MEMORY (RAM)` (RAM used/total, % and free GB); Card 3 = `BATTERY SYSTEM` (Li-Ion 5000 mAh, AC/Battery status, level %); Card 4 = `WI-FI LINK` (Signal RSSI in dBm e.g. -65 dBm with Excellent/Good/Weak quality badge, removing cooling fan labels and negative RPMs). Fullscreen button is hidden as the app runs in hardware-level immersive fullscreen.
+      - **Integrated Dual-GPU on Mobile Landscape:** Side-by-side 50%/50% rendering (`1fr 1fr` with `min-width: 0 !important; overflow: hidden !important;`) inside the GPU row of the slender 3-row layout (`cpu ram`, `gpu gpu`, `fan fan` banner at ~24px). Hardware name normalization (`formatGpuName`: e.g. `RTX 3050 Ti`, `Intel UHD`), streamlined badges (`dGPU`, `iGPU`), and balanced symmetrical rows for load % and VRAM, ensuring neither GPU overflows, dominates, or clips the other on small displays. Total panel height ~147-158px with zero scrolling.
+      - **Desktop PC & Tablet Protection (No Micro-Columns):** Desktop PC (`body.client-desktop`) preserves its spacious, readable vertical stacked layout (`flex-direction: column`, font size `0.78rem`, full device names, full badges `DEDICATED`/`INTEGRATED`, full VRAM rows) inside the 2x2 card grid, protected from micro-column shrinkage.
+      - **Hardware-Certified PCI Resolution (Zero Speculative Labeling):** Real-hardware resolution via `_resolve_linux_pci_gpu_name` (`lspci -s <slot>`) in both `telemetry_utils.py` and `slave_daemon.py`. Completely eliminates guesswork and hardcoded fallbacks (such as "Iris Xe" on UHD systems); detects real hardware (`Intel UHD Graphics`, `NVIDIA GeForce RTX 3050 Ti Laptop GPU`) with `"N/A"` as strict fallback when unverified.
+      - **Live Master Server Mini-Sparklines (`#server-mini-telem`):** Tiny, live-updating progress bars placed directly under the header divider line on the right, providing an unobtrusive glance at the Master Server (`CPU`, `MEM`, `GPU`) with CPU temperature as the sole numeric readout (`XX°C`). Color-coded for load awareness (cyan normal, amber warning at 70%, pulsing red alert at 85% or temp >= 82°C). Intelligently hides when the full Server telemetry HUD is opened, and reappears when closed or when viewing Slave/Kiosk metrics. Powered by a background WebSocket heartbeat (`SERVER_TELEMETRY` every 2.5s) active only when UI clients are connected.
+    - **Dynamic Subtitle Auto-Scaler ("Nota Kiosk"):** Real-time text-fitting engine that scales response font sizes (`reply-sm`, `reply-xs`, `reply-xxs`) based on text length (scaling dynamically at >100, >200, and >320 characters), preventing subtitle overflow and guaranteeing flawless readability on mobile kiosk screens.
+    - **One-Way Security Mode Selector & Inspection (`MODE: FRIENDLY / RESTRICT / PARANOID ▾`):** Security selector dropdown showing all 3 security tiers. In `FRIENDLY`, options are active and selectable to lock into `RESTRICT` or `PARANOID`. In protected modes, the popup opens to display the 3 options in grayed-out/locked state (`🔒`), preventing unauthorized manual downgrades while explaining that only the verified Owner voice can unlock the system.
+    - **A-X-L Cyberpunk Gear Menu (`#settings-btn`):** High-tech animated gear icon opening a dropdown menu with custom cyberpunk SVG icons for rapid reload, Master IP configuration, instant WebSocket reconnect, UI language switcher, and clean Kiosk exit (`exitKiosk()`).
+    - **Real-Time Playback Synchronization & Tactical STOP Button:** When A-X-L speaks, the ASK ME button transforms dynamically into an interactive pulsating red `STOP` button. The server keeps `SPEAKING` state active for the *exact, complete duration of the physical audio playback* (paced streaming with lead buffer). Pressing STOP immediately halts network streaming, purges server audio buffers, and transmits `"STOP"` to the client peripheral (triggering hardware `AudioTrack.flush()` on Android Kiosk and `sd.stop()` on PC), silencing A-X-L instantaneously. Acoustic feedback loops (microphone hearing A-X-L's own speaker) are fully inhibited during vocal playback, ensuring long replies are never cut short.
+    - **Universal Multi-GPU Support:** Detects any combination of dedicated (NVIDIA RTX/GTX via `nvidia-smi`, AMD Radeon, Intel Arc) and integrated GPUs (Intel UHD/Iris Xe, AMD Radeon APU) across desktops and hybrid dual-GPU laptops, displaying individual card loads, thermals, frequencies, and VRAM.
     - **Tactical MUTE Button & Voice Protocol:** Dedicated rounded action button above `SPEAKER ID` with dynamic cyan glow (`MIC: ATTIVO`) and pulsing red alert state (`MIC: MUTO`). Supports voice command muting ("AXL muto", "disattiva microfono") which drops incoming WebSocket PCM packets at the network layer. **Strict Security Constraint:** Unmuting can ONLY be performed by physically tapping the UI button, preventing malicious voice overrides.
-    - **"ASK ME..." Push-to-Ask Button:** Large action button opposite the MIC button that starts listening without saying the wake-word (`ASK_START` WebSocket message → `AudioPipeline.force_listen()`). Its colour follows the security mode (green in `friendly`, orange in `restrict`, red in `paranoid`); speaker verification still applies in protected modes. It also works while muted as a one-shot question (mute stays on afterwards); it is disabled only while A-X-L is listening/thinking/speaking. MIC and ASK ME are sized for easy visibility/tapping on the kiosk.
+    - **"ASK ME..." Push-to-Ask Button:** Large action button opposite the MIC button that starts listening without saying the wake-word (`ASK_START` WebSocket message → `AudioPipeline.force_listen()`). Its colour follows the security mode (green in `friendly`, orange in `restrict`, red in `paranoid`); speaker verification still applies in protected modes. Strictly disabled and unclickable while microphone mute is active (ensuring total audio sensor silence until explicitly unmuted via the MUTE button); it is also disabled while A-X-L is listening/thinking/speaking. MIC and ASK ME are sized for easy visibility/tapping on the kiosk.
     - **Live Security Mode Voice Synchronization:** Real-time bi-directional sync: commands like "passa in modalità paranoica" or "metti restrict" update `speaker_verifier.py`, `os.environ`, and instantly broadcast WebSocket events to update the UI badge without reload.
     - **Modernized Hardware Telemetry Panel:** Redesigned in a 2x2 glassmorphic card grid with rounded corners (`border-radius: 16px-20px`), dedicated monitor cards for CPU core load, RAM memory, dedicated & integrated GPUs, and cooling fans with rounded progress bars, preserving A-X-L's cyberpunk palette.
-    - **Dynamic Split-Stage Layout & Live/Fallback Telemetry:** Responsive stage geometry that prevents visor-to-subtitle overlap across all aspect ratios, cleanly hides/shows the telemetry panel on toggle, and streams live hardware telemetry (with automatic local `psutil` and dynamic browser fallback when the external slave daemon is offline).
+    - **Dynamic Split-Stage Layout & Live/Offline Telemetry:** Responsive stage geometry that prevents visor-to-subtitle overlap across all aspect ratios, cleanly hides/shows the telemetry panel on toggle, and streams live hardware telemetry (with strict `N/A` fallback, zero simulated numbers, and instant `OFFLINE` badge states whenever a node daemon or WebSocket disconnects/suspends).
 - **Workstation Slave Daemon (`slave_node/slave_daemon.py`):**
   - Standalone lightweight daemon running on Fedora or Windows workstations on port `8001`.
   - Exposes real-time hardware telemetry (`psutil`: CPU load, RAM usage, storage, thermal sensors, battery status).

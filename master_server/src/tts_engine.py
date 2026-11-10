@@ -215,11 +215,8 @@ class PiperTTSEngine:
         cleaned = re.sub(r"http\S+", "", cleaned)
         cleaned = cleaned.replace("%", " percento")
 
-        # Shorten unnatural inter-sentence pauses:
-        # Replace multiple dots with ellipsis
+        # Shorten unnatural inter-sentence pauses without breaking sentence boundaries:
         cleaned = re.sub(r"\.{2,}", "...", cleaned)
-        # Convert sentence-ending periods followed by space into commas for snappy conversational cadence
-        cleaned = re.sub(r"(?<=\w)\.\s+(?=[A-Za-zÀ-ÿ])", ", ", cleaned)
         # Convert semicolons and colons to commas to avoid long dead pauses
         cleaned = re.sub(r"[;:]\s*", ", ", cleaned)
         # Collapse multiple whitespaces

@@ -2,13 +2,16 @@ import logging
 import os
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+from dotenv import load_dotenv
 import numpy as np
 import sherpa_onnx
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(dotenv_path=BASE_DIR / ".env")
+
 logger = logging.getLogger("AXL-SpeakerID")
 
-
-THRESHOLD_VAR = 0.48 #got the value running tools/calibrate_speaker.py
+THRESHOLD_VAR = float(os.getenv("AXL_SPEAKER_THRESHOLD", "0.48"))  # Configurable via .env, calibrated with tools/calibrate_speaker.py
 
 
 class SpeakerVerifier:

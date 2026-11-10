@@ -75,7 +75,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 10. [x] **Web UI (Il Visore):** Creazione dell'interfaccia HTML/JS servita da FastAPI su `/ui` e collegata via WebSocket a `/ws/ui`. Implementazione delle animazioni di stato (Idle, Listening, Thinking, Speaking, Stranger Alert) e del timer CSS/JS per il pixel-shifting anti burn-in.
     * **Modernizzazione Bottoni & Card Style:** Restyling moderno e arrotondato (`border-radius: 10px`) dei bottoni della barra superiore con supporto intelligente sia per cursore mouse che touch, mantenendo i colori e i font di A-X-L.
-    * **Blocco Unidirezionale Modalità di Sicurezza (`MODE`):** Il pulsante `MODE` è cliccabile solo quando si trova su `FRIENDLY` per permettere di impostare `RESTRICT` o `PARANOID`. Una volta attivata una modalità protetta, il pulsante si blocca (`🔒`) impedendo a estranei di disattivare la verifica vocale dal display.
+    * **Ispezione e Blocco Unidirezionale Modalità di Sicurezza (`MODE`):** Il pulsante `MODE` apre sempre il popup a tendina per mostrare lo stato di tutte e 3 le opzioni (`FRIENDLY`, `RESTRICT`, `PARANOID`). In modalità `FRIENDLY` le opzioni sono attive e utilizzabili per impostare e bloccare `RESTRICT` o `PARANOID`; una volta attivata una modalità protetta, tutte e 3 le opzioni diventano grigie/disabilitate (`🔒`) impedendo lo sblocco manuale da schermo touch, con avviso che solo l'Owner tramite verifica vocale può sbloccare il sistema.
     * **Verifica e Switch Modalità di Sicurezza Vocale:** Sincronizzazione completa del comando vocale `set_security_mode` tra Gemini Brain, `commands.py`, `StreamManager` (`speaker_verifier.py`) e Web UI WebSocket: pronunciare "passa in modalità paranoica" o "metti restrict" aggiorna dinamicamente la logica di diffidenza biometrica e la UI in tempo reale.
     * **Pulsante MUTE Tattico & Vincolo Sblocco Esclusivo da Schermo:** Aggiunto pulsante MUTE moderno direttamente sopra la scritta `SPEAKER ID` nel footer HUD. Supporta il comando vocale ("vai in muto", "silenzio", "disattiva microfono") che arresta l'ingestione dei pacchetti audio a livello WebSocket. **Regola di sicurezza:** la modalità muto può essere disattivata solo ed esclusivamente premendo il pulsante fisico/touch sul display, rendendo impossibile lo sblocco accidentale o non autorizzato a voce.
     * **Centratura Geometrica Assoluta dell'Orologio:** Utilizzo di posizionamento assoluto (`left: 50%; transform: translateX(-50%)`) per garantire che l'orario rimanga perfettamente e matematicamente al centro della barra superiore, a prescindere dalle larghezze asimmetriche del brand A-X-L a sinistra e dei pulsanti a destra.
@@ -84,23 +84,110 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
       - Aggiunto pulsante tattico `SERVER TELEM` in alto a sinistra accanto al logo *A-X-L* e ribattezzato il pulsante in alto a destra in `SLAVE TELEM`.
       - **Mutua Esclusività**: È possibile visualizzare una sola telemetria alla volta sullo stesso pannello HUD sinistro; l'attivazione di una chiude automaticamente l'altra, mentre un secondo click sulla telemetria attiva chiude il pannello.
       - **Comandi Vocali Bivalenti**: Implementati i comandi vocali dedicati per entrambe le macchine (*"mostra telemetria server"*, *"telemetria master"*, *"mostra telemetria slave"*, *"telemetria pc"*, *"chiudi telemetria"*) con estrazione diretta delle metriche locali (`psutil`) per il Master Server e polling HTTP verso il demone remoto per il nodo Slave.
-      - **Rilevamento Multi-GPU Universale (Dedicated + Integrated)**: Creato motore di ispezione hardware `telemetry_utils.py` integrato sia nel Master Server che nel demone Slave. Rileva contemporaneamente e senza limiti GPU dedicate NVIDIA (`nvidia-smi`), GPU integrate Intel HD/Iris Xe (`i915`/`xe`), GPU dedicate e APU AMD Radeon (`amdgpu`/`radeon`) e fallback Windows, visualizzando tutte le schede grafiche presenti sul sistema con carico %, temperature, frequenze e memoria VRAM.
+      - **Rilevamento Multi-GPU Universale (Dedicated + Integrated) & Ispezione PCI Reale (Zero Allucinazioni Hardware)**: Creato motore di ispezione hardware `telemetry_utils.py` integrato sia nel Master Server che nel demone Slave (`slave_daemon.py`). Rileva contemporaneamente e senza limiti GPU dedicate NVIDIA (`nvidia-smi`), GPU integrate Intel (`i915`/`xe`), GPU dedicate e APU AMD Radeon (`amdgpu`/`radeon`) e fallback Windows.
+        - **Risoluzione Reale tramite PCI (`_resolve_linux_pci_gpu_name`)**: Eliminata qualsiasi etichetta statica o supposta (es. il falso "Iris Xe"). Il sistema interroga direttamente il controller PCI (`lspci -s <slot>`) estraendo il modello reale certificato dal kernel (`Intel UHD Graphics`, `NVIDIA GeForce RTX 3050 Ti Laptop GPU`), con fallback rigoroso a `"N/A"` nel caso in cui le specifiche non siano accertabili.
+      - **Protezione Layout GPU Desktop PC & Tablet (Nessuna Compressione Visiva)**: Su browser PC e tablet, la card `GRAPHICS (GPU)` mantiene inalterato il suo layout verticale ampio e leggibile (`flex-direction: column`, font `0.78rem`, nomi completi non troncati, badge `DEDICATED`/`INTEGRATED` e riga VRAM/FREQ per esteso) all'interno della griglia 2x2. La visualizzazione compatta orizzontale affiancata (`dual-gpu`) è circoscritta ai soli smartphone in visualizzazione landscape (`max-height: 520px`) per lasciare spazio al futuro player musicale.
+      - **Mini-Sparklines Live Telemetria Master Server (`#server-mini-telem`)**:
+        - Micro-indicatori ultra-sottili posizionati sotto la linea divisoria della barra superiore (header), allineati a destra sotto ai controlli.
+        - Visualizzazione continua e minimale di `CPU` (con unico valore numerico della temperatura, es. `52°C`), `GPU` e `MEM` tramite micro-slider colorati (ciano normale, ambra sopra il 70%, rosso allerta pulsante sopra l'85% o con temp >= 82°C per monitorare a colpo d'occhio lo sforzo del server).
+        - **Logica di Visibilità Intelligente**: Sempre visibili a schermo per avere sott'occhio il server; si nascondono automaticamente solo quando l'utente apre il pannello di telemetria completo per il Server (poiché le metriche sono già visibili in dettaglio nel riquadro grande) e ricompaiono subito quando la telemetria viene chiusa o commutata su Slave o Kiosk.
+        - Alimentati da un heartbeat WebSocket dedicato (`SERVER_TELEMETRY` a 2.5s) attivo unicamente in presenza di client UI connessi.
+      - **Rimozione Tasto Schermo Intero su Android Kiosk (`#fullscreen-btn`)**:
+        - Nascosto totalmente il pulsante `#fullscreen-btn` sui client Android Kiosk (`.client-kiosk` / Galaxy A33), poiché l'applicazione Kotlin opera già in modalità immersiva a schermo intero nativa a livello di sistema operativo.
+      - **Riquadro Telemetria Dinamico Kiosk (Zero Valori Negativi, Zero Etichette Sbagliate)**:
+        - Riconfigurazione contestuale completa delle 4 card quando si visualizza il nodo Kiosk (Galaxy A33):
+          - **Card 1**: `PROCESSOR (CPU)` con architettura SoC *Exynos 1280*, 8 Core, temperatura dispositivo e carico % reattivo (eliminata l'anomalia per cui la % della batteria veniva duplicata come carico CPU).
+          - **Card 2**: `MEMORY (RAM)` con memoria usata, totale (`6.0 GB`) e libera.
+          - **Card 3**: `BATTERY SYSTEM` (in sostituzione di GPU) con *Li-Ion 5000 mAh*, stato dinamico (`⚡ AC CHARGING` o `🔋 DISCHARGING`), barra di carica e termica °C.
+          - **Card 4**: `WI-FI LINK` (in sostituzione di COOLING FAN) con intensità del segnale Wi-Fi RSSI in `dBm` (es. `-65 dBm`), stato link (`ONLINE`/`ACTIVE`) e qualità (`EXCELLENT`/`GOOD`/`WEAK`), eliminando ventole inesistenti e i valori negativi scambiati per RPM.
+        - Ripristino immediato e trasparente delle etichette standard (`CPU CORE LOAD`, `MEMORY USAGE`, `GRAPHICS (GPU)`, `COOLING FAN` con RPM) quando si passa a monitorare Server o Slave.
+    * **Ripristino & Ottimizzazione Attenuazione Colori AMOLED (`hud-subdued`):**
+      - Risolto il blocco causato dallo streaming continuo dell'audio del microfono (`MIC_LEVEL` a 20-30Hz) e dai frame di telemetria passiva (`TELEMETRY_UPDATE`), che azzeravano in loop continuo il timer di inattività impedendo allo schermo di attenuarsi.
+      - Disaccoppiati i messaggi di telemetria e mic passivi: il timer di inattività (impostato a 45 secondi in stato `IDLE`) si attiva all'avvio e viene resettato unicamente da azioni intenzionali (wake-word vocale, cambio stato, trascrizione del parlato, risposta vocale di A-X-L, click sui pulsanti, tocco touch o movimento del mouse).
+      - Transizione fluida CSS (`filter: brightness(0.55); opacity: 0.35;` con transizione a 1.2s) che riduce luminosità e contrasto a riposo per massima durata del pannello Super AMOLED del Galaxy A33 ed azzeramento del rischio burn-in.
+      - Risveglio istantaneo a piena luminosità appena l'utente parla o interagisce con il visore.
+    * **Menu Rapido Impostazioni Cyberpunk (Gear Dropdown) & Tasto STOP Sincronizzato:**
+      - **Ingranaggio Cyberpunk & Menu a Tendina (`#settings-popup`):** Sostituito il semplice tasto reload con un'icona ingranaggio animata in stile HUD ciano, che apre un menu a scomparsa glassmorphic coerente con lo stile di `MODE: FRIENDLY`. Opzioni con icone vettoriali SVG cyberpunk dedicate (eliminati tutti gli emoji generici di sistema): Ricarica Visore (doppia freccia circolare), Configura IP Master (chiave inglese tattica), Riconnetti WebSocket (data-link di rete per handshake a caldo immediato), Lingua UI (reticolo sferico) e Arresta Kiosk & Mic (power stand-by rosso allerta). Micro-animazioni interattive hover per ciascun pulsante.
+      - **Rimozione Schermo Intero dal Menu Settings:** Rimosso il duplicato dal popup poiché esiste già il pulsante dedicato `#fullscreen-btn` nella barra superiore.
+      - **Predisposizione Switch Lingua UI (`#setting-opt-lang`):** Predisposto pulsante per commutare la lingua dell'interfaccia (default ENG con placeholder informativo in vista delle localizzazioni future).
+      - **Pulsante Arresta Kiosk & Mic con Blocco Dinamico PC/Android (`#setting-opt-kill-kiosk`):** Aggiunta opzione per arrestare completamente l'app Kotlin Kiosk e rilasciare il microfono in background (`exitKiosk()`). La Web UI riconosce automaticamente se si trova su browser desktop/localhost (in tal caso il tasto è disabilitato e oscurato con cursore vietato) oppure all'interno del Kiosk Android (tasto attivo, evidenziato in rosso allerta `opt-kill-kiosk` per chiudere l'app ed evitare consumi anomali del mic).
+      - **Identificazione Dinamica Dispositivo e Naming Tattico (`// KIOSK` vs `// NODE-n`):**
+        - La Web UI e il Master Server cooperano per identificare la natura del client connesso al WebSocket `/ws/ui`.
+        - Se la connessione proviene dall'app Kotlin Android, la dicitura sotto ad *A-X-L* passa automaticamente a `TACTICAL AI // KIOSK`.
+        - Se la connessione proviene da browser web desktop o mobile, il Master Server assegna progressivamente uno slot dinamico (`NODE-01`, `NODE-02`, ecc.) in base all'ordine di collegamento, riciclando i numeri di nodo non appena le schede o finestre vengono chiuse.
+        - **Stile Cromatico Muted Uniforme:** Uniformato il colore di `KIOSK` e `NODE-n` al grigio tattico (`var(--text-muted)`) di `TACTICAL AI //`.
+      - **Riposizionamento Stato WebSocket Minimalista (Sotto al Brand A-X-L):**
+        - Rimosso il riquadro pulsante `WS: ONLINE/OFFLINE` dalla tray superiore destra dei comandi per evitare confusione con i bottoni interattivi.
+        - Spostato direttamente sotto alla scritta `TACTICAL AI // NODE-01` in alto a sinistra sotto forma di linea di stato essenziale, con punto luminoso e testo ciano brillante (`WS: ONLINE`), rosso allerta (`WS: OFFLINE`) o ambra (`WS: CONNECTING`), privo di cornici o bottoni ingombranti.
+      - **Sincronizzazione Reale Tasto STOP & Durata Riproduzione:** Corretto il ciclo di vita dello stato `SPEAKING`. In precedenza la trasmissione WiFi terminava in 0.3s e riportava il visore in `IDLE`, facendo sparire il tasto STOP mentre l'altoparlante del client continuava a parlare per 10 secondi. Ora `speak_text()` mantiene `is_speaking = True` e il tasto rosso STOP pulsante per l'intera durata effettiva dell'audio.
+      - **Silenziamento Istantaneo (Vocal Abort):** La pressione di STOP sul visore invia il comando di abort a livello di rete, azzera i buffer del server e invia `"STOP"` al client audio, scatenando lo svuotamento hardware (`AudioTrack.flush()` su Android e `sd.stop()` su PC) per zittire A-X-L all'istante.
+      - **Risoluzione Troncamento Messaggi Lunghi:** Eliminata l'alterazione forzata della punteggiatura (sostituzione dei punti con virgole) che causava l'esaurimento del buffer prosodico neurale di Edge-TTS e Piper, e inibito l'audio microfonico per tutta la durata del parlato per evitare che A-X-L si auto-ascoltasse e interrompesse le proprie risposte lunghe.
 11. [x] **Nodo Slave (Fedora/Windows):** Scrittura di `slave_daemon.py` per esporre telemetria (`psutil`: CPU, RAM, temperature, GPU dedicate/integrate, ventole) e ricevere dal Master i webhook per eseguire script o comandi di sistema. Visualizzazione split-layout HUD in tempo reale sul visore.
 
-#### FASE 5: App Android "Thin Kiosk" (Galaxy A33)
+#### FASE 5: App Android "Thin Kiosk" (Galaxy A33) [COMPLETATA AL 100%]
 
-12. **Progetto Android Puro Kotlin (Zero NDK):** Creazione della nuova app leggera senza CMake né C++.
+12. [x] **Progetto Android Puro Kotlin (Zero NDK):** Creazione della nuova app leggera senza CMake né C++.
 
-
-13. **Servizio Audio Bidirezionale (`AudioStreamService.kt`):** Implementazione di un *Foreground Service* con `OkHttp WebSocket`:
-* Thread 1: Legge da `AudioRecord` e invia byte binari al ThinkPad --> cambiare in caso da test_mic_client.py al nuovo nel master?.
+13. [x] **Servizio Audio Bidirezionale (`AudioStreamService.kt`):** Implementazione di un *Foreground Service* con `OkHttp WebSocket`:
+* Thread 1: Legge da `AudioRecord` e invia byte binari PCM 16kHz al ThinkPad.
 * Thread 2: Riceve byte binari dal ThinkPad e li scrive direttamente su `AudioTrack` per far parlare A-X-L dal telefono.
 
+14. [x] **WebView Kiosk, Javascript Bridge & Architettura Periferica Pura (`MainActivity.kt`):**
+      - **Ruolo Deliberato dell'A33 (Thin Kiosk)**: Il Galaxy A33 è rigorosamente una **periferica hardware di I/O** (display visore immersivo + microfono + altoparlante). Tutta la logica di business, l'intelligenza e la gestione di calendario, compiti e promemoria risiedono e vengono gestiti **fuori dall'A33** (sul Master Server ThinkPad e via API Cloud), per evitare qualsiasi dipendenza dallo smartphone.
+      - **Interfaccia Bridge Javascript (`window.AXLKiosk`):** Esposizione dei comandi nativi Kiosk: `reload()`, `showIpConfig()`, `exitKiosk()` e `getKioskTelemetry()`.
+      - **Media Session Hardware (`IntentExecutor.kt`):** Mantenuti i controlli volume hardware (`AudioManager`) per la futura riproduzione musicale.
 
-14. **WebView Kiosk & Intent Receiver:** Configurazione di `MainActivity.kt` per mostrare la Web UI ospitata sul ThinkPad e ricezione di comandi JSON sul WebSocket per lanciare `Intent` Android (sveglie, apertura app, controlli media).
-""" Dettaglio esplicito delle integrazioni Android native: `AlarmClock` (sveglie/timer), `CalendarContract` (eventi Google) e `AudioManager` (gestione volume/media)."""
+15. [x] **Telemetria Hardware Kiosk (Galaxy A33) & Tasto Dedicato Visore:**
+    * Monitoraggio metriche fisiche del dispositivo Android tramite API native (`BatteryManager`, `ActivityManager` in `KioskTelemetry.kt`):
+      - Livello batteria (%), stato di ricarica (AC/Batteria), temperatura batteria (°C, essenziale per prevenire surriscaldamenti sul kiosk fisso).
+      - RAM usata/disponibile e potenza segnale Wi-Fi RSSI (dBm).
+    * **Pulsante KIOSK TELEM su Schermo (Esclusivo Android Kiosk):** Aggiunto pulsante `KIOSK TELEM` nella tray superiore tra `SLAVE TELEM` e `SECURITY MODE`. Il pulsante appare unicamente quando il visore è aperto all'interno dell'app Kiosk Android, rimanendo invisibile su normali browser PC.
+    * **Pannello HUD Kiosk Dedicato:** Mappatura automatica sui 4 riquadri glassmorphic (Info Dispositivo, RAM, Stato Batteria/Carica e Segnale Wi-Fi RSSI).
+    * **Comandi Vocali Bivalenti:** Integrazione in `commands.py` e `brain_gemini.py` dei comandi vocali (*"mostra telemetria kiosk"*, *"telemetria telefono"*, *"stato batteria"*, ecc.).
 
-#### FASE 6: Animazioni Espressive Web UI (Video Neon / Avatar Reattivo)
+16. [x] **Riprogettazione Ergonomica Completa HUD Visore (Wireframe & Mobile/Kiosk Optimization):**
+    * **Header a 3 Colonne CSS Grid Anticolloisione (`auto 1fr auto`):** Risolto definitivamente il problema delle sovrapposizioni su display ridotti (smartphone Samsung Galaxy A33 sia orizzontale che verticale, e finestre browser PC ristrette). L'orologio HUD è vincolato nella colonna centrale autonoma con `justify-self: center`, eliminando le collisioni tra il brand a sinistra e la barra comandi a destra.
+    * **Menu a Tendina Telemetria Unificato (`[TELEM: OFF ▾]`):** Raggruppati i vecchi pulsanti separati (`SERVER TELEM`, `SLAVE TELEM`, `KIOSK TELEM`) in un unico selettore a comparsa glassmorphic compatto posizionato a sinistra vicino al logo *A-X-L*. Include: Master Server, Slave PC, Android Kiosk (abilitato dinamicamente solo su Kiosk nativo) e Chiudi Telemetria.
+    * **Ritorno a Singola Telemetria & Predisposizione Player Musicale Cyberpunk / One UI:**
+      - **Singola Telemetria a Sinistra:** Rimossa la modalità split a due pannelli simultanei per mantenere il visore pulito e leggibile. La telemetria attiva (Server, Slave o Kiosk) appare nel pannello singolo a sinistra dell'avatar canino.
+      - **Predisposizione Architetturale Music Player:** Predisposto il layout CSS Flexbox (`order`) per l'integrazione futura del player musicale (ispirato a Samsung One UI in salsa cyberpunk): a musica attiva, il Player Musicale si posiziona a sinistra (`order: 1`), l'Avatar al centro (`order: 2`) e il monitor di Telemetria scivola a destra (`order: 3`).
+    * **Miglioramento Leggibilità Telemetria & Layout Differenziato (Kiosk 2x2 vs Server/Slave 3-Row Dual-GPU):**
+      - **Ripristino Setup Sincrono 2 Righe x 2 Colonne per Android Kiosk (`telem-target-kiosk`):** Su Galaxy A33 / Kiosk, avendo unicamente la metrica singola dello stato batteria nella card GPU e il segnale Wi-Fi nella card FAN, è stato ripristinato il setup a 2 righe e 2 colonne perfette (Row 1: Batteria CPU e RAM; Row 2: Li-Ion Battery Health a sinistra e Wi-Fi RSSI a destra), eliminando la riga estesa per la GPU e la striscia fan sottostante.
+      - **Visualizzazione Integrata Dual-GPU per Slave/Server ("Messe Assieme"):**
+        - Risolto il problema per cui una delle due schede grafiche occupava troppo spazio tagliando fuori l'altra: implementato formattatore conciso dei nomi hardware (`formatGpuName`: es. `RTX 3060`, `Iris Xe`), badge sintetici (`dGPU`, `iGPU`) e riga compatta VRAM/LOAD simmetrica.
+        - Le due GPU sono affiancate con precisione pixel-perfect al 50%/50% (`1fr 1fr` con `min-width: 0 !important; overflow: hidden !important;`), rendendole perfettamente visibili insieme senza alcuna sovrapposizione o troncamento sia su PC che su smartphone/kiosk.
+        - Per Server e Slave su smartphone/mobile landscape rimane il layout snello a 3 righe (`cpu ram`, `gpu gpu`, `fan fan` sottile a ~24px).
+      - **Altezza e Larghezza Contenute:** L'intero pannello telemetrico occupa solo 360px in larghezza e circa ~147-158px in altezza, lasciando oltre 440px orizzontali per l'avatar e il futuro player musicale, con zero scrolling e perfetto contrasto AMOLED.
+      - **PC Desktop e Tablet:** Rimane la griglia standard 2x2 a card ampie con rilevamento automatico tablet (iPad, tablet Android con display >= 600px).
+      - **Formattazione Banner di Stato (Sotto Avatar Cane):** Su smartphone/kiosk la dicitura `"STANDBY // PASSIVE SURVEILLANCE"` va a capo in modo armonioso con `"PASSIVE SURVEILLANCE"` sotto `"STANDBY //"` a font ridotto (`0.68rem`), e la capsula arrotondata `"ACOUSTIC ARRAY: ACTIVE (16kHz PCM)"` è stata rimpicciolita (`0.52rem`) eliminando ogni sovrapposizione con i pulsanti e la striscia biometrica sottostante.
+    * **Layout Footer Adattivo e Intelligente (Desktop PC vs Kiosk/Mobile):**
+      - **Modalità PC Desktop (come da wireframe notewise -4):** I pulsanti tattici `[ 🎙️ MIC: ATTIVO ]` e `[ 💬 ASK ME... / ⏹️ STOP ]` sono posizionati in alto a tutta larghezza (uno a sinistra e uno a destra), direttamente sopra la striscia biometrica (`SPEAKER ID: OWNER | CONFIDENCE: 0.985 | SECURITY: ADMIN / AUTH`), con i sottotitoli di dialogo a tutta larghezza in basso.
+      - **Modalità Mobile & Android Kiosk (come da wireframe sketch 5):** Disposizione compatta a due colonne: Riga 1 con la striscia biometrica a tutta larghezza, Riga 2 con i sottotitoli a sinistra e i due tasti impilati verticalmente a destra.
+    * **Ridimensionamento Dinamico del Testo Subtitles ("Nota Kiosk"):** Implementato algoritmo CSS/JS con classi `reply-sm`, `reply-xs`, `reply-xxs` che scala proporzionalmente la dimensione del font della risposta di A-X-L in base alla lunghezza del testo (oltre 100, 200 e 320 caratteri), evitando strabordamenti e troncamenti visivi sul display del Kiosk.
+
+    * **Gestione Fallback N/A e Disconnessione/Sospensione Nodi (Niente Più Numeri Finti):**
+      - **Rimozione Dati Falsi/Simulati:** Eliminato definitivamente il generatore di numeri finti casuali (`generateFallbackTelemetry()`) sia su errore HTTP che su timeout. La UI mostra unicamente dati hardware reali oppure `N/A`.
+      - **Zero Mascheramento Slave da parte del Master:** Risolto il bug in `main.py` (`_telemetry_poll_loop` e `REQUEST_TELEMETRY`) che, alla caduta o sospensione dello slave daemon, inviava le metriche del Master Server camuffate da metriche dello Slave. Ora il Master notifica esplicitamente `offline: True`, `error: "OFFLINE"` e `data: None`.
+      - **Stato Offline Istantaneo su Disconnessione WebSocket:** Quando il WebSocket passa a `WS: OFFLINE` (caduta di rete o spegnimento del Master), il pannello di telemetria attiva e le mini sparkline superiori (`#server-mini-telem`) scattano immediatamente in modalità offline: barre a 0% con classe oscurata `.muted`, valori `N/A` su CPU, RAM, GPU/Batteria, Ventole/Wi-Fi e badge rosso `.badge-telem-offline` (`NODE: [TARGET] // OFFLINE`).
+      - **Auto-Ripristino Live:** Alla riapertura del demone o al risveglio della macchina da sospensione, l'arrivo dei pacchetti di telemetria reali ripristina all'istante le barre animate e il badge verde `LIVE`.
+      - **Connessione Istantanea & Heartbeat Real-Time 1Hz per i Mini-Slider del Server:**
+        - I cursori compatti in alto (CPU, GPU, MEM + temp CPU) ora si collegano istantaneamente all'avvio dell'app tramite richiesta immediata `REQUEST_SERVER_TELEMETRY` all'apertura del WebSocket e all'evento `INIT`, senza dover più attivare e disattivare la telemetria del master dal riquadro.
+        - Frequenza aumentata a 1.0s (1 Hz effettivo in tempo reale sia lato client che backend) e processo in background permanente durante il ciclo di vita del server.
+        - **Fix Sovrapposizione Header:** Eliminato il margine negativo (`margin-top: -6px`) e impostato un offset pulito verso il basso (`margin-top: 5px` su desktop e `4px` su mobile landscape), staccando visivamente gli slider dalla linea orizzontale di confine dell'header.
+
+17. [x] **Console Terminale Server (Minecraft-Style REPL & Admin Slash Commands):** Implementata console server interattiva in background (`console_manager.py`) nel terminale del Master. Chi digita nel terminale opera con privilegi root/Admin bypassando i guardrail vocali. Supporta comandi slash bilingui: `/speak` (vocal test su client con language detection automatica o flag `--en`/`--it`), `/ask` (query diretta a Gemini Brain), `/tasks` (aggiunta/elenco compiti filtrati di default per oggi salvati su `data/tasks.json`), `/calendar` (creazione/elenco eventi filtrati di default per oggi su `data/calendar.json`), `/mode`, `/mute`, `/telem`, `/audio`, `/status`, `/stop`, `/help`. Documentazione salvata in `terminal_commands.md`.
+18. [x] **Gestione Client Audio Concorrenti & Takeover Dinamico (`/ws/audio`):** Implementata gestione graziosa del passaggio tra sorgenti audio. Se si collega un nuovo client audio (es. Galaxy A33 o PC), il Master disconnette in modo pulito il vecchio stream (`code=1000`) e accoglie il nuovo senza errori né riavvii. Separazione architetturale tra Visori UI (multipli schermi simultanei su `/ws/ui` come tablet o browser) e Streaming Microfono/Cassa (singolo stream attivo su `/ws/audio`).
+
+---
+
+#### PROSSIMO STEP OPERATIVO: Revisione Strutturale Gestione Audio (Master Audio Engine Overhaul)
+- [ ] **Riorganizzazione Architetturale del Flusso Audio:**
+  - Modifica strutturale e pulizia della pipeline audio sul Master Server (ingestione, buffering, VAD e transizioni di stato audio) prima di procedere con la fase 7 e post-produzione.
+
+---
+
+#### FASE 6: Animazioni Espressive Web UI (Video Neon / Avatar Reattivo) [IN SOSPESO / STANDBY]
+*(In attesa di definire e reperire gli asset video/grafici per le varie animazioni prima dello sviluppo)*
 
 15. [ ] **Avatar Dinamico A-X-L nel Visore (Video / Animazioni Contestuali):**
     * [x] **Video Avatar Neon A-X-L nello Stage Centrale:** Integrato il video `neon_axl_robo_dog.mp4` al posto del cerchio procedurale Canvas, con crop responsive quadrato 1:1 hardware (`object-fit: cover`), 
@@ -112,19 +199,61 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
         - `stranger` / `alert`: animazione cane aggressivo / snarl ringhio verso estranei
         - `music` / `balletto`: cane con console DJ o balletto / movimento a ritmo quando suona musica o in festeggiamenti
         - `speaking`: muso che dialoga sincronizzato con la voce Piper TTS
+      - [ ] Fumetto che indica lo stato di axl. Utile per gestire in futuro le animazioni ma avere l'architettura già pronta (not per speaking)
 
-#### FASE 7: Deploy su ThinkPad Debian 12
+---
 
-16. [ ] **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
+#### FASE 7: Gestione Audio Avanzata, Riproduzione Musicale & Integrazioni Cloud (Post-Kiosk)
+
+16. [ ] **Routing Audio e Riproduzione Musicale Dinamica (Slave vs Galaxy A33):**
+    * Selezione del target di riproduzione vocale e musicale ("suona su PC" vs "suona sul visore A33"):
+      - Routing su Slave (Fedora/Windows): controllo riproduzione multimediale locale (player di sistema, Spotify desktop, daemon multimediale).
+      - Routing su Galaxy A33: comandi riproduzione su smartphone (se abilitato per l'output musicale) o casse Bluetooth esterne.
+    * Gestione periferiche di output audio:
+      - Collegamento e gestione casse esterne Bluetooth o via jack AUX / auricolari (configurazione audio sink, prevenzione loopback acustico tra casse e microfono A33).
+    * Integrazione Spotify & Smart Apps:
+      - Supporto comandi vocali A-X-L per avvio playlist/brani Spotify (via Spotify Connect, Web API, o local daemon).
+17. [ ] **Integrazione Cloud APIs Nativi su Master Server (Completamente Esterni all'A33):**
+    * **Google Calendar API Ufficiale (Cloud)**:
+      - Modulo di autenticazione OAuth 2.0 (`credentials.json` / `token.json`) sul Master Server ThinkPad.
+      - Lettura e scrittura in tempo reale degli eventi direttamente dai server Google Cloud, indipendente dal telefono.
+    * **Microsoft To Do API / Samsung Reminders Sync**:
+      - Integrazione Microsoft Graph API per la sincronizzazione diretta dei promemoria dell'ecosistema Samsung / Microsoft To Do con A-X-L.
+18. [ ] **Comando Vocale Biometric Enrollment & Calibrazione Dual-Mode (Online & Offline):**
+  sistemare precisione e aggiungere persone via comando
+    * **Architettura Duale (Online Conversazionale vs Offline CLI):**
+      - **Modalità Online (In-System Live Voice Enrollment - Opzione A):**
+        - Attivabile a voce direttamente dal Kiosk Android o PC mic (*"A-X-L aggiorna la mia voce"*, *"ricalibra la mia voce"*, *"registra un nuovo amico: Luca"*, *"aggiungi amico Marco"*).
+        - Gestita dal tool Gemini Function Calling `enroll_voice_profile` unito a Guardrail deterministico sincrono di sicurezza su intent (`detect_enrollment_intent`).
+        - Procedura guidata a 3 take da 3.0s di pura voce isolata da Silero VAD, con prompt vocali Piper TTS intercalati da feedback canino chill (`*pant*`).
+        - Calcolo centroide CAM++ neurale (`sherpa-onnx`), salvataggio profilo `models/profiles/<nome>.npy` + WAV di audit, e **ricaricamento a caldo in memoria RAM (`verifier.load_profiles()`) senza alcun riavvio del server**.
+      - **Modalità Offline (CLI Standalone Tool `tools/enroll_voice.py`):**
+        - Tool Python autonomo da eseguire via terminale quando il server non è attivo, senza connessione a internet né chiamate API Gemini.
+        - Identico motore matematico (Silero VAD + CAM++ ONNX) per garantire una corrispondenza biometrica al 100% tra profili generati offline e online.
+    * **Biometric Privilege Enforcement sull'Enrollment:**
+      - **Protezione Assoluta del Profilo Owner:** Per aggiornare, ricalibrare o modificare la voce dell'Owner, il parlante DEVE essere riconosciuto come `owner` in TUTTE le modalità di sicurezza (`friendly`, `restrict`, `paranoid`). A estranei e ospiti è vietata la sovrascrittura del profilo principale.
+      - **Registrazione Nuovi Amici:** Nelle modalità protette (`restrict` e `paranoid`), solo l'Owner può abilitare l'enrollment di un nuovo amico. Richieste da parte di sconosciuti vengono respinte con ringhio (`*growl*`).
+    * **Integrazione con Tasto STOP:** Se premuto durante l'enrollment, il tasto rosso STOP interrompe all'istante l'acquisizione audio e ripristina la macchina a stati finiti su `IDLE`.
+    * **Evoluzione Futura (Opzione C - Modal HUD Touchscreen):** Predisposta interfaccia visiva con barra di caricamento Take (0-100%) da integrare nel Visore una volta riorganizzato il layout responsive dei bottoni sul Kiosk.
+
+#### FASE 8: Deploy su ThinkPad Debian 12
+
+19. [ ] **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
 
 ---
 
 #### NOTE FUTURE & OTTIMIZZAZIONI POST-SVILUPPO
+- [ ] **Cambio Lingua UI dall'Ingranaggio Cyberpunk (Settings Dropdown):**
+  - Implementazione del selettore lingua (IT / EN) dal menu rapido a comparsa (#setting-opt-lang) con persistenza delle preferenze su localStorage / SharedPreferences Kiosk.
+- [ ] **Integrazioni Cloud APIs Native su Master Server (Google Calendar & Microsoft To Do):**
+  - Autenticazione OAuth 2.0 (`credentials.json`) per leggere e sincronizzare gli eventi Google Calendar direttamente su cloud dal ThinkPad.
+  - Integrazione API Microsoft Graph / Microsoft To Do (con cui l'app Promemoria nativa di Samsung si sincronizza su Samsung Cloud) per recuperare e aggiornare i promemoria direttamente tramite A-X-L.
 - [ ] **Switch Dinamico Animazioni Avatar A-X-L da Sottotitoli e Azioni:**
   - Sistema di selezione automatica del clip video avatar (da `web_ui/dog_animation/`) in base al contenuto dei sottotitoli (`user_text` e `axl_text`), allo stato di sicurezza o all'azione in svolgimento (es. dorme in idle, ringhio su estraneo, balletto/console DJ quando c'è musica).
 - [ ] **Ottimizzazione Riconoscimento Vocale (Speaker Verification):** 
   - Migliorare l'acquisizione dell'enrollment (multi-take a distanze diverse e con rumore ambientale) e tarare la soglia di Cosine Similarity per evitare falsi positivi/negativi quando si parla piano o vicino al microfono.
   - Testare modelli alternativi (es. 3D-Speaker o modelli più resilienti) dopo lo sviluppo dell'app Kotlin.
+- [ ] switch tra diversi kiosk (tablet/cell) a comando
 - [x] **Tre Modalità di Sicurezza e Diffidenza (Security Modes):**
   - `friendly` (attiva di default per sviluppo e test): A-X-L ascolta ed esegue i comandi di chiunque, eliminando rifiuti accidentali e risparmiando chiamate/quote API.
   - `restrict`: A-X-L ascolta ed esegue ordini solo per l'Owner e gli amici registrati nei profili (`models/profiles/*.npy`), respingendo gli estranei.
@@ -136,24 +265,34 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
   - Silenziamento chatter interno di terze parti (`google_genai`, `httpx`, `websockets`).
   - Notifica esplicita di avvio del Brain e modello neurale attivo (`[AXL-Brain]: Cognitive Core ready | Active Model: ...` all'avvio e ad ogni inferenza).
 - [x] **Fix e Robustezza Comandi Vocali (`muto` e cambio modalità `friendly`/`restrict`/`paranoid`):**
-  - **Doppio Livello di Risoluzione (Prompt Directive + Deterministic Intent Guardrail):**
-    - Livello 1: Riformulazione delle direttive e docstring dei tool in `commands.py` e `brain_gemini.py` (termini bilingui, divieto tassativo di allucinare o promettere azioni nel testo senza aver prima eseguito la `function_call`).
-    - Livello 2: Guardrail di esecuzione sincrona in `main.py` che analizza sia la trascrizione dell'utente sia la risposta generata dal modello (`is_mute_in_reply`, `detect_security_mode_in_reply`) e applica immediatamente il comando (`set_mute_mode`, switch di `set_security_mode`, apertura/chiusura telemetria) qualora il modello abbia promesso o allucinato la sola risposta parlata.
-    - **Protezione biometrica integrata:** il guardrail autorizza il cambio di sicurezza solo se chi parla è autorizzato (`owner` o amici registrati in base alla modalità), bloccando tempestivamente tentativi non autorizzati da estranei.
+  - **Triplo Livello di Sicurezza (Tool Privilege Enforcement + Intent Guardrails + Prompt Alert):**
+    - **Livello 0 (Tool-Level Biometric Enforcement in `commands.py`):** I tool critici invocati via Function Calling (`set_security_mode`, `set_mute_mode`, `execute_slave_command`) sono ora vincolati a `_AUTH_CONTEXT` (aggiornato da `main.py` per ogni turno in base al verifier CAM++). Se un utente non autorizzato o estraneo tenta di passare a `friendly` in modalità `restrict` o `paranoid`, il tool **blocca l'operazione alla radice** restituendo un rifiuto esplicito (`COMANDO RIFIUTATO: Accesso negato per mancanza di privilegi biometrici`) senza modificare l'ambiente né notificare la telemetria/UI.
+    - **Livello 1 (Turn-Level Meta Prompt Alert in `brain_gemini.py`):** Se il parlante è non autorizzato in modalità protetta, il prompt del turno ordina esplicitamente a Gemini di respingere con ringhio (`*growl*`) e diffidenza la richiesta, vietando di invocare i tool amministrativi.
+    - **Livello 2 (Synchronous Intent Guardrails in `main.py`):** Guardrail di sicurezza deterministico su trascrizione e parlato che blocca qualsiasi allucinazione testuale e applica il cambio solo se i privilegi biometrici sono confermati (`owner` o amici in `restrict`, solo `owner` in `paranoid`).
     - **Disattivazione fisica dell'ascolto:** quando il muto è attivo (`is_muted = True`), l'ingestione dei chunk audio WebSocket viene interrotta alla radice, impedendo a monte il trigger della wake-word finché non si preme il pulsante sul visore.
-    - **Bug root cause (tool in thread):** l'SDK Gemini esegue i tool sincroni in un thread (`asyncio.to_thread`), dove non esiste un event loop: `notify_telemetry` scartava silenziosamente l'evento, quindi `set_mute_mode`/`set_security_mode` rispondevano "ok" ma non cambiavano nulla (né server né UI). Corretto con `asyncio.run_coroutine_threadsafe` sul loop principale salvato in `register_telemetry_listener`.
+    - **Bug root cause (tool in thread & bypass AFC):** l'SDK Gemini esegue i tool sincroni in un thread (`asyncio.to_thread`) dove `notify_telemetry` necessitava di `_MAIN_LOOP` threadsafe; inoltre, i tool stessi non controllavano l'identità del parlante, permettendo ad AFC di bypassare i guardrail a valle. Risolto a monte in `commands.py`.
     - Pattern muto ampliati IT/EN ("microfono disattivato", "microphone off", "turn off the mic", "be quiet"...).
     - Nota di esecuzione: i file Python modificati richiedono il riavvio del server (`python src/main.py`) per essere caricati in memoria.
 - [x] **Pulsante "ASK ME..." (push-to-ask senza wake-word):**
   - Nuovo bottone nella barra del visore, a destra (MIC resta a sinistra); entrambi ingranditi (`min-height: 48px`, font e icone maggiori) per essere ben visibili/toccabili dal kiosk A33.
   - Colore legato alla modalità di sicurezza: verde in `friendly`, arancione in `restrict`, rosso in `paranoid` (stessi colori del badge MODE). Nelle modalità protette la verifica vocale resta attiva: il bottone salta solo la wake-word.
   - Server: messaggio WebSocket `ASK_START` → `AudioPipeline.force_listen()` avvia subito la raccolta comando; l'end-of-speech scatta solo dopo che inizi a parlare, con timeout di 5s se non dici nulla.
-  - Il bottone resta utilizzabile anche con il mic muto (domanda one-shot: finita la risposta il muto resta attivo); è disabilitato solo mentre A-X-L ascolta/pensa/parla. La verifica del parlante vale comunque.
+  - Blocco assoluto quando il mic è muto: se la modalità MUTE è attiva, il bottone ASK ME è disabilitato e non cliccabile (con icona 🔇, label "MIC MUTO", stile oscurato a basso contrasto e tooltip esplicativo), per garantire totale coerenza di sicurezza con il muto dei sensori audio. Il messaggio `ASK_START` viene ignorato anche lato backend se il server è in stato mutato. È inoltre disabilitato mentre A-X-L ascolta/pensa/parla. La verifica del parlante resta comunque attiva nelle modalità protette.
 - [x] **Memoria Conversazionale Text-Only & Prevenzione Audio Bloat (`brain_gemini.py`):**
   - Risolto il problema di accumulo delle tracce audio WAV binarie nello storico della chat SDK `chats.create`. In precedenza, ogni turno ri-inviava tutti i file audio dei turni precedenti a Gemini, causando errori 429 di quota, picchi di latenza di codifica e confusione semantica su audio vecchi/faint.
   - Conversione automatica della memoria conversazionale in puro testo leggero: `[User Spoke]: "..."` e `TRANSCRIPT: ... REPLY: ...`.
   - Rigenerazione della sessione ad ogni turno con solo lo storico testuale, inviando via rete solo il buffer WAV del turno corrente e liberando istantaneamente la RAM.
   - Finestra scorrevole limitata agli ultimi 8 turni (16 messaggi) per mantenere basso il consumo di token ed evitare allucinazioni su contesti obsoleti.
+- [x] **Tuning Soglia Wake-Word, Protezione Anti-Allucinazione Comandi/Timer & Fallback Trascrizione (`main.py` & `brain_gemini.py`):**
+  - **Soglia Wake-Word Dinamica su `.env` (`AXL_WAKEWORD_THRESHOLD`):**
+    - Spostata la soglia di openWakeWord (`main.py`) da hardcoded `0.35` a variabile d'ambiente con default `0.48`.
+    - Risolto il problema delle attivazioni spurie del modello `hey_jarvis` durante il parlato naturale in italiano (fonemi simili in conversazioni casuali, es. *"cosa in Norvegia alle isole di nuovo in Finlandia dove ti va"* che triggheravano con score `0.352` o `0.394`).
+  - **Protezione Anti-Allucinazione Comandi Operativi & Guardrail Metaforici:**
+    - Introdotta nel System Prompt (`brain_gemini.py`) una regola bidirezionale rigida per i comandi attuativi (`set_timer`, `set_alarm`, ecc.): il modello deve invocare il tool **unicamente** su comando diretto ed esplicito dell'utente (es. *"metti un timer di 5 minuti"*), e **mai** per battute retoriche, metafore umoristiche (*"cinque minuti sul cronometro per un caffè"*) o figure di stile.
+    - Simmetricamente, vietato dichiarare nella risposta vocale di aver eseguito un'azione se il function tool non è stato effettivamente chiamato.
+  - **Parser Robusto Trascrizione & Fallback Ambientale (`[Suono/Rumore ambientale]`):**
+    - Quando la wake-word viene catturata per rumori o parlato non indirizzato ad A-X-L, `transcript` assume il valore predefinito difensivo `"[Suono/Rumore ambientale]"` anziché scambiare header interni del modello (`REPLY:`, alert sintetici di timer scaduti) per parole dell'utente.
+    - Sanificazione dei sottotitoli dell'HUD Web UI e dei log del master server, eliminando ripetizioni e leak di prompt.
 - [ ] **Switch Dinamico tra Modelli Gemini (Dynamic Model Switching):**
   - Consentire ad A-X-L di muoversi dinamicamente tra i vari modelli Gemini (`gemini-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro`...) sia a caldo via Web UI / configurazione, sia tramite comando vocale ("passa a Gemini Pro") o per escalation automatica a seconda della complessità del task richiesto.
 - [x] **Integrazione Effetti Sonori Canini Autentici (SFX Pre-Roll in `tts_engine.py`):**

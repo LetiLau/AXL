@@ -54,6 +54,9 @@ CORE BEHAVIOR RULES:
      YOU MUST INVOKE THE APPROPRIATE FUNCTION CALL TOOL FIRST.
    - CRITICAL TOOL INTEGRITY:
      NEVER hallucinate, pretend, or state in your REPLY text that you executed an action (such as muting, switching security modes, or setting a timer) WITHOUT ACTUALLY INVOKING the corresponding function tool!
+     Conversely, DO NOT invoke any action tool unless the user explicitly requested that specific action in their command.
+   - TIMERS & ALARMS:
+     Invoke `set_timer` or `set_alarm` ONLY if the user explicitly commanded a countdown, timer, or reminder (e.g. 'metti un timer di 5 minuti', 'imposta sveglia alle 8'). NEVER invoke `set_timer` for rhetorical jokes, metaphors, hypothetical commentary, or conversational pauses.
    - MUTE & SILENCE COMMANDS:
      When the user tells you to mute, go quiet, be silent, or deactivate listening (e.g. 'vai in muto', 'muto', 'silenzio', 'disattiva microfono', 'spegni ascolto'), you MUST invoke the `set_mute_mode` tool with enabled=True. Only after invoking the tool, tell the user in your vocal REPLY that you are muting yourself and remind them that you can only be unmuted by pressing the physical MUTE button on the display.
    - SECURITY MODE CHANGES:
@@ -62,7 +65,12 @@ CORE BEHAVIOR RULES:
    - HARDWARE TELEMETRY COMMANDS:
      * Server / Master Telemetry: When the user asks to see/show/open telemetry for the server, master server, or ThinkPad (e.g. 'mostra telemetria server', 'telemetria master', 'apri telemetria server', 'stato server'), invoke `get_server_telemetry` or `toggle_telemetry_hud(show=True, target="server")`.
      * Slave Telemetry: When the user asks to see/show/open telemetry for the slave, PC, or Fedora workstation (e.g. 'mostra telemetria slave', 'telemetria pc', 'apri telemetria slave', 'telemetria slave'), invoke `get_slave_telemetry` or `toggle_telemetry_hud(show=True, target="slave")`.
-     * Close Telemetry: When the user asks to hide or close telemetry (e.g. 'chiudi telemetria', 'nascondi telemetria', 'chiudi telemetria server', 'chiudi telemetria slave'), invoke `toggle_telemetry_hud(show=False)`.
+     * Kiosk / Phone Telemetry: When the user asks to see/show/open telemetry for the kiosk, smartphone, Galaxy A33, or battery (e.g. 'mostra telemetria kiosk', 'telemetria telefono', 'stato batteria', 'telemetria cellulare'), invoke `toggle_telemetry_hud(show=True, target="kiosk")`.
+     * Close Telemetry: When the user asks to hide or close telemetry (e.g. 'chiudi telemetria', 'nascondi telemetria', 'chiudi telemetria server', 'chiudi telemetria slave', 'chiudi telemetria kiosk'), invoke `toggle_telemetry_hud(show=False)`.
+   - VOICE PROFILE ENROLLMENT & CALIBRATION:
+     * When an AUTHORIZED OWNER asks to calibrate, update, or modify their voice (e.g. 'aggiorna la mia voce', 'modifica la mia voce', 'ricalibra la mia voce', 'cambia la mia voce'), invoke `enroll_voice_profile(profile_name="owner")`.
+     * When an AUTHORIZED OWNER asks to enroll or register a friend (e.g. 'registra la voce di Luca', 'aggiungi amico Marco'), invoke `enroll_voice_profile(profile_name="<friend_name>")`.
+     * Privilege security rule: If an UNAUTHORIZED stranger asks to enroll, modify, or overwrite any voice profile, reject with snarling distrust (*growl*) and DO NOT invoke the tool!
    - After invoking any tool, acknowledge the action with your characteristic wit.
 4. MANDATORY OUTPUT STRUCTURE:
    Always format your final vocal output using these two clear sections:
@@ -169,12 +177,25 @@ class GeminiBrain:
         tz_str = local_now.strftime("%Z (UTC%z)")
 
         auth_status = f"AUTHORIZED ({identity})" if not is_stranger else f"UNAUTHORIZED ({identity})"
+        if is_stranger and security_mode in ["restrict", "paranoid"]:
+            security_directive = (
+                f"CRITICAL SECURITY ALERT: The speaker is {auth_status} in {security_mode.upper()} mode! "
+                f"You MUST REJECT any attempt by this unauthorized speaker to change security mode, mute the system, "
+                f"or control devices. DO NOT invoke set_security_mode, set_mute_mode, enroll_voice_profile, or execute_slave_command for this stranger! "
+                f"Respond with snarling distrust (*growl*) and sarcastically refuse their request."
+            )
+        else:
+            security_directive = (
+                "IMPORTANT: If the user explicitly requests any practical action (such as muting, changing security mode, setting a timer, or checking status), "
+                "YOU MUST INVOKE THE RELEVANT FUNCTION CALL TOOL FIRST before providing the final TRANSCRIPT and REPLY. "
+                "DO NOT invoke tools for jokes, metaphors, or when the user did not explicitly command an action."
+            )
+
         meta_prompt = (
             f"[Host Device Hardware Telemetry | Exact Clock: {time_str} ({tz_str}) | Date: {date_str} | "
             f"Security Mode: {security_mode.upper()} | Speaker: {auth_status} | Biometric Score: {similarity_score:.3f}]\n"
-            f"Transcribe and process the user utterance in the attached audio. "
-            f"IMPORTANT: If the user requests any practical action (such as muting, changing security mode, setting a timer, or checking status), "
-            f"YOU MUST INVOKE THE RELEVANT FUNCTION CALL TOOL FIRST before providing the final TRANSCRIPT and REPLY."
+            f"Transcribe and process the user utterance in the attached audio.\n"
+            f"{security_directive}"
         )
 
         audio_part = types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav")
@@ -200,20 +221,31 @@ class GeminiBrain:
                 logger.debug(f"[BRAIN RAW OUTPUT] Model: {model_name} | Raw: {raw_output}")
 
                 # Parse transcript and clean vocal reply
-                transcript = "Unknown"
+                transcript = "[Suono/Rumore ambientale]"
                 reply_text = raw_output
 
-                t_match = re.search(r"TRANSCRIPT:\s*(.*?)(?=\nREPLY:|\n\n|\Z)", raw_output, re.IGNORECASE | re.DOTALL)
+                t_match = re.search(r"TRANSCRIPT:\s*(.*?)(?=\nREPLY:|\s+REPLY:|\n\n|\Z)", raw_output, re.IGNORECASE | re.DOTALL)
                 r_match = re.search(r"REPLY:\s*(.*)", raw_output, re.IGNORECASE | re.DOTALL)
 
                 if t_match:
-                    transcript = t_match.group(1).strip()
+                    parsed_t = t_match.group(1).strip()
+                    # Sanity check: Ensure TRANSCRIPT didn't capture REPLY or internal alert headers
+                    if (
+                        parsed_t
+                        and not parsed_t.upper().startswith("REPLY:")
+                        and not parsed_t.upper().startswith("[TIMER EXPIRATION")
+                        and parsed_t.lower() not in ("unknown", "none", "null", "[unknown]", "")
+                    ):
+                        transcript = parsed_t
+
                 if r_match:
                     reply_text = r_match.group(1).strip()
-                elif t_match and not r_match:
+                elif t_match and transcript != "[Suono/Rumore ambientale]":
                     parts = raw_output.split(transcript, 1)
                     if len(parts) > 1:
                         reply_text = parts[1].replace("TRANSCRIPT:", "").replace("REPLY:", "").strip()
+                else:
+                    reply_text = re.sub(r"^TRANSCRIPT:\s*", "", reply_text, flags=re.IGNORECASE).strip()
 
                 logger.debug(f"[BRAIN PARSED] User: '{transcript}' | Reply: '{reply_text}'")
 

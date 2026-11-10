@@ -61,31 +61,34 @@ html, body {
     padding: 16px 24px;
     background-color: var(--bg-black);
     transform: translate3d(var(--hud-shift-x), var(--hud-shift-y), 0);
-    transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.8s ease;
-    will-change: transform;
+    transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1), opacity 1.2s ease, filter 1.2s ease;
+    will-change: transform, opacity, filter;
 }
 
-/* Dimming in extended idle mode for extra AMOLED life */
+/* Dimming in extended idle mode for extra AMOLED life & anti-burn-in */
 body.hud-subdued #pixel-shift-container {
     opacity: 0.35;
-    filter: brightness(0.6);
+    filter: brightness(0.55);
 }
 
 /* ==========================================================================
    HEADER HUD TELEMETRY BAR & MODERN ROUNDED BUTTONS
+   3-Column Grid guarantees Clock stays physically in the center without overlap
    ========================================================================== */
 .hud-header {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
     border-bottom: 1px solid var(--hud-border);
     padding-bottom: 12px;
     position: relative;
     z-index: 100;
     flex-shrink: 0;
+    gap: 14px;
 }
 
 .hud-brand-wrap {
+    grid-column: 1;
     display: flex;
     align-items: center;
     gap: 14px;
@@ -112,11 +115,72 @@ body.hud-subdued #pixel-shift-container {
     color: var(--text-muted);
 }
 
+#brand-node-tag {
+    color: var(--text-muted);
+    font-weight: 600;
+    transition: color 0.3s ease;
+}
+
+.brand-conn-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.60rem;
+    letter-spacing: 0.12rem;
+    margin-top: 3px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.3s ease, text-shadow 0.3s ease;
+    user-select: none;
+}
+
+.brand-conn-line .conn-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.brand-conn-line.conn-online {
+    color: var(--cyan-glow);
+    text-shadow: 0 0 6px var(--cyan-glow);
+}
+.brand-conn-line.conn-online .conn-dot {
+    background: var(--cyan-glow);
+    box-shadow: 0 0 6px var(--cyan-glow);
+}
+
+.brand-conn-line.conn-offline {
+    color: var(--red-alert);
+    text-shadow: 0 0 6px var(--red-alert);
+    cursor: pointer;
+}
+.brand-conn-line.conn-offline .conn-dot {
+    background: var(--red-alert);
+    box-shadow: 0 0 6px var(--red-alert);
+}
+
+.brand-conn-line.conn-connecting {
+    color: var(--amber-warn);
+    text-shadow: 0 0 6px var(--amber-warn);
+}
+.brand-conn-line.conn-connecting .conn-dot {
+    background: var(--amber-warn);
+    box-shadow: 0 0 6px var(--amber-warn);
+    animation: alert-pulse 1s infinite;
+}
+
 .hud-center-clock {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+    grid-column: 2;
+    position: static;
+    transform: none;
     text-align: center;
+    justify-self: center;
     pointer-events: none;
     z-index: 105;
 }
@@ -139,8 +203,10 @@ body.hud-subdued #pixel-shift-container {
 }
 
 .hud-status-tray {
+    grid-column: 3;
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 10px;
     position: relative;
     z-index: 110;
@@ -196,7 +262,7 @@ body.hud-subdued #pixel-shift-container {
 }
 
 /* Security Mode Button & Wrapper */
-.mode-badge-wrapper {
+.mode-badge-wrapper, .settings-badge-wrapper, .telem-badge-wrapper {
     position: relative;
     display: inline-flex;
 }
@@ -287,6 +353,22 @@ body.hud-subdued #pixel-shift-container {
     text-align: left;
     transition: all 0.2s ease;
     touch-action: manipulation;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.mode-option-btn.opt-friendly {
+    background: rgba(0, 255, 157, 0.12);
+    color: var(--green-neon);
+    border-color: rgba(0, 255, 157, 0.45);
+}
+
+.mode-option-btn.opt-friendly:hover:not(:disabled) {
+    background: rgba(0, 255, 157, 0.26);
+    border-color: var(--green-neon);
+    box-shadow: 0 0 12px rgba(0, 255, 157, 0.35);
 }
 
 .mode-option-btn.opt-restrict {
@@ -295,7 +377,7 @@ body.hud-subdued #pixel-shift-container {
     border-color: rgba(255, 153, 0, 0.45);
 }
 
-.mode-option-btn.opt-restrict:hover {
+.mode-option-btn.opt-restrict:hover:not(:disabled) {
     background: rgba(255, 153, 0, 0.26);
     border-color: var(--amber-warn);
     box-shadow: 0 0 12px rgba(255, 153, 0, 0.35);
@@ -307,10 +389,237 @@ body.hud-subdued #pixel-shift-container {
     border-color: rgba(255, 0, 59, 0.5);
 }
 
-.mode-option-btn.opt-paranoid:hover {
+.mode-option-btn.opt-paranoid:hover:not(:disabled) {
     background: rgba(255, 0, 59, 0.28);
     border-color: var(--red-alert);
     box-shadow: 0 0 12px rgba(255, 0, 59, 0.4);
+}
+
+/* Grayed out / disabled state when locked in restrict or paranoid */
+.mode-option-btn:disabled,
+.mode-option-btn.mode-btn-locked {
+    opacity: 0.40 !important;
+    filter: grayscale(0.9) brightness(0.7) !important;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+    transform: none !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: var(--text-dim) !important;
+}
+
+.mode-option-btn.mode-btn-locked.active-locked {
+    opacity: 0.88 !important;
+    filter: none !important;
+    border: 1.5px dashed var(--amber-warn) !important;
+    color: #ffffff !important;
+}
+
+.mode-option-btn.opt-paranoid.mode-btn-locked.active-locked {
+    border-color: var(--red-alert) !important;
+}
+
+.mode-popup-lock-msg {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    color: var(--red-alert);
+    letter-spacing: 0.04rem;
+    text-align: center;
+    padding: 6px 8px;
+    background: rgba(255, 0, 59, 0.12);
+    border: 1px solid rgba(255, 0, 59, 0.35);
+    border-radius: 6px;
+    margin-top: 4px;
+}
+
+/* Quick Actions & Settings Dropdown Popup */
+.settings-popup {
+    min-width: 260px;
+    right: 0;
+}
+
+#settings-btn .hud-icon-svg {
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.25s ease;
+}
+
+#settings-btn:hover .hud-icon-svg {
+    transform: rotate(60deg);
+}
+
+#settings-btn.open .hud-icon-svg {
+    transform: rotate(90deg);
+    stroke: var(--cyan-glow);
+    filter: drop-shadow(0 0 8px var(--cyan-glow));
+}
+
+.mode-option-btn.opt-setting {
+    color: var(--cyan-glow);
+    background: rgba(0, 240, 255, 0.05);
+    border-color: rgba(0, 240, 255, 0.22);
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    font-size: 0.76rem;
+    letter-spacing: 0.03rem;
+}
+
+.mode-option-btn.opt-setting:hover {
+    background: rgba(0, 240, 255, 0.16);
+    border-color: var(--cyan-glow);
+    box-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
+    transform: translateX(2px);
+}
+
+.setting-opt-svg {
+    width: 17px;
+    height: 17px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    fill: none;
+    flex-shrink: 0;
+    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.25s ease;
+    filter: drop-shadow(0 0 4px rgba(0, 240, 255, 0.45));
+}
+
+.mode-option-btn.opt-setting:hover .setting-opt-svg {
+    filter: drop-shadow(0 0 8px currentColor);
+}
+
+#setting-opt-reload:hover .setting-opt-svg {
+    transform: rotate(180deg);
+}
+
+#setting-opt-ip:hover .setting-opt-svg {
+    transform: rotate(-25deg);
+}
+
+#setting-opt-reconnect:hover .setting-opt-svg {
+    transform: scale(1.15) rotate(15deg);
+}
+
+#setting-opt-lang:hover .setting-opt-svg {
+    transform: rotate(30deg);
+}
+
+.mode-option-btn.opt-setting.opt-kill-kiosk:not(:disabled) {
+    color: var(--red-alert);
+    background: rgba(255, 0, 59, 0.08);
+    border-color: rgba(255, 0, 59, 0.4);
+}
+
+.mode-option-btn.opt-setting.opt-kill-kiosk .setting-opt-svg {
+    stroke: var(--red-alert);
+    filter: drop-shadow(0 0 4px rgba(255, 0, 59, 0.5));
+}
+
+.mode-option-btn.opt-setting.opt-kill-kiosk:not(:disabled):hover {
+    background: rgba(255, 0, 59, 0.22);
+    border-color: var(--red-alert);
+    box-shadow: 0 0 14px rgba(255, 0, 59, 0.45);
+    transform: translateX(2px);
+}
+
+.mode-option-btn.opt-setting.opt-kill-kiosk:not(:disabled):hover .setting-opt-svg {
+    transform: scale(1.18);
+    filter: drop-shadow(0 0 8px var(--red-alert));
+}
+
+.mode-option-btn.opt-setting:disabled,
+.mode-option-btn.opt-setting.disabled-muted,
+.mode-option-btn.opt-telem:disabled,
+.mode-option-btn.opt-telem.disabled-muted {
+    opacity: 0.35 !important;
+    cursor: not-allowed !important;
+    filter: grayscale(0.85);
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* Unified Telemetry Dropdown Popup */
+.telem-popup {
+    left: 0;
+    right: auto;
+    min-width: 255px;
+}
+
+.opt-telem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0, 240, 255, 0.05);
+    color: var(--text-white);
+    border-color: rgba(0, 240, 255, 0.22);
+    font-size: 0.76rem;
+    letter-spacing: 0.03rem;
+}
+
+.opt-telem:hover:not(:disabled) {
+    background: rgba(0, 240, 255, 0.18);
+    border-color: var(--cyan-glow);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
+    transform: translateX(2px);
+}
+
+.opt-telem.active {
+    background: rgba(0, 230, 118, 0.16);
+    border-color: var(--green-emerald);
+    color: var(--green-emerald);
+    box-shadow: 0 0 12px rgba(0, 230, 118, 0.3);
+}
+
+.telem-opt-indicator {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    display: inline-block;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.opt-telem.active .telem-opt-indicator {
+    background: var(--green-emerald);
+    box-shadow: 0 0 8px var(--green-emerald);
+}
+
+.opt-telem.opt-split {
+    border-color: rgba(176, 56, 255, 0.4);
+    background: rgba(176, 56, 255, 0.08);
+    color: #df9eff;
+}
+
+.opt-telem.opt-split:hover:not(:disabled) {
+    background: rgba(176, 56, 255, 0.22);
+    border-color: #b038ff;
+    box-shadow: 0 0 12px rgba(176, 56, 255, 0.4);
+}
+
+.opt-telem.opt-split.active {
+    background: rgba(176, 56, 255, 0.24);
+    border-color: #b038ff;
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(176, 56, 255, 0.55);
+}
+
+.opt-telem.opt-split.active .telem-opt-indicator {
+    background: #df9eff;
+    box-shadow: 0 0 8px #df9eff;
+}
+
+.opt-telem.opt-close-telem {
+    background: rgba(255, 0, 59, 0.08);
+    color: #ff6b8b;
+    border-color: rgba(255, 0, 59, 0.3);
+    margin-top: 4px;
+    justify-content: center;
+}
+
+.opt-telem.opt-close-telem:hover {
+    background: rgba(255, 0, 59, 0.22);
+    color: #ffffff;
+    border-color: var(--red-alert);
+    box-shadow: 0 0 12px rgba(255, 0, 59, 0.4);
+    transform: none;
 }
 
 /* Connection Status Badge */
@@ -327,8 +636,8 @@ body.hud-subdued #pixel-shift-container {
     cursor: pointer;
 }
 
-/* Fullscreen Button */
-#fullscreen-btn, .badge-icon-btn {
+/* Top Action Badges (Reload & Fullscreen) */
+#fullscreen-btn, #reload-ui-btn, .badge-icon-btn {
     background: linear-gradient(135deg, rgba(0, 240, 255, 0.08) 0%, rgba(0, 136, 255, 0.02) 100%);
     border: 1.5px solid rgba(0, 240, 255, 0.35);
     color: var(--cyan-glow);
@@ -345,15 +654,127 @@ body.hud-subdued #pixel-shift-container {
     touch-action: manipulation;
 }
 
-#fullscreen-btn:hover {
+.badge-icon-btn .hud-icon-svg {
+    width: 17px;
+    height: 17px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    fill: none;
+    display: block;
+    pointer-events: none;
+    transition: transform 0.3s ease, filter 0.25s ease;
+}
+
+#fullscreen-btn:hover, #reload-ui-btn:hover, .badge-icon-btn:hover {
     background: rgba(0, 240, 255, 0.2);
     border-color: var(--cyan-glow);
     box-shadow: 0 4px 14px rgba(0, 240, 255, 0.3);
     transform: translateY(-1px);
 }
 
-#fullscreen-btn:active {
+.badge-icon-btn:hover .hud-icon-svg {
+    filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.8));
+}
+
+#fullscreen-btn:active, #reload-ui-btn:active, .badge-icon-btn:active {
     transform: translateY(0) scale(0.95);
+}
+
+#reload-ui-btn:active .hud-icon-svg,
+#reload-ui-btn.reloading .hud-icon-svg {
+    transform: rotate(360deg);
+    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Android Kiosk Override: Hide Fullscreen button (already native hardware immersive fullscreen) */
+body.client-kiosk #fullscreen-btn,
+html.client-kiosk body #fullscreen-btn {
+    display: none !important;
+}
+
+/* ==========================================================================
+   MASTER SERVER MINI SPARKLINES (SUB-HEADER STATUS SLIDERS)
+   Positioned under header border line on the right, below settings & fullscreen.
+   ========================================================================== */
+.server-mini-telem {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding: 0 6px 0 0;
+    margin-top: 5px;
+    margin-bottom: 2px;
+    width: 100%;
+    z-index: 95;
+    flex-shrink: 0;
+    user-select: none;
+    transition: opacity 0.25s ease;
+}
+
+.mini-telem-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(0, 16, 32, 0.45);
+    border: 1px solid rgba(0, 240, 255, 0.12);
+    border-radius: 4px;
+    padding: 2px 6px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.mini-telem-label {
+    font-family: var(--font-orbitron);
+    font-size: 0.58rem;
+    font-weight: 700;
+    color: var(--cyan-glow);
+    letter-spacing: 0.05rem;
+}
+
+.mini-telem-temp {
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    color: #e2e8f0;
+    font-weight: 600;
+}
+
+.mini-track {
+    width: 44px;
+    height: 4px;
+    background: rgba(0, 240, 255, 0.12);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+}
+
+.mini-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #00f0ff, #00b0ff);
+    border-radius: 2px;
+    transition: width 0.4s ease, background 0.3s ease;
+    box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+}
+
+.mini-fill.warn {
+    background: linear-gradient(90deg, #ffd600, #ff9100) !important;
+    box-shadow: 0 0 6px rgba(255, 214, 0, 0.6) !important;
+}
+
+.mini-fill.crit {
+    background: linear-gradient(90deg, #ff1744, #ff0055) !important;
+    box-shadow: 0 0 8px rgba(255, 0, 85, 0.8) !important;
+    animation: mini-pulse-crit 0.8s infinite alternate ease-in-out;
+}
+
+.mini-fill.muted {
+    background: rgba(255, 255, 255, 0.15) !important;
+    box-shadow: none !important;
+    animation: none !important;
+}
+
+@keyframes mini-pulse-crit {
+    from { opacity: 0.8; filter: drop-shadow(0 0 2px #ff0055); }
+    to { opacity: 1; filter: drop-shadow(0 0 8px #ff0055); }
 }
 
 /* ==========================================================================
@@ -375,7 +796,7 @@ body.hud-subdued #pixel-shift-container {
 body.telemetry-active .visor-stage {
     justify-content: center;
     align-items: center;
-    gap: 42px;
+    gap: 36px;
     padding: 6px 12px;
 }
 
@@ -524,12 +945,12 @@ body.state-idle .state-sub {
 .telemetry-panel {
     display: none;
     flex-direction: column;
-    width: min(52vw, 540px);
-    max-height: calc(100vh - 210px);
+    width: min(50vw, 520px);
+    max-height: calc(100vh - 170px);
     background: linear-gradient(160deg, rgba(2, 16, 28, 0.92) 0%, rgba(0, 8, 16, 0.96) 100%);
     border: 1.5px solid rgba(0, 240, 255, 0.35);
     border-radius: 20px;
-    padding: 18px 20px;
+    padding: 16px 18px;
     box-shadow: 0 18px 45px rgba(0, 0, 0, 0.8), 0 0 25px rgba(0, 240, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -540,15 +961,79 @@ body.state-idle .state-sub {
     flex-shrink: 0;
 }
 
+/* Kiosk & Mobile Glanceable Constraints (Zero scrollbar, real-time fit) */
+body.client-kiosk .telemetry-panel,
+body.client-mobile .telemetry-panel,
+html.client-kiosk body .telemetry-panel,
+html.client-mobile body .telemetry-panel {
+    overflow: hidden !important;
+    scrollbar-width: none !important;
+}
+
+body.client-kiosk .telemetry-panel::-webkit-scrollbar,
+body.client-mobile .telemetry-panel::-webkit-scrollbar,
+html.client-kiosk body .telemetry-panel::-webkit-scrollbar,
+html.client-mobile body .telemetry-panel::-webkit-scrollbar {
+    display: none !important;
+}
+
 body.telemetry-active .telemetry-panel {
     display: flex;
     animation: telem-slide-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ==========================================================================
+   MUSIC PLAYER PREDISPOSITION (A-X-L x SAMSUNG ONE UI ARCHITECTURE)
+   When music is active:
+   - Music Player is on the Left (order: 1)
+   - Dog Avatar is in the Center (order: 2)
+   - Telemetry Panel is on the Right (order: 3)
+   When music is inactive (current default):
+   - Telemetry Panel is on the Left (order: 1)
+   - Dog Avatar is on the Right (order: 2)
+   ========================================================================== */
+.music-player-panel {
+    display: none;
+    order: 1;
+}
+
+body.music-active .music-player-panel {
+    display: flex;
+    order: 1;
+    width: min(36vw, 360px);
+    max-height: calc(100vh - 120px);
+    background: linear-gradient(160deg, rgba(8, 20, 36, 0.94) 0%, rgba(2, 10, 20, 0.96) 100%);
+    border: 1.5px solid rgba(0, 240, 255, 0.3);
+    border-radius: 20px;
+    padding: 14px 16px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 240, 255, 0.12);
+}
+
+body.music-active .visor-wrapper {
+    order: 2;
+}
+
+body.music-active .telemetry-panel {
+    order: 3;
 }
 
 @keyframes telem-slide-in {
     from {
         opacity: 0;
         transform: translateX(-24px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+@keyframes telem-slide-in-right {
+    from {
+        opacity: 0;
+        transform: translateX(24px) scale(0.98);
     }
     to {
         opacity: 1;
@@ -649,12 +1134,20 @@ body.telemetry-active .telemetry-panel {
     transform: scale(0.94);
 }
 
-/* 2x2 Modern Card Grid inside Telemetry Panel */
+/* 2x2 Modern Card Grid inside Telemetry Panel (Default for PC Desktop & Tablets) */
 .telem-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
+    grid-template-areas:
+        "cpu ram"
+        "gpu fan";
     gap: 12px;
 }
+
+.telem-cpu-card { grid-area: cpu; }
+.telem-ram-card { grid-area: ram; }
+.telem-gpu-card { grid-area: gpu; }
+.telem-fan-card { grid-area: fan; }
 
 .telem-card {
     background: linear-gradient(145deg, rgba(0, 28, 46, 0.62) 0%, rgba(0, 14, 26, 0.85) 100%);
@@ -701,6 +1194,12 @@ body.telemetry-active .telemetry-panel {
     padding: 2px 9px;
     border-radius: 999px;
     border: 1px solid rgba(0, 240, 255, 0.3);
+}
+
+.telem-temp-badge.offline {
+    background: rgba(255, 23, 68, 0.15) !important;
+    color: var(--red-alert) !important;
+    border: 1px solid rgba(255, 23, 68, 0.4) !important;
 }
 
 .telem-stat-row {
@@ -778,11 +1277,17 @@ body.telemetry-active .telemetry-panel {
     background: linear-gradient(90deg, #ff1744, #ff0055);
 }
 
-/* GPU Sub-items inside GPU Card */
+.telem-meter-fill.muted {
+    background: rgba(255, 255, 255, 0.12) !important;
+    box-shadow: none !important;
+}
+
+/* GPU Sub-items inside GPU Card (Default PC Desktop & Tablets) */
 .telem-gpu-list {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    width: 100%;
 }
 
 .telem-gpu-item {
@@ -799,7 +1304,7 @@ body.telemetry-active .telemetry-panel {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
 }
 
 .telem-gpu-name {
@@ -818,6 +1323,11 @@ body.telemetry-active .telemetry-panel {
     font-size: 0.62rem;
     color: var(--cyan-glow);
     flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.telem-gpu-badge.offline {
+    color: var(--red-alert) !important;
 }
 
 .telem-gpu-vram {
@@ -836,146 +1346,64 @@ body.telemetry-active .telemetry-panel {
     padding: 4px 0;
 }
 
+/* Explicit Desktop PC & Tablet protection: never shrink GPU card or split into micro columns */
+body.client-desktop .telem-gpu-list,
+html.client-desktop body .telem-gpu-list,
+body.client-desktop .telem-gpu-list.dual-gpu,
+html.client-desktop body .telem-gpu-list.dual-gpu {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: none !important;
+    gap: 6px !important;
+    width: 100% !important;
+}
+
+body.client-desktop .telem-gpu-item,
+html.client-desktop body .telem-gpu-item {
+    padding: 6px 8px !important;
+    gap: 4px !important;
+    border-radius: 10px !important;
+}
+
+body.client-desktop .telem-gpu-name,
+html.client-desktop body .telem-gpu-name {
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
+}
+
+body.client-desktop .telem-gpu-badge,
+html.client-desktop body .telem-gpu-badge {
+    font-size: 0.62rem !important;
+    padding: 2px 6px !important;
+}
+
+body.client-desktop .telem-gpu-vram,
+html.client-desktop body .telem-gpu-vram {
+    font-size: 0.65rem !important;
+    color: var(--text-muted) !important;
+}
+
 /* ==========================================================================
-   FOOTER: BIOMETRICS & SUBTITLES
+   FOOTER: BIOMETRICS (ROW 1) & SUBTITLES + ACTIONS (ROW 2)
    ========================================================================== */
 .hud-footer {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     border-top: 1px solid var(--hud-border);
-    padding-top: 12px;
+    padding-top: 10px;
     z-index: 50;
     flex-shrink: 0;
 }
 
-/* Action Strip with Mute (left) and Ask Me (right) buttons */
-.hud-action-strip {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 2px;
-}
-
-.badge-mute-btn {
-    background: linear-gradient(135deg, rgba(0, 240, 255, 0.1) 0%, rgba(0, 136, 255, 0.04) 100%);
-    color: var(--cyan-glow);
-    border: 1px solid rgba(0, 240, 255, 0.42);
-    cursor: pointer;
-    padding: 10px 20px;
-    min-height: 48px;
-    border-radius: 12px;
-    font-size: 0.95rem;
-    font-weight: 700;
-    letter-spacing: 0.08rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    box-shadow: 0 0 10px rgba(0, 240, 255, 0.12);
-    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-    user-select: none;
-    touch-action: manipulation;
-}
-
-.badge-mute-btn:hover {
-    background: linear-gradient(135deg, rgba(0, 240, 255, 0.22) 0%, rgba(0, 136, 255, 0.12) 100%);
-    border-color: var(--cyan-glow);
-    box-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
-    transform: translateY(-1px);
-}
-
-.badge-mute-btn:active {
-    transform: translateY(1px);
-}
-
-.badge-mute-btn .mute-icon {
-    font-size: 1.15rem;
-    line-height: 1;
-}
-
-/* ASK ME push-to-talk button: colour follows security mode */
-.badge-ask-btn {
-    cursor: pointer;
-    padding: 10px 20px;
-    min-height: 48px;
-    border-radius: 12px;
-    font-size: 0.95rem;
-    font-weight: 700;
-    letter-spacing: 0.08rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    border: 1px solid;
-    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-    user-select: none;
-    touch-action: manipulation;
-}
-
-.badge-ask-btn:active:not(:disabled) { transform: translateY(1px); }
-
-.badge-ask-btn.ask-friendly {
-    background: linear-gradient(135deg, rgba(0, 255, 157, 0.16) 0%, rgba(0, 200, 120, 0.05) 100%);
-    color: #00ff9d;
-    border-color: rgba(0, 255, 157, 0.55);
-    box-shadow: 0 0 12px rgba(0, 255, 157, 0.2);
-}
-.badge-ask-btn.ask-friendly:hover:not(:disabled) {
-    background: linear-gradient(135deg, rgba(0, 255, 157, 0.3) 0%, rgba(0, 200, 120, 0.14) 100%);
-    box-shadow: 0 0 18px rgba(0, 255, 157, 0.5);
-}
-
-.badge-ask-btn.ask-restrict {
-    background: linear-gradient(135deg, rgba(255, 153, 0, 0.18) 0%, rgba(200, 110, 0, 0.06) 100%);
-    color: var(--amber-warn);
-    border-color: rgba(255, 153, 0, 0.6);
-    box-shadow: 0 0 12px rgba(255, 153, 0, 0.25);
-}
-.badge-ask-btn.ask-restrict:hover:not(:disabled) {
-    box-shadow: 0 0 18px rgba(255, 153, 0, 0.55);
-}
-
-.badge-ask-btn.ask-paranoid {
-    background: linear-gradient(135deg, rgba(255, 0, 59, 0.2) 0%, rgba(180, 0, 30, 0.08) 100%);
-    color: var(--red-alert);
-    border-color: rgba(255, 0, 59, 0.6);
-    box-shadow: 0 0 12px rgba(255, 0, 59, 0.3);
-}
-.badge-ask-btn.ask-paranoid:hover:not(:disabled) {
-    box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
-}
-
-.badge-ask-btn.listening {
-    animation: alert-pulse 1s infinite;
-}
-
-.badge-ask-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-    box-shadow: none;
-    animation: none;
-}
-
-.badge-mute-btn.muted {
-    background: linear-gradient(135deg, rgba(255, 0, 59, 0.25) 0%, rgba(180, 0, 30, 0.12) 100%);
-    color: var(--red-alert);
-    border-color: var(--red-alert);
-    box-shadow: 0 0 14px rgba(255, 0, 59, 0.45);
-    animation: alert-pulse 1.8s infinite;
-}
-
-.badge-mute-btn.muted:hover {
-    background: linear-gradient(135deg, rgba(255, 0, 59, 0.35) 0%, rgba(180, 0, 30, 0.2) 100%);
-    box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
-}
-
+/* Row 1: Biometric Strip (Full Width) */
 .biometric-strip {
     display: flex;
     justify-content: space-between;
     align-items: center;
     background: rgba(0, 240, 255, 0.03);
     border: 1px solid rgba(0, 240, 255, 0.15);
-    padding: 8px 14px;
+    padding: 7px 14px;
     border-radius: 10px;
 }
 
@@ -1028,16 +1456,67 @@ body.telemetry-active .telemetry-panel {
 .auth-friend { color: var(--cyan-glow); text-shadow: 0 0 6px var(--cyan-glow); }
 .auth-stranger { color: var(--red-alert); text-shadow: 0 0 8px var(--red-alert); }
 
-/* Dialogue Panel */
-.dialogue-panel {
+/* ==========================================================================
+   FOOTER LAYOUT (ADAPTIVE: DESKTOP vs KIOSK / MOBILE)
+   ========================================================================== */
+
+/* PC DESKTOP (DEFAULT or .client-desktop):
+   - Row 1: Actions: [ MIC ] pinned left, [ ASK ME ] pinned right (across top of footer)
+   - Row 2: Biometric Strip (Full Width)
+   - Row 3: Dialogue Subtitles Panel (Full Width)
+   (matches handwritten wireframe notewise -4)
+*/
+.hud-footer {
     display: flex;
     flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.hud-action-bar {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.hud-action-bar .badge-mute-btn,
+.hud-action-bar .badge-ask-btn {
+    min-width: 165px;
+    min-height: 38px;
+    padding: 6px 16px;
+    font-size: 0.80rem;
+    font-weight: 700;
+    letter-spacing: 0.08rem;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.12);
+    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.biometric-strip {
+    width: 100%;
+}
+
+/* Dialogue Panel (Responsive transcript & reply container) */
+.dialogue-panel {
+    width: 100%;
+    min-width: 0;
+    min-height: 56px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     gap: 6px;
     background: rgba(0, 0, 0, 0.85);
     border: 1px solid rgba(0, 240, 255, 0.12);
     padding: 10px 14px;
-    border-radius: 10px;
-    min-height: 68px;
+    border-radius: 12px;
 }
 
 .dialogue-row {
@@ -1052,6 +1531,7 @@ body.telemetry-active .telemetry-panel {
     font-weight: 700;
     letter-spacing: 0.1rem;
     min-width: 65px;
+    flex-shrink: 0;
 }
 
 .tag-user { color: var(--text-muted); }
@@ -1073,6 +1553,298 @@ body.telemetry-active .telemetry-panel {
 
 .reply-text {
     color: #ffffff;
+    transition: font-size 0.2s ease, line-height 0.2s ease;
+}
+
+/* Dynamic text scaling classes for long replies (Nota Kiosk) */
+.reply-text.reply-sm {
+    font-size: 0.85rem;
+    line-height: 1.25;
+}
+
+.reply-text.reply-xs {
+    font-size: 0.76rem;
+    line-height: 1.2;
+}
+
+.reply-text.reply-xxs {
+    font-size: 0.68rem;
+    line-height: 1.15;
+}
+
+/* KIOSK & MOBILE LAYOUT (.client-kiosk, .client-mobile, or screens <= 899px or low-height screens):
+   - Row 1: Biometric Strip (Full Width)
+   - Row 2: Dialogue Subtitles (Left) + Stacked Actions (Right: [MIC] top, [ASK ME] bottom)
+   (matches handwritten wireframe sketch 5)
+*/
+body.client-kiosk .hud-footer,
+body.client-mobile .hud-footer,
+html.client-kiosk body .hud-footer,
+html.client-mobile body .hud-footer {
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    grid-template-rows: auto 1fr !important;
+    grid-template-areas:
+        "bio  bio"
+        "diag act" !important;
+    gap: 6px 10px !important;
+    width: 100% !important;
+}
+
+body.client-kiosk .biometric-strip,
+body.client-mobile .biometric-strip,
+html.client-kiosk body .biometric-strip,
+html.client-mobile body .biometric-strip {
+    grid-area: bio !important;
+    width: 100% !important;
+}
+
+body.client-kiosk .dialogue-panel,
+body.client-mobile .dialogue-panel,
+html.client-kiosk body .dialogue-panel,
+html.client-mobile body .dialogue-panel {
+    grid-area: diag !important;
+    width: 100% !important;
+    min-height: 52px;
+}
+
+body.client-kiosk .hud-action-bar,
+body.client-mobile .hud-action-bar,
+html.client-kiosk body .hud-action-bar,
+html.client-mobile body .hud-action-bar {
+    grid-area: act !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: stretch !important;
+    gap: 5px !important;
+    width: 135px !important;
+    align-self: stretch !important;
+}
+
+body.client-kiosk .hud-action-bar .badge-mute-btn,
+body.client-kiosk .hud-action-bar .badge-ask-btn,
+body.client-mobile .hud-action-bar .badge-mute-btn,
+body.client-mobile .hud-action-bar .badge-ask-btn,
+html.client-kiosk body .hud-action-bar .badge-mute-btn,
+html.client-kiosk body .hud-action-bar .badge-ask-btn,
+html.client-mobile body .hud-action-bar .badge-mute-btn,
+html.client-mobile body .hud-action-bar .badge-ask-btn {
+    flex: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 28px !important;
+    padding: 4px 6px !important;
+    font-size: 0.68rem !important;
+}
+
+@media (max-width: 899px), (max-height: 520px) {
+    body:not(.client-desktop) .hud-footer {
+        display: grid !important;
+        grid-template-columns: 1fr auto !important;
+        grid-template-rows: auto 1fr !important;
+        grid-template-areas:
+            "bio  bio"
+            "diag act" !important;
+        gap: 6px 10px !important;
+        width: 100% !important;
+    }
+
+    body:not(.client-desktop) .biometric-strip {
+        grid-area: bio !important;
+        width: 100% !important;
+    }
+
+    body:not(.client-desktop) .dialogue-panel {
+        grid-area: diag !important;
+        width: 100% !important;
+        min-height: 52px;
+    }
+
+    body:not(.client-desktop) .hud-action-bar {
+        grid-area: act !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: stretch !important;
+        gap: 5px !important;
+        width: 135px !important;
+        align-self: stretch !important;
+    }
+
+    body:not(.client-desktop) .hud-action-bar .badge-mute-btn,
+    body:not(.client-desktop) .hud-action-bar .badge-ask-btn {
+        flex: 1 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 28px !important;
+        padding: 4px 6px !important;
+        font-size: 0.68rem !important;
+    }
+}
+
+/* PC DESKTOP EXPLICIT OVERRIDE (Large screens with client-desktop active) */
+@media (min-width: 900px) and (min-height: 521px) {
+    body.client-desktop .hud-footer,
+    html.client-desktop body .hud-footer {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+        width: 100% !important;
+    }
+    body.client-desktop .hud-action-bar,
+    html.client-desktop body .hud-action-bar {
+        grid-area: auto !important;
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+    body.client-desktop .hud-action-bar .badge-mute-btn,
+    body.client-desktop .hud-action-bar .badge-ask-btn,
+    html.client-desktop body .hud-action-bar .badge-mute-btn,
+    html.client-desktop body .hud-action-bar .badge-ask-btn {
+        flex: initial !important;
+        width: auto !important;
+        min-width: 165px !important;
+        min-height: 38px !important;
+        padding: 6px 16px !important;
+        font-size: 0.80rem !important;
+    }
+    body.client-desktop .biometric-strip,
+    html.client-desktop body .biometric-strip {
+        grid-area: auto !important;
+        width: 100% !important;
+    }
+    body.client-desktop .dialogue-panel,
+    html.client-desktop body .dialogue-panel {
+        grid-area: auto !important;
+        width: 100% !important;
+    }
+}
+
+.badge-mute-btn {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.1) 0%, rgba(0, 136, 255, 0.04) 100%);
+    color: var(--cyan-glow);
+    border: 1px solid rgba(0, 240, 255, 0.42);
+    cursor: pointer;
+}
+
+.badge-mute-btn:hover {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.22) 0%, rgba(0, 136, 255, 0.12) 100%);
+    border-color: var(--cyan-glow);
+    box-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
+    transform: translateY(-1px);
+}
+
+.badge-mute-btn:active {
+    transform: translateY(1px);
+}
+
+.badge-mute-btn .mute-icon {
+    font-size: 1.05rem;
+    line-height: 1;
+}
+
+/* ASK ME push-to-talk button: colour follows security mode */
+.badge-ask-btn {
+    cursor: pointer;
+    border: 1px solid;
+    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.badge-ask-btn:active:not(:disabled) { transform: translateY(1px); }
+
+.badge-ask-btn.ask-friendly {
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.16) 0%, rgba(0, 200, 120, 0.05) 100%);
+    color: #00ff9d;
+    border-color: rgba(0, 255, 157, 0.55);
+    box-shadow: 0 0 12px rgba(0, 255, 157, 0.2);
+}
+.badge-ask-btn.ask-friendly:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.3) 0%, rgba(0, 200, 120, 0.14) 100%);
+    box-shadow: 0 0 18px rgba(0, 255, 157, 0.5);
+}
+
+.badge-ask-btn.ask-restrict {
+    background: linear-gradient(135deg, rgba(255, 153, 0, 0.18) 0%, rgba(200, 110, 0, 0.06) 100%);
+    color: var(--amber-warn);
+    border-color: rgba(255, 153, 0, 0.6);
+    box-shadow: 0 0 12px rgba(255, 153, 0, 0.25);
+}
+.badge-ask-btn.ask-restrict:hover:not(:disabled) {
+    box-shadow: 0 0 18px rgba(255, 153, 0, 0.55);
+}
+
+.badge-ask-btn.ask-paranoid {
+    background: linear-gradient(135deg, rgba(255, 0, 59, 0.2) 0%, rgba(180, 0, 30, 0.08) 100%);
+    color: var(--red-alert);
+    border-color: rgba(255, 0, 59, 0.6);
+    box-shadow: 0 0 12px rgba(255, 0, 59, 0.3);
+}
+.badge-ask-btn.ask-paranoid:hover:not(:disabled) {
+    box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
+}
+
+/* STOP Button State while A-X-L is speaking */
+.badge-ask-btn.ask-stop {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.95) 0%, rgba(185, 28, 28, 0.98) 100%) !important;
+    border-color: #ef4444 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.75) !important;
+    animation: pulse-stop 1.1s infinite ease-in-out !important;
+    cursor: pointer !important;
+}
+
+.badge-ask-btn.ask-stop:hover {
+    background: linear-gradient(135deg, rgba(252, 100, 100, 1) 0%, rgba(220, 38, 38, 1) 100%) !important;
+    box-shadow: 0 0 24px rgba(239, 68, 68, 0.95) !important;
+    transform: translateY(-2px);
+}
+
+@keyframes pulse-stop {
+    0%, 100% {
+        box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 24px rgba(239, 68, 68, 0.95);
+        transform: scale(1.03);
+    }
+}
+
+.badge-ask-btn.listening {
+    animation: alert-pulse 1s infinite;
+}
+
+.badge-ask-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    box-shadow: none;
+    animation: none;
+}
+
+.badge-ask-btn.disabled-muted {
+    opacity: 0.3 !important;
+    cursor: not-allowed !important;
+    filter: grayscale(0.85) brightness(0.7);
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    color: var(--text-dim) !important;
+    box-shadow: none !important;
+    animation: none !important;
+}
+
+.badge-mute-btn.muted {
+    background: linear-gradient(135deg, rgba(255, 0, 59, 0.25) 0%, rgba(180, 0, 30, 0.12) 100%);
+    color: var(--red-alert);
+    border-color: var(--red-alert);
+    box-shadow: 0 0 14px rgba(255, 0, 59, 0.45);
+    animation: alert-pulse 1.8s infinite;
+}
+
+.badge-mute-btn.muted:hover {
+    background: linear-gradient(135deg, rgba(255, 0, 59, 0.35) 0%, rgba(180, 0, 30, 0.2) 100%);
+    box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
 }
 
 /* ==========================================================================
@@ -1242,9 +2014,11 @@ body.state-alert .alert-overlay {
 }
 
 /* ==========================================================================
-   MOBILE & TABLET RESPONSIVENESS (SAMSUNG GALAXY A33 & SMALL VIEWPORTS)
+   MOBILE & TABLET RESPONSIVENESS (SAMSUNG GALAXY A33 & COMPACT VIEWPORTS)
    ========================================================================== */
-@media (max-width: 900px) {
+
+/* Tablet & Moderate Widths */
+@media (max-width: 900px) and (min-height: 521px) {
     body.telemetry-active .visor-stage {
         flex-direction: column;
         justify-content: center;
@@ -1253,7 +2027,7 @@ body.state-alert .alert-overlay {
     }
     body.telemetry-active .telemetry-panel {
         width: 100%;
-        max-height: 290px;
+        max-height: 280px;
     }
     body.telemetry-active .visor-core-box {
         width: 220px;
@@ -1261,59 +2035,623 @@ body.state-alert .alert-overlay {
     }
 }
 
-@media (max-width: 640px) {
+/* Mobile Landscape & Low-Height Screens (Galaxy A33 Landscape: ~800x380px) */
+@media (max-height: 520px) and (orientation: landscape), (max-height: 500px) {
     #pixel-shift-container {
-        padding: 12px 14px;
+        padding: 6px 14px;
     }
     .hud-header {
+        padding-bottom: 6px;
+        gap: 8px;
+    }
+    .brand-title {
+        font-size: 1.25rem;
+        letter-spacing: 0.2rem;
+    }
+    .brand-sub {
+        font-size: 0.58rem;
+    }
+    .brand-conn-line {
+        font-size: 0.52rem;
+    }
+    .server-mini-telem {
+        margin-top: 4px;
+        margin-bottom: 0;
+        padding-top: 0;
+        gap: 5px;
+    }
+    .server-mini-telem .mini-track {
+        width: 32px;
+        height: 3px;
+    }
+    .server-mini-telem .mini-telem-label,
+    .server-mini-telem .mini-telem-temp {
+        font-size: 0.50rem;
+    }
+    .server-mini-telem .mini-telem-group {
+        padding: 1px 4px;
+        gap: 3px;
+    }
+    #clock-time {
+        font-size: 1.25rem;
+    }
+    #clock-date {
+        font-size: 0.60rem;
+    }
+    .badge {
+        padding: 5px 10px;
+        font-size: 0.68rem;
+        min-height: 30px;
+    }
+    .visor-stage {
+        padding: 4px 0;
+        gap: 16px;
+    }
+    .visor-core-box {
+        width: min(34vw, calc(100vh - 165px), 180px);
+        height: min(34vw, calc(100vh - 165px), 180px);
+    }
+    body.telemetry-active .visor-core-box {
+        width: min(28vw, calc(100vh - 170px), 155px);
+        height: min(28vw, calc(100vh - 170px), 155px);
+    }
+
+    /* Status Banner under dog avatar: compact text, wraps PASSIVE SURVEILLANCE underneath, small capsule */
+    .visor-status-box {
+        margin-top: 3px;
+        gap: 3px;
+    }
+    .state-label {
+        font-size: 0.68rem;
+        letter-spacing: 0.08rem;
+        line-height: 1.2;
+        max-width: 175px;
+        text-align: center;
+        text-wrap: balance;
+    }
+    .state-sub {
+        font-size: 0.52rem;
+        letter-spacing: 0.04rem;
+        padding: 2px 8px;
+        border-radius: 999px;
+        max-width: 210px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        margin-top: 1px;
+    }
+
+    body.telemetry-active .visor-stage {
+        gap: 14px !important;
+        padding: 2px 4px !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    /* Single slender telemetry panel on mobile landscape: fits completely without overlapping, leaving room for future music player */
+    .telemetry-panel {
+        width: min(44vw, 360px) !important;
+        max-height: calc(100vh - 160px) !important;
+        padding: 6px 9px !important;
+        overflow: hidden !important;
+        scrollbar-width: none !important;
+    }
+    .telemetry-panel::-webkit-scrollbar {
+        display: none !important;
+    }
+    .telem-header {
+        padding-bottom: 2px !important;
+        margin-bottom: 3px !important;
+    }
+    .telem-tag {
+        font-size: 0.50rem !important;
+        letter-spacing: 0.08rem !important;
+    }
+    .telem-title {
+        font-size: 0.78rem !important;
+        letter-spacing: 0.06rem !important;
+    }
+    .badge-telem-online,
+    .badge-telem-offline {
+        font-size: 0.52rem !important;
+        padding: 2px 6px !important;
+    }
+    .telem-icon-btn {
+        width: 22px !important;
+        height: 22px !important;
+        font-size: 0.75rem !important;
+        border-radius: 6px !important;
+    }
+
+    /* 3-Row Slender Grid (Default for Server/Slave): Row 1 = CPU & RAM, Row 2 = Dual GPU(s), Row 3 = Thin FAN banner */
+    .telem-grid {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-areas:
+            "cpu ram"
+            "gpu gpu"
+            "fan fan" !important;
+        gap: 4px !important;
+    }
+    .telem-cpu-card {
+        grid-area: cpu !important;
+    }
+    .telem-ram-card {
+        grid-area: ram !important;
+    }
+    .telem-gpu-card {
+        grid-area: gpu !important;
+    }
+    body:not(.client-desktop) .telem-gpu-list {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 4px !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+    body:not(.client-desktop) .telem-gpu-list.dual-gpu {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 4px !important;
+    }
+
+    /* Android Kiosk Override: 2 Rows x 2 Columns Balanced Grid */
+    body.telem-target-kiosk .telem-grid,
+    .telemetry-panel[data-target="kiosk"] .telem-grid {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-areas:
+            "cpu ram"
+            "gpu fan" !important;
+        gap: 4px !important;
+    }
+    body.telem-target-kiosk .telem-gpu-card,
+    .telemetry-panel[data-target="kiosk"] .telem-gpu-card {
+        grid-area: gpu !important;
+    }
+    body.telem-target-kiosk .telem-grid .telem-fan-card,
+    .telemetry-panel[data-target="kiosk"] .telem-grid .telem-fan-card {
+        grid-area: fan !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+        min-height: 0 !important;
+        padding: 4px 7px !important;
+        gap: 2px !important;
+    }
+    body.telem-target-kiosk .telem-grid .telem-fan-card .telem-card-header,
+    .telemetry-panel[data-target="kiosk"] .telem-grid .telem-fan-card .telem-card-header {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        margin-bottom: 1px !important;
+        width: 100% !important;
+    }
+    body.telem-target-kiosk .telem-grid .telem-fan-card .telem-stat-row,
+    .telemetry-panel[data-target="kiosk"] .telem-grid .telem-fan-card .telem-stat-row {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: baseline !important;
+        width: 100% !important;
+        margin: 0 !important;
+    }
+
+    .telem-card {
+        padding: 4px 7px !important;
+        border-radius: 9px !important;
+        gap: 2px !important;
+    }
+    .telem-card-header {
+        margin-bottom: 1px !important;
+    }
+    .telem-card-label {
+        font-size: 0.56rem !important;
+        letter-spacing: 0.04rem !important;
+    }
+    .telem-temp-badge {
+        font-size: 0.52rem !important;
+        padding: 1px 5px !important;
+    }
+    .telem-val-large {
+        font-size: 0.98rem !important;
+        font-weight: 800 !important;
+    }
+    .telem-unit {
+        font-size: 0.54rem !important;
+    }
+    .telem-sub-line {
+        font-size: 0.48rem !important;
+        gap: 2px !important;
+    }
+    .telem-meter-track {
+        height: 3px !important;
+        margin-top: 2px !important;
+    }
+    body:not(.client-desktop) .telem-gpu-item {
+        padding: 3px 5px !important;
+        border-radius: 6px !important;
+        gap: 2px !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+    }
+    body:not(.client-desktop) .telem-gpu-top {
+        min-width: 0 !important;
+        overflow: hidden !important;
+    }
+    body:not(.client-desktop) .telem-gpu-name {
+        font-size: 0.56rem !important;
+        min-width: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        flex: 1 1 auto !important;
+    }
+    body:not(.client-desktop) .telem-gpu-badge {
+        font-size: 0.48rem !important;
+        padding: 1px 4px !important;
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+    }
+    body:not(.client-desktop) .telem-gpu-sub-row {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        font-size: 0.46rem !important;
+        margin-top: 1px !important;
+    }
+    body:not(.client-desktop) .telem-gpu-sub-row .sub-lbl {
+        font-family: var(--font-mono) !important;
+        font-size: 0.46rem !important;
+    }
+    body:not(.client-desktop) .telem-gpu-vram-compact {
+        font-family: var(--font-mono) !important;
+        font-size: 0.46rem !important;
+        color: #00e5ff !important;
+        white-space: nowrap !important;
+    }
+    body:not(.client-desktop) .telem-gpu-vram {
+        font-size: 0.48rem !important;
+        color: #a0aec0 !important;
+        font-family: var(--font-mono) !important;
+        margin-top: 1px !important;
+    }
+
+    /* Thin horizontal cooling fan strip across row 3 */
+    .telem-grid .telem-fan-card {
+        grid-area: fan !important;
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        padding: 3px 8px !important;
+        min-height: 24px !important;
+        gap: 6px !important;
+    }
+    .telem-grid .telem-fan-card .telem-card-header {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        margin-bottom: 0 !important;
+    }
+    .telem-grid .telem-fan-card .telem-card-label {
+        font-size: 0.54rem !important;
+    }
+    .telem-grid .telem-fan-card .telem-stat-row {
+        display: inline-flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 8px !important;
+        margin: 0 !important;
+    }
+    .telem-grid .telem-fan-card .telem-main-metric {
+        display: inline-flex !important;
+        align-items: baseline !important;
+        gap: 2px !important;
+    }
+    .telem-grid .telem-fan-card .telem-val-large {
+        font-size: 0.88rem !important;
+        font-weight: 800 !important;
+    }
+    .telem-grid .telem-fan-card .telem-unit {
+        font-size: 0.50rem !important;
+    }
+    .telem-grid .telem-fan-card .telem-sub-metric {
+        display: inline-flex !important;
+    }
+    .telem-grid .telem-fan-card .telem-sub-line {
+        font-size: 0.46rem !important;
+        gap: 2px !important;
+    }
+
+    .hud-footer {
+        display: grid !important;
+        grid-template-columns: 1fr auto !important;
+        grid-template-rows: auto 1fr !important;
+        grid-template-areas:
+            "bio  bio"
+            "diag act" !important;
+        gap: 4px 8px !important;
+        width: 100% !important;
+        padding-top: 4px;
+    }
+    .biometric-strip {
+        grid-area: bio !important;
+        width: 100% !important;
+        padding: 4px 10px;
+    }
+    .bio-label, .bio-value {
+        font-size: 0.68rem;
+    }
+    .dialogue-panel {
+        grid-area: diag !important;
+        width: 100% !important;
+        padding: 6px 10px;
+        min-height: 48px;
+    }
+    .speaker-tag {
+        font-size: 0.64rem;
+        min-width: 55px;
+    }
+    .speech-text {
+        font-size: 0.82rem;
+    }
+    .hud-action-bar {
+        grid-area: act !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: stretch !important;
+        gap: 4px !important;
+        width: 135px !important;
+        align-self: stretch !important;
+    }
+    .hud-action-bar .badge-mute-btn,
+    .hud-action-bar .badge-ask-btn {
+        flex: 1 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 25px !important;
+        padding: 3px 6px !important;
+        font-size: 0.68rem !important;
+    }
+}
+
+/* Mobile Portrait (Galaxy A33 Portrait: ~360-420px width) */
+@media (max-width: 640px) {
+    #pixel-shift-container {
+        padding: 10px 12px;
+    }
+    .hud-header {
+        display: flex;
         flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
         gap: 8px;
     }
     .hud-brand-wrap {
+        order: 1;
         gap: 8px;
     }
     .hud-status-tray {
-        flex-wrap: wrap;
+        order: 2;
         gap: 6px;
     }
+    .hud-center-clock {
+        order: 3;
+        width: 100%;
+        margin-top: 4px;
+        text-align: center;
+    }
+    .server-mini-telem {
+        justify-content: center;
+        gap: 6px;
+        margin-top: 5px;
+        margin-bottom: 3px;
+        padding-right: 0;
+    }
+    #clock-time {
+        font-size: 1.35rem;
+    }
+    #clock-date {
+        font-size: 0.64rem;
+    }
     .badge {
-        padding: 6px 10px;
+        padding: 5px 9px;
         font-size: 0.68rem;
         min-height: 32px;
     }
-    .telem-grid {
-        grid-template-columns: 1fr;
-    }
     .brand-title {
-        font-size: 1.3rem;
-    }
-    #clock-time {
-        font-size: 1.4rem;
+        font-size: 1.25rem;
     }
     .visor-core-box {
-        width: min(68vw, 260px);
-        height: min(68vw, 260px);
+        width: min(64vw, 240px);
+        height: min(64vw, 240px);
+    }
+    body.telemetry-active .visor-stage {
+        flex-direction: column;
+        overflow-y: auto;
+        gap: 12px;
+    }
+    body.telemetry-active .telemetry-panel {
+        width: 100%;
+        max-height: calc(100vh - 280px);
+        padding: 8px 10px;
+        overflow: hidden !important;
+        scrollbar-width: none;
+    }
+    body.telemetry-active .telemetry-panel::-webkit-scrollbar {
+        display: none !important;
+    }
+    body.telemetry-active .visor-core-box {
+        width: 160px;
+        height: 160px;
+    }
+
+    /* Status Banner under dog avatar */
+    .visor-status-box {
+        margin-top: 4px;
+        gap: 3px;
     }
     .state-label {
-        font-size: 0.82rem;
-    }
-    .hud-center-clock {
-        position: static;
-        transform: none;
-        width: 100%;
-        order: -1;
+        font-size: 0.72rem;
+        letter-spacing: 0.08rem;
+        line-height: 1.25;
+        max-width: 190px;
         text-align: center;
+        text-wrap: balance;
+    }
+    .state-sub {
+        font-size: 0.54rem;
+        letter-spacing: 0.04rem;
+        padding: 2px 8px;
+        border-radius: 999px;
+        max-width: 210px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+    }
+
+    .telem-grid {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-areas:
+            "cpu ram"
+            "gpu gpu"
+            "fan fan" !important;
+        gap: 6px !important;
+    }
+    .telem-cpu-card { grid-area: cpu !important; }
+    .telem-ram-card { grid-area: ram !important; }
+    .telem-gpu-card { grid-area: gpu !important; }
+
+    /* Android Kiosk Override for Portrait (2 rows x 2 columns) */
+    body.telem-target-kiosk .telem-grid,
+    .telemetry-panel[data-target="kiosk"] .telem-grid {
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-areas:
+            "cpu ram"
+            "gpu fan" !important;
+        gap: 6px !important;
+    }
+    body.telem-target-kiosk .telem-gpu-card,
+    .telemetry-panel[data-target="kiosk"] .telem-gpu-card {
+        grid-area: gpu !important;
+    }
+    body.telem-target-kiosk .telem-grid .telem-fan-card,
+    .telemetry-panel[data-target="kiosk"] .telem-grid .telem-fan-card {
+        grid-area: fan !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+        min-height: 0 !important;
+        padding: 6px 8px !important;
+        gap: 2px !important;
+    }
+    body.telem-target-kiosk .telem-grid .telem-fan-card .telem-card-header,
+    .telemetry-panel[data-target="kiosk"] .telem-grid .telem-fan-card .telem-card-header {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        margin-bottom: 2px !important;
+        width: 100% !important;
+    }
+    body.telem-target-kiosk .telem-grid .telem-fan-card .telem-stat-row,
+    .telemetry-panel[data-target="kiosk"] .telem-grid .telem-fan-card .telem-stat-row {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: baseline !important;
+        width: 100% !important;
+        margin: 0 !important;
+    }
+    .telem-grid .telem-fan-card {
+        grid-area: fan !important;
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        padding: 4px 10px !important;
+        min-height: 26px !important;
+        gap: 6px !important;
+    }
+    .telem-grid .telem-fan-card .telem-card-header {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        margin-bottom: 0 !important;
+    }
+    .telem-grid .telem-fan-card .telem-stat-row {
+        display: inline-flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 8px !important;
+        margin: 0 !important;
+    }
+    .telem-grid .telem-fan-card .telem-main-metric {
+        display: inline-flex !important;
+        align-items: baseline !important;
+        gap: 2px !important;
+    }
+    .telem-grid .telem-fan-card .telem-val-large {
+        font-size: 0.88rem !important;
+        font-weight: 800 !important;
+    }
+    .telem-grid .telem-fan-card .telem-unit {
+        font-size: 0.50rem !important;
+    }
+    .telem-grid .telem-fan-card .telem-sub-metric {
+        display: inline-flex !important;
+    }
+    .telem-grid .telem-fan-card .telem-sub-line {
+        font-size: 0.46rem !important;
+        gap: 2px !important;
+    }
+    .hud-footer {
+        display: grid !important;
+        grid-template-columns: 1fr auto !important;
+        grid-template-rows: auto 1fr !important;
+        grid-template-areas:
+            "bio  bio"
+            "diag act" !important;
+        gap: 6px 8px !important;
+        width: 100% !important;
+        padding-top: 6px;
     }
     .biometric-strip {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 6px;
+        grid-area: bio !important;
+        width: 100% !important;
+        padding: 6px 10px;
     }
-    .bio-score-wrap {
-        width: 100%;
-        max-width: 100%;
+    .bio-label {
+        font-size: 0.62rem;
+    }
+    .bio-value {
+        font-size: 0.72rem;
+    }
+    .dialogue-panel {
+        grid-area: diag !important;
+        width: 100% !important;
+        min-height: 52px;
+    }
+    .hud-action-bar {
+        grid-area: act !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: stretch !important;
+        gap: 4px !important;
+        width: 125px !important;
+        align-self: stretch !important;
+    }
+    .hud-action-bar .badge-mute-btn,
+    .hud-action-bar .badge-ask-btn {
+        flex: 1 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        padding: 5px 6px !important;
+        font-size: 0.68rem !important;
+        min-height: 32px !important;
+        letter-spacing: 0.04rem;
     }
     .speech-text {
-        font-size: 0.88rem;
+        font-size: 0.84rem;
     }
 }

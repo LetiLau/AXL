@@ -7,6 +7,7 @@ CPU thermals, frequencies, RAM, and cooling fans for laptops, desktops, and serv
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,6 +18,41 @@ import psutil
 logger = logging.getLogger("AXL-Telemetry")
 
 SYSTEM_OS = platform.system()
+
+
+def _resolve_linux_pci_gpu_name(card_path: Path) -> Optional[str]:
+    device_dir = card_path / "device"
+    pci_slot = None
+    if device_dir.exists():
+        try:
+            pci_slot = device_dir.resolve().name
+        except Exception:
+            pci_slot = None
+
+    if shutil.which("lspci"):
+        try:
+            cmd = ["lspci", "-s", pci_slot] if pci_slot else ["lspci"]
+            out = subprocess.check_output(cmd, text=True, timeout=1.5)
+            for line in out.splitlines():
+                if any(x in line.lower() for x in ["vga compatible", "3d controller", "display controller"]):
+                    m = re.search(r'(?:VGA compatible controller|3D controller|Display controller):\s*(.+)', line)
+                    if m:
+                        raw = m.group(1)
+                        raw = re.sub(r'\(rev\s+[0-9a-fA-F]+\)', '', raw).strip()
+                        bracket_match = re.findall(r'\[([^\]]+)\]', raw)
+                        if bracket_match:
+                            vendor = ''
+                            if 'intel' in raw.lower(): vendor = 'Intel '
+                            elif 'amd' in raw.lower(): vendor = 'AMD '
+                            elif 'nvidia' in raw.lower(): vendor = 'NVIDIA '
+                            b_name = bracket_match[-1].strip()
+                            if vendor.lower() not in b_name.lower():
+                                return vendor + b_name
+                            return b_name
+                        return raw
+        except Exception:
+            pass
+    return None
 
 
 def get_universal_gpu_info() -> List[Dict[str, Any]]:
@@ -141,10 +177,12 @@ def get_universal_gpu_info() -> List[Dict[str, Any]]:
                     if cur_freq and max_freq and max_freq > 0:
                         usage = round(min(100.0, max(0.0, (cur_freq / max_freq) * 100)), 1)
 
-                    # Determine if it's Arc dGPU or Intel iGPU
-                    is_arc = "arc" in content.lower()
+                    resolved_name = _resolve_linux_pci_gpu_name(card)
+                    if not resolved_name:
+                        resolved_name = "N/A"
+                    is_arc = "arc" in (resolved_name.lower() + content.lower())
                     gpus.append({
-                        "name": "Intel Arc Graphics" if is_arc else "Intel UHD / Iris Xe Graphics",
+                        "name": resolved_name,
                         "type": "dedicated" if is_arc else "integrated",
                         "usage_percent": usage,
                         "temperature_c": None,  # thermally tied to CPU package
@@ -185,9 +223,12 @@ def get_universal_gpu_info() -> List[Dict[str, Any]]:
                         if amd_temp is not None:
                             break
 
+                    amd_name = _resolve_linux_pci_gpu_name(card)
+                    if not amd_name:
+                        amd_name = "N/A"
                     is_dedicated = bool(vram_total_mb and vram_total_mb > 1024)
                     gpus.append({
-                        "name": "AMD Radeon Dedicated GPU" if is_dedicated else "AMD Radeon Graphics (APU)",
+                        "name": amd_name,
                         "type": "dedicated" if is_dedicated else "integrated",
                         "usage_percent": round(usage, 1),
                         "temperature_c": amd_temp,

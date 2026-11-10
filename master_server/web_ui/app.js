@@ -19,31 +19,31 @@
     const ctx = canvas ? canvas.getContext("2d") : null;
     const clockTime = document.getElementById("clock-time");
     const clockDate = document.getElementById("clock-date");
+    const brandNodeTag = document.getElementById("brand-node-tag");
     const secModeBadge = document.getElementById("sec-mode-badge");
     const modeSelectorPopup = document.getElementById("mode-selector-popup");
-    const connBadge = document.getElementById("connection-badge");
-    const serverTelemBtn = document.getElementById("server-telem-btn");
-    const slaveTelemBtn = document.getElementById("slave-telem-btn");
-    const telemetryBtn = slaveTelemBtn; // alias for backwards compatibility
-    const telemTitle = document.getElementById("telem-title");
-    const stateLabel = document.getElementById("visor-state-label");
-    const stateSub = document.getElementById("visor-sub-label");
-    const bioIdentity = document.getElementById("bio-identity");
-    const bioScoreBar = document.getElementById("bio-score-bar");
-    const bioScoreText = document.getElementById("bio-score-text");
-    const bioAuthStatus = document.getElementById("bio-auth-status");
-    const userTranscript = document.getElementById("user-transcript");
-    const axlReply = document.getElementById("axl-reply");
-    const fullscreenBtn = document.getElementById("fullscreen-btn");
-    const muteBtn = document.getElementById("mute-btn");
-    const muteBtnIcon = document.getElementById("mute-btn-icon");
-    const muteBtnLabel = document.getElementById("mute-btn-label");
-    const askBtn = document.getElementById("ask-btn");
-    const askBtnLabel = document.getElementById("ask-btn-label");
+    const connStatus = document.getElementById("connection-status");
+    const connStatusText = document.getElementById("connection-status-text");
+    const connBadge = connStatus; // alias for backwards compatibility
+    
+    // Unified Telemetry Selector Elements
+    const telemBtn = document.getElementById("telem-btn");
+    const telemPopup = document.getElementById("telem-popup");
+    const telemOptServer = document.getElementById("telem-opt-server");
+    const telemOptSlave = document.getElementById("telem-opt-slave");
+    const telemOptKiosk = document.getElementById("telem-opt-kiosk");
+    const telemOptClose = document.getElementById("telem-opt-close");
 
-    // --- Telemetry Elements ---
+    // Legacy button aliases for backwards compatibility
+    const serverTelemBtn = telemOptServer;
+    const slaveTelemBtn = telemOptSlave;
+    const kioskTelemBtn = telemOptKiosk;
+    const telemetryBtn = telemBtn;
+
+    // Primary Telemetry HUD Panel (Left)
     const telemetryPanel = document.getElementById("telemetry-panel");
     const telemCloseBtn = document.getElementById("telem-close-btn");
+    const telemTitle = document.getElementById("telem-title");
     const telemNodeBadge = document.getElementById("telem-node-badge");
     const telemCpuUsage = document.getElementById("telem-cpu-usage");
     const telemCpuTemp = document.getElementById("telem-cpu-temp");
@@ -58,21 +58,56 @@
     const telemGpuList = document.getElementById("telem-gpu-list");
     const telemGpuGlobalTemp = document.getElementById("telem-gpu-global-temp");
     const telemFanRpm = document.getElementById("telem-fan-rpm");
+    const telemFanUnit = document.getElementById("telem-fan-unit");
     const telemFanStatus = document.getElementById("telem-fan-status");
     const telemFanLabel = document.getElementById("telem-fan-label");
+    const telemFanSubval = document.getElementById("telem-fan-subval");
+    const telemFanCardTitle = document.getElementById("telem-fan-card-title");
+    const telemCpuCardTitle = document.getElementById("telem-cpu-card-title");
+    const telemCpuSub1Lbl = document.getElementById("telem-cpu-sub1-lbl");
+    const telemCpuSub2Lbl = document.getElementById("telem-cpu-sub2-lbl");
+    const telemRamCardTitle = document.getElementById("telem-ram-card-title");
+    const telemGpuCardTitle = document.getElementById("telem-gpu-card-title");
+
+    // Master Server Mini Sparklines Elements (Sub-Header Sliders)
+    const serverMiniTelem = document.getElementById("server-mini-telem");
+    const miniCpuFill = document.getElementById("mini-cpu-fill");
+    const miniCpuTemp = document.getElementById("mini-cpu-temp");
+    const miniGpuFill = document.getElementById("mini-gpu-fill");
+    const miniMemFill = document.getElementById("mini-mem-fill");
+
+    const stateLabel = document.getElementById("visor-state-label");
+    const stateSub = document.getElementById("visor-sub-label");
+    const bioIdentity = document.getElementById("bio-identity");
+    const bioScoreBar = document.getElementById("bio-score-bar");
+    const bioScoreText = document.getElementById("bio-score-text");
+    const bioAuthStatus = document.getElementById("bio-auth-status");
+    const userTranscript = document.getElementById("user-transcript");
+    const axlReply = document.getElementById("axl-reply");
+    const fullscreenBtn = document.getElementById("fullscreen-btn");
+    const settingsBtn = document.getElementById("settings-btn");
+    const settingsPopup = document.getElementById("settings-popup");
+    const settingOptReload = document.getElementById("setting-opt-reload");
+    const settingOptIp = document.getElementById("setting-opt-ip");
+    const settingOptReconnect = document.getElementById("setting-opt-reconnect");
+    const settingOptLang = document.getElementById("setting-opt-lang");
+    const settingOptKillKiosk = document.getElementById("setting-opt-kill-kiosk");
+    const muteBtn = document.getElementById("mute-btn");
+    const muteBtnIcon = document.getElementById("mute-btn-icon");
+    const muteBtnLabel = document.getElementById("mute-btn-label");
+    const askBtn = document.getElementById("ask-btn");
+    const askBtnIcon = document.getElementById("ask-btn-icon");
+    const askBtnLabel = document.getElementById("ask-btn-label");
 
     // --- State Variables ---
     let currentState = "IDLE";
     let securityMode = "friendly";
     let isMuted = false;
     let isTelemetryActive = false;
-    let telemetryTarget = "fedora";
+    let telemetryTarget = "slave";
     let telemetrySimInterval = null;
     let lastRealTelemetryTime = 0;
-    let simCpuPercent = 22;
-    let simRamPercent = 46;
-    let simGpuPercent = 28;
-    let simFanRpm = 1720;
+    let serverMiniTelemInterval = null;
     let ws = null;
     let wsReconnectTimeout = null;
     let animFrameId = null;
@@ -85,6 +120,22 @@
     if (telemetryPanel) {
         telemetryPanel.hidden = true;
         telemetryPanel.style.display = "none";
+    }
+
+    // Dynamic text scaler for A-X-L replies (prevents subtitle overflow on Galaxy A33 / mobile kiosk)
+    function fitAxlReplyText(text) {
+        if (!axlReply) return;
+        const clean = (text || "").trim();
+        axlReply.textContent = clean;
+        axlReply.classList.remove("reply-sm", "reply-xs", "reply-xxs");
+        const len = clean.length;
+        if (len > 220) {
+            axlReply.classList.add("reply-xxs");
+        } else if (len > 130) {
+            axlReply.classList.add("reply-xs");
+        } else if (len > 70) {
+            axlReply.classList.add("reply-sm");
+        }
     }
 
     // Canvas resolution setup
@@ -101,10 +152,10 @@
     resizeCanvas();
 
     // ==========================================================================
-    // 1. OLED PIXEL-SHIFTING ANTI-BURN-IN SYSTEM (GALAXY A33)
+    // 1. OLED PIXEL-SHIFTING & SUBDUED AMOLED POWER-SAVING (BURN-IN PROTECTION)
     // ==========================================================================
     const PIXEL_SHIFT_INTERVAL_MS = 60000;
-    const SUBDUED_INACTIVITY_MS = 90000;
+    const SUBDUED_INACTIVITY_MS = 45000; // 45 seconds of idle inactivity before dimming
 
     function triggerPixelShift() {
         const shiftX = (Math.floor(Math.random() * 17) - 8);
@@ -114,17 +165,46 @@
     }
     setInterval(triggerPixelShift, PIXEL_SHIFT_INTERVAL_MS);
 
+    function wakeScreen() {
+        if (body.classList.contains("hud-subdued")) {
+            body.classList.remove("hud-subdued");
+        }
+    }
+
+    function dimScreen() {
+        if (currentState === "IDLE") {
+            body.classList.add("hud-subdued");
+        }
+    }
+
     function resetInactivityTimer() {
-        body.classList.remove("hud-subdued");
-        if (idleInactivityTimer) clearTimeout(idleInactivityTimer);
+        wakeScreen();
+        if (idleInactivityTimer) {
+            clearTimeout(idleInactivityTimer);
+            idleInactivityTimer = null;
+        }
         if (currentState === "IDLE") {
             idleInactivityTimer = setTimeout(() => {
-                body.classList.add("hud-subdued");
+                dimScreen();
             }, SUBDUED_INACTIVITY_MS);
         }
     }
-    window.addEventListener("pointerdown", resetInactivityTimer, { passive: true });
-    window.addEventListener("keydown", resetInactivityTimer, { passive: true });
+
+    let lastUserActivityTime = 0;
+    function onThrottledUserActivity() {
+        const now = Date.now();
+        // Throttle high-frequency cursor movements to once per 500ms
+        if (now - lastUserActivityTime > 500) {
+            lastUserActivityTime = now;
+            resetInactivityTimer();
+        }
+    }
+
+    // Capture phase listeners ensure user interaction wakes screen even if UI buttons stop propagation
+    window.addEventListener("pointerdown", resetInactivityTimer, { passive: true, capture: true });
+    window.addEventListener("keydown", resetInactivityTimer, { passive: true, capture: true });
+    window.addEventListener("pointermove", onThrottledUserActivity, { passive: true, capture: true });
+    window.addEventListener("touchstart", resetInactivityTimer, { passive: true, capture: true });
 
     // ==========================================================================
     // 2. TACTICAL CLOCK & DATE
@@ -143,8 +223,115 @@
     updateClock();
 
     // ==========================================================================
-    // 3. FULLSCREEN CONTROLLER
+    // 3. FULLSCREEN & RELOAD CONTROLLERS + CLIENT ENVIRONMENT DETECTION
     // ==========================================================================
+    function detectClientEnvironment() {
+        const ua = navigator.userAgent || "";
+        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        const isMobileUa = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+        const isAndroidWv = /;\s*wv\s*\)/i.test(ua) || (ua.includes("Version/4.0") && isMobileUa);
+        const isKiosk = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            ua.includes("AXL-Kiosk") ||
+            (new URLSearchParams(window.location.search).get("client") === "kiosk")
+        );
+        const isTablet = !isKiosk && (
+            (/iPad|Tablet|PlayBook/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) ||
+            (isTouch && Math.min(window.innerWidth, window.innerHeight) >= 600 && Math.max(window.innerWidth, window.innerHeight) >= 900)
+        );
+        const isMobilePhone = !isTablet && !isKiosk && (isMobileUa || (isTouch && (window.innerWidth <= 899 || window.innerHeight <= 520)));
+
+        let clientType = "desktop";
+        if (isKiosk || isAndroidWv) {
+            clientType = "kiosk";
+        } else if (isTablet) {
+            clientType = "tablet";
+        } else if (isMobilePhone) {
+            clientType = "mobile";
+        } else {
+            clientType = "desktop";
+        }
+
+        body.classList.remove("client-desktop", "client-mobile", "client-kiosk", "client-tablet");
+        body.classList.add(`client-${clientType}`);
+        if (clientType === "tablet") body.classList.add("client-desktop");
+        document.documentElement.classList.remove("client-desktop", "client-mobile", "client-kiosk", "client-tablet");
+        document.documentElement.classList.add(`client-${clientType}`);
+        if (clientType === "tablet") document.documentElement.classList.add("client-desktop");
+
+        console.log(`[HUD] Client environment detected: ${clientType.toUpperCase()} (UA: ${ua})`);
+        return {
+            clientType,
+            isKiosk: clientType === "kiosk",
+            isTablet: clientType === "tablet",
+            isMobile: clientType === "mobile" || clientType === "kiosk",
+            isDesktop: clientType === "desktop" || clientType === "tablet",
+            isTouch
+        };
+    }
+    const clientEnv = detectClientEnvironment();
+    window.axlClient = clientEnv;
+
+    function updateBrandNodeTag(assignedTag) {
+        if (!brandNodeTag) return;
+        if (assignedTag) {
+            brandNodeTag.textContent = assignedTag;
+            return;
+        }
+        const isKiosk = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            (window.axlClient && window.axlClient.isKiosk) ||
+            (navigator.userAgent && navigator.userAgent.includes("AXL-Kiosk"))
+        );
+        brandNodeTag.textContent = isKiosk ? "KIOSK" : "NODE-..";
+    }
+
+    function updateKioskKillButton() {
+        if (!settingOptKillKiosk) return;
+        const isAndroidKiosk = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            (window.axlClient && window.axlClient.isKiosk) ||
+            (navigator.userAgent && navigator.userAgent.includes("AXL-Kiosk"))
+        );
+        if (isAndroidKiosk) {
+            settingOptKillKiosk.disabled = false;
+            settingOptKillKiosk.classList.remove("disabled-muted");
+            settingOptKillKiosk.title = "Arresta l'app Kiosk e rilascia subito il microfono in background";
+        } else {
+            settingOptKillKiosk.disabled = true;
+            settingOptKillKiosk.classList.add("disabled-muted");
+            settingOptKillKiosk.title = "Disponibile solo all'interno dell'app Android Kiosk (per arrestare microfono e processo)";
+        }
+    }
+
+    function updateKioskUI() {
+        const isKiosk = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            (window.axlClient && window.axlClient.isKiosk) ||
+            (navigator.userAgent && navigator.userAgent.includes("AXL-Kiosk"))
+        );
+
+        if (telemOptKiosk) {
+            if (isKiosk) {
+                telemOptKiosk.disabled = false;
+                telemOptKiosk.classList.remove("disabled-muted");
+                telemOptKiosk.title = "Visualizza telemetria hardware del dispositivo Android Kiosk (A33)";
+            } else {
+                telemOptKiosk.disabled = true;
+                telemOptKiosk.classList.add("disabled-muted");
+                telemOptKiosk.title = "Disponibile solo all'interno dell'app Android Kiosk (disattivato da browser PC)";
+            }
+        }
+
+        updateKioskKillButton();
+        updateBrandNodeTag();
+
+        if (fullscreenBtn) {
+            fullscreenBtn.style.display = isKiosk ? "none" : "";
+        }
+    }
+    updateKioskUI();
+
     if (fullscreenBtn) {
         fullscreenBtn.addEventListener("click", () => {
             if (!document.fullscreenElement) {
@@ -155,20 +342,149 @@
         });
     }
 
+    function closeSettingsPopup() {
+        if (settingsPopup) {
+            settingsPopup.classList.remove("open");
+            settingsPopup.hidden = true;
+        }
+        if (settingsBtn) {
+            settingsBtn.classList.remove("open");
+        }
+    }
+
+    function toggleSettingsPopup() {
+        if (!settingsPopup) return;
+        const isOpen = settingsPopup.classList.contains("open");
+        if (isOpen) {
+            closeSettingsPopup();
+        } else {
+            closeModePopup();
+            closeTelemPopup();
+            updateKioskUI();
+            settingsPopup.hidden = false;
+            settingsPopup.classList.add("open");
+            if (settingsBtn) settingsBtn.classList.add("open");
+        }
+    }
+
+    if (settingsBtn) {
+        settingsBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleSettingsPopup();
+        });
+    }
+
+    if (settingOptReload) {
+        settingOptReload.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSettingsPopup();
+            if (window.AXLKiosk && typeof window.AXLKiosk.reload === "function") {
+                window.AXLKiosk.reload();
+            } else {
+                window.location.reload(true);
+            }
+        });
+    }
+
+    if (settingOptIp) {
+        settingOptIp.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSettingsPopup();
+            if (window.AXLKiosk && typeof window.AXLKiosk.showIpConfig === "function") {
+                window.AXLKiosk.showIpConfig();
+            } else {
+                const currentHost = window.location.host;
+                const newHost = prompt("Configura Host / Indirizzo IP del Master Server:", currentHost);
+                if (newHost && newHost.trim() && newHost.trim() !== currentHost) {
+                    window.location.href = `${window.location.protocol}//${newHost.trim()}/ui`;
+                }
+            }
+        });
+    }
+
+    if (settingOptReconnect) {
+        settingOptReconnect.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSettingsPopup();
+            connectWebSocket();
+            if (axlReply && currentState !== "SPEAKING") {
+                fitAxlReplyText("Tentativo di riconnessione WebSocket in corso...");
+            }
+        });
+    }
+
+    if (settingOptLang) {
+        settingOptLang.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSettingsPopup();
+            if (axlReply && currentState !== "SPEAKING") {
+                fitAxlReplyText("Lingua interfaccia: ENG (Default). Switch ITA/ENG attivo nelle prossime versioni.");
+            }
+        });
+    }
+
+    if (settingOptKillKiosk) {
+        settingOptKillKiosk.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (settingOptKillKiosk.disabled) return;
+            closeSettingsPopup();
+            if (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") {
+                window.AXLKiosk.exitKiosk();
+            }
+        });
+    }
+
+    document.addEventListener("click", (e) => {
+        if (settingsPopup && settingsPopup.classList.contains("open")) {
+            if (!settingsPopup.contains(e.target) && e.target !== settingsBtn) {
+                closeSettingsPopup();
+            }
+        }
+    });
+
     // ==========================================================================
     // 4. WEBSOCKET HUD CLIENT
     // ==========================================================================
+    function requestServerMiniTelemetry() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "REQUEST_SERVER_TELEMETRY" }));
+        }
+    }
+
+    function startServerMiniTelemLoop() {
+        if (serverMiniTelemInterval) clearInterval(serverMiniTelemInterval);
+        requestServerMiniTelemetry();
+        serverMiniTelemInterval = setInterval(() => {
+            requestServerMiniTelemetry();
+        }, 1000);
+    }
+
+    function stopServerMiniTelemLoop() {
+        if (serverMiniTelemInterval) {
+            clearInterval(serverMiniTelemInterval);
+            serverMiniTelemInterval = null;
+        }
+    }
+
     function connectWebSocket() {
         if (wsReconnectTimeout) clearTimeout(wsReconnectTimeout);
 
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const host = window.location.host || "127.0.0.1:8000";
-        const wsUrl = `${protocol}//${host}/ws/ui`;
+        const isKioskClient = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            (window.axlClient && window.axlClient.isKiosk) ||
+            (navigator.userAgent && navigator.userAgent.includes("AXL-Kiosk"))
+        );
+        const wsUrl = `${protocol}//${host}/ws/ui?client=${isKioskClient ? "kiosk" : "browser"}`;
 
-        if (connBadge) {
-            connBadge.className = "badge badge-offline";
-            connBadge.textContent = "WS: CONNECTING";
-        }
+        updateConnectionStatus("connecting");
 
         try {
             ws = new WebSocket(wsUrl);
@@ -178,12 +494,12 @@
         }
 
         ws.onopen = () => {
-            if (connBadge) {
-                connBadge.className = "badge badge-online";
-                connBadge.textContent = "WS: ONLINE";
-            }
+            updateConnectionStatus("online");
+            updateKioskUI();
+            requestServerMiniTelemetry();
+            startServerMiniTelemLoop();
             if (isTelemetryActive) {
-                ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY" }));
+                ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY", target: telemetryTarget }));
             }
         };
 
@@ -197,16 +513,37 @@
         };
 
         ws.onclose = () => {
-            if (connBadge) {
-                connBadge.className = "badge badge-offline";
-                connBadge.textContent = "WS: OFFLINE";
-            }
+            stopServerMiniTelemLoop();
+            updateConnectionStatus("offline");
             scheduleReconnect();
         };
 
         ws.onerror = () => {
+            stopServerMiniTelemLoop();
             try { ws.close(); } catch (_) {}
         };
+    }
+
+    function updateConnectionStatus(state) {
+        if (!connStatus) return;
+        if (state === "online") {
+            connStatus.className = "brand-conn-line conn-online";
+            if (connStatusText) connStatusText.textContent = "WS: ONLINE";
+            connStatus.title = "Stato: Connesso al Master Server via WebSocket";
+        } else if (state === "connecting") {
+            connStatus.className = "brand-conn-line conn-connecting";
+            if (connStatusText) connStatusText.textContent = "WS: CONNECTING";
+            connStatus.title = "Stato: Connessione in corso al Master Server...";
+        } else {
+            stopServerMiniTelemLoop();
+            connStatus.className = "brand-conn-line conn-offline";
+            if (connStatusText) connStatusText.textContent = "WS: OFFLINE";
+            connStatus.title = "Stato: Offline. Clicca per riconnettere subito";
+            renderServerMiniTelemetryOffline();
+            if (isTelemetryActive) {
+                renderOfflineTelemetry(telemetryTarget);
+            }
+        }
     }
 
     function scheduleReconnect() {
@@ -214,8 +551,8 @@
         wsReconnectTimeout = setTimeout(connectWebSocket, 2000);
     }
 
-    if (connBadge) {
-        connBadge.addEventListener("click", () => {
+    if (connStatus) {
+        connStatus.addEventListener("click", () => {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 connectWebSocket();
             }
@@ -226,61 +563,110 @@
     // 5. SERVER MESSAGE DISPATCHER
     // ==========================================================================
     function handleServerMessage(msg) {
-        resetInactivityTimer();
+        // Notice: High-frequency background messages (MIC_LEVEL, TELEMETRY_UPDATE)
+        // MUST NOT reset the inactivity timer, otherwise the screen would never dim!
 
         switch (msg.type) {
             case "INIT":
+                if (msg.node_tag) updateBrandNodeTag(msg.node_tag);
+                if (msg.node_tag === "KIOSK" || msg.is_kiosk) {
+                    body.classList.remove("client-desktop", "client-mobile");
+                    body.classList.add("client-kiosk");
+                    document.documentElement.classList.remove("client-desktop", "client-mobile");
+                    document.documentElement.classList.add("client-kiosk");
+                } else if (msg.node_tag && msg.node_tag.startsWith("NODE-")) {
+                    if (!/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") && (window.innerWidth > 899 && window.innerHeight > 520)) {
+                        body.classList.remove("client-kiosk", "client-mobile");
+                        body.classList.add("client-desktop");
+                        document.documentElement.classList.remove("client-kiosk", "client-mobile");
+                        document.documentElement.classList.add("client-desktop");
+                    }
+                }
                 if (msg.security_mode) updateSecurityMode(msg.security_mode);
                 if (msg.state) setVisorState(msg.state);
                 if (msg.is_muted !== undefined) updateMuteUI(msg.is_muted);
                 if (msg.telemetry_active !== undefined) {
                     setTelemetryMode(msg.telemetry_active, msg.telemetry_target || "slave", false);
                 }
+                requestServerMiniTelemetry();
+                resetInactivityTimer();
                 break;
 
             case "STATE_CHANGE":
+                // Handled inside setVisorState (wakes if active, or re-arms timer if IDLE)
                 setVisorState(msg.state, msg.label, msg.sub);
                 break;
 
             case "TELEMETRY_MODE":
+                resetInactivityTimer();
                 setTelemetryMode(msg.enabled, msg.target || "slave", false);
-                if (msg.data) updateTelemetryData(msg.data, msg.target || "slave");
+                if (msg.offline || msg.error || !msg.data) {
+                    renderOfflineTelemetry(msg.target || "slave");
+                } else if (msg.data) {
+                    updateTelemetryData(msg.data, msg.target || "slave");
+                }
                 break;
 
-            case "TELEMETRY_UPDATE":
-                if (msg.data) {
-                    updateTelemetryData(msg.data, msg.target || telemetryTarget);
-                } else if (msg.error) {
-                    // Node unreachable: keep live fallback metrics running so values update smoothly
-                    if (Date.now() - lastRealTelemetryTime > 2500) {
-                        updateTelemetryData(generateFallbackTelemetry(), msg.target || telemetryTarget);
+            case "SERVER_TELEMETRY":
+                if (msg.offline || msg.error || !msg.data) {
+                    renderServerMiniTelemetryOffline();
+                    if (isTelemetryActive && (telemetryTarget === "server" || telemetryTarget === "master")) {
+                        renderOfflineTelemetry("server");
+                    }
+                } else if (msg.data) {
+                    updateServerMiniTelemetry(msg.data);
+                    if (isTelemetryActive && (telemetryTarget === "server" || telemetryTarget === "master")) {
+                        updateTelemetryData(msg.data, "server");
                     }
                 }
                 break;
 
+            case "TELEMETRY_UPDATE":
+                // Passive background telemetry - do NOT reset inactivity timer!
+                if (msg.offline || msg.error || !msg.data) {
+                    const tgt = (msg.target || telemetryTarget || "slave").toLowerCase().trim();
+                    if (tgt === "server" || tgt === "master") {
+                        renderServerMiniTelemetryOffline();
+                    }
+                    renderOfflineTelemetry(tgt);
+                } else if (msg.data) {
+                    const tgt = (msg.target || telemetryTarget || "").toLowerCase().trim();
+                    if (tgt === "server" || tgt === "master") {
+                        updateServerMiniTelemetry(msg.data);
+                    }
+                    updateTelemetryData(msg.data, msg.target || telemetryTarget);
+                }
+                break;
+
             case "AUTH_EVENT":
+                resetInactivityTimer();
                 updateBiometrics(msg);
                 break;
 
             case "TRANSCRIPT":
+                resetInactivityTimer();
                 if (msg.user_text && userTranscript) userTranscript.textContent = `"${msg.user_text}"`;
-                if (msg.axl_text && axlReply) axlReply.textContent = msg.axl_text;
+                if (msg.axl_text && axlReply) fitAxlReplyText(msg.axl_text);
                 break;
 
             case "SECURITY_MODE":
+                resetInactivityTimer();
                 updateSecurityMode(msg.mode);
                 break;
 
             case "MUTE_STATE":
+                resetInactivityTimer();
                 updateMuteUI(msg.muted);
                 break;
 
             case "ANIMATION":
             case "VIDEO_ANIMATION":
+                resetInactivityTimer();
                 if (msg.video) switchAvatarVideo(msg.video);
                 break;
 
             case "MIC_LEVEL":
+                // High-frequency audio streaming frames (10-30Hz) - do NOT reset inactivity timer!
                 if (typeof msg.level === "number") {
                     targetMicLevel = Math.max(0, Math.min(1, msg.level));
                 }
@@ -301,168 +687,393 @@
     }
 
     // ==========================================================================
-    // 6. TELEMETRY ENGINE (Live Slave Data + Dynamic Fallback for Browser Tests)
+    // 6. TELEMETRY ENGINE (Live Hardware Data + Clean Offline / N/A Fallback)
     // ==========================================================================
-    function generateFallbackTelemetry() {
-        simCpuPercent = Math.max(12, Math.min(82, simCpuPercent + (Math.floor(Math.random() * 11) - 5)));
-        const cpuTemp = Math.round(42 + (simCpuPercent / 100) * 24);
-        const cpuFreq = Math.round(2500 + (simCpuPercent / 100) * 1300);
 
-        simRamPercent = Math.max(36, Math.min(76, simRamPercent + (Math.floor(Math.random() * 5) - 2)));
-        const ramTotal = 8.0;
-        const ramUsed = ((simRamPercent / 100) * ramTotal).toFixed(1);
-        const ramFree = (ramTotal - parseFloat(ramUsed)).toFixed(1);
-
-        simGpuPercent = Math.max(10, Math.min(72, simGpuPercent + (Math.floor(Math.random() * 9) - 4)));
-        const gpuTemp = Math.round(43 + (simGpuPercent / 100) * 20);
-
-        simFanRpm = Math.max(1350, Math.min(2600, Math.round(1480 + (simCpuPercent / 100) * 800 + (Math.random() * 50 - 25))));
-
+    // Helper to retrieve elements for the Primary Hardware Telemetry Panel
+    function getPanelElements() {
         return {
-            _is_fallback: true,
-            cpu: {
-                usage_percent: simCpuPercent,
-                temperature_c: cpuTemp,
-                freq_mhz: cpuFreq,
-                core_count: navigator.hardwareConcurrency || 4
-            },
-            memory: {
-                total_gb: ramTotal,
-                used_gb: parseFloat(ramUsed),
-                available_gb: parseFloat(ramFree),
-                percent: simRamPercent
-            },
-            gpus: [
-                {
-                    name: "Integrated / System GPU",
-                    type: "integrated",
-                    usage_percent: simGpuPercent,
-                    temperature_c: gpuTemp,
-                    freq_mhz: 950
-                }
-            ],
-            fans: [
-                {
-                    label: "CPU FAN",
-                    rpm: simFanRpm
-                }
-            ]
+            panel: telemetryPanel,
+            title: telemTitle,
+            badge: telemNodeBadge,
+            cpuCardTitle: telemCpuCardTitle,
+            cpuSub1Lbl: telemCpuSub1Lbl,
+            cpuSub2Lbl: telemCpuSub2Lbl,
+            cpuUsage: telemCpuUsage,
+            cpuTemp: telemCpuTemp,
+            cpuFreq: telemCpuFreq,
+            cpuCores: telemCpuCores,
+            cpuBar: telemCpuBar,
+            ramCardTitle: telemRamCardTitle,
+            ramUsed: telemRamUsed,
+            ramTotal: telemRamTotal,
+            ramPct: telemRamPct,
+            ramFree: telemRamFree,
+            ramBar: telemRamBar,
+            gpuCardTitle: telemGpuCardTitle,
+            gpuList: telemGpuList,
+            gpuTemp: telemGpuGlobalTemp,
+            fanRpm: telemFanRpm,
+            fanUnit: telemFanUnit,
+            fanStatus: telemFanStatus,
+            fanLabel: telemFanLabel,
+            fanSubval: telemFanSubval,
+            fanCardTitle: telemFanCardTitle
         };
     }
 
-    function startTelemetryLoop() {
-        stopTelemetryLoop();
-        if (Date.now() - lastRealTelemetryTime > 2500) {
-            updateTelemetryData(generateFallbackTelemetry(), telemetryTarget);
+    // Offline / fallback renderer for the Top Master Server Mini Sparklines
+    function renderServerMiniTelemetryOffline() {
+        updateMiniTelemVisibility();
+        if (miniCpuFill) {
+            miniCpuFill.style.width = "0%";
+            miniCpuFill.className = "mini-fill muted";
         }
-        telemetrySimInterval = setInterval(() => {
-            if (!isTelemetryActive) {
-                stopTelemetryLoop();
-                return;
-            }
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: "REQUEST_TELEMETRY",
-                    target: telemetryTarget
-                }));
-            }
-            if (Date.now() - lastRealTelemetryTime > 2500) {
-                updateTelemetryData(generateFallbackTelemetry(), telemetryTarget);
-            }
-        }, 1500);
-    }
-
-    function stopTelemetryLoop() {
-        if (telemetrySimInterval) {
-            clearInterval(telemetrySimInterval);
-            telemetrySimInterval = null;
+        if (miniCpuTemp) {
+            miniCpuTemp.textContent = "N/A";
+            miniCpuTemp.style.color = "var(--text-muted)";
+        }
+        if (miniGpuFill) {
+            miniGpuFill.style.width = "0%";
+            miniGpuFill.className = "mini-fill muted";
+        }
+        if (miniMemFill) {
+            miniMemFill.style.width = "0%";
+            miniMemFill.className = "mini-fill muted";
         }
     }
 
-    function setTelemetryMode(enabled, target, notifyServer = true) {
-        isTelemetryActive = !!enabled;
-        if (target) telemetryTarget = target;
+    // Offline / fallback renderer for the Primary Hardware Telemetry Panel
+    function renderOfflineTelemetry(nodeName) {
+        const els = getPanelElements();
+        const tgt = (nodeName || telemetryTarget || "slave").toLowerCase().trim();
+        const isKioskNode = (tgt === "kiosk");
+        const isServerNode = (tgt === "server" || tgt === "master");
 
-        body.classList.toggle("telemetry-active", isTelemetryActive);
-
-        if (telemetryPanel) {
-            telemetryPanel.hidden = !isTelemetryActive;
-            telemetryPanel.style.display = isTelemetryActive ? "flex" : "none";
+        if (els.panel) {
+            els.panel.dataset.target = isKioskNode ? "kiosk" : tgt;
         }
+        body.classList.toggle("telem-target-kiosk", isKioskNode);
 
-        const isServer = (telemetryTarget === "server" || telemetryTarget === "master");
-
-        // Mutually exclusive button states: only the active node's button is highlighted
-        if (serverTelemBtn) {
-            const active = isTelemetryActive && isServer;
-            serverTelemBtn.classList.toggle("active", active);
-            serverTelemBtn.textContent = active ? "SERVER TELEM: ON" : "SERVER TELEM: OFF";
-        }
-
-        if (slaveTelemBtn) {
-            const active = isTelemetryActive && !isServer;
-            slaveTelemBtn.classList.toggle("active", active);
-            slaveTelemBtn.textContent = active ? "SLAVE TELEM: ON" : "SLAVE TELEM: OFF";
-        }
-
-        // Update panel titles and badge
-        if (isTelemetryActive) {
-            if (telemTitle) {
-                telemTitle.textContent = isServer ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
+        if (els.badge) {
+            els.badge.className = "badge badge-telem-offline";
+            if (isKioskNode) {
+                els.badge.textContent = "NODE: KIOSK // OFFLINE";
+            } else if (isServerNode) {
+                els.badge.textContent = "NODE: MASTER // OFFLINE";
+            } else {
+                els.badge.textContent = `NODE: [${tgt.toUpperCase()}] // OFFLINE`;
             }
-            if (telemNodeBadge) {
-                telemNodeBadge.textContent = isServer
-                    ? "NODE: MASTER // LIVE"
-                    : `NODE: [${telemetryTarget.toUpperCase()}] // LIVE`;
+        }
+
+        if (isKioskNode) {
+            if (els.title) els.title.textContent = "KIOSK TELEMETRY";
+            // 1. Processor (CPU)
+            if (els.cpuCardTitle) els.cpuCardTitle.textContent = "PROCESSOR (CPU)";
+            if (els.cpuUsage) els.cpuUsage.textContent = "N/A";
+            if (els.cpuTemp) els.cpuTemp.textContent = "N/A";
+            if (els.cpuSub1Lbl) els.cpuSub1Lbl.textContent = "SOC:";
+            if (els.cpuFreq) els.cpuFreq.textContent = "Exynos 1280";
+            if (els.cpuSub2Lbl) els.cpuSub2Lbl.textContent = "STATUS:";
+            if (els.cpuCores) els.cpuCores.textContent = "OFFLINE";
+            if (els.cpuBar) {
+                els.cpuBar.style.width = "0%";
+                els.cpuBar.className = "telem-meter-fill muted";
             }
-            startTelemetryLoop();
-        } else {
-            stopTelemetryLoop();
+
+            // 2. Memory (RAM)
+            if (els.ramCardTitle) els.ramCardTitle.textContent = "MEMORY (RAM)";
+            if (els.ramUsed) els.ramUsed.textContent = "N/A";
+            if (els.ramTotal) els.ramTotal.textContent = "/ N/A";
+            if (els.ramPct) els.ramPct.textContent = "N/A";
+            if (els.ramFree) els.ramFree.textContent = "N/A";
+            if (els.ramBar) {
+                els.ramBar.style.width = "0%";
+                els.ramBar.className = "telem-meter-fill muted";
+            }
+
+            // 3. Battery System
+            if (els.gpuCardTitle) els.gpuCardTitle.textContent = "BATTERY SYSTEM";
+            if (els.gpuTemp) els.gpuTemp.textContent = "N/A";
+            if (els.gpuList) {
+                els.gpuList.classList.remove("dual-gpu");
+                els.gpuList.innerHTML = `
+                    <div class="telem-gpu-item">
+                        <div class="telem-gpu-top">
+                            <span class="telem-gpu-name">Li-Ion Battery</span>
+                            <span class="telem-gpu-badge offline">OFFLINE // N/A</span>
+                        </div>
+                        <div class="telem-meter-track">
+                            <div class="telem-meter-fill muted" style="width: 0%;"></div>
+                        </div>
+                        <div class="telem-gpu-vram">STATUS: DISCONNECTED // OFFLINE</div>
+                    </div>`;
+            }
+
+            // 4. Wi-Fi Link
+            if (els.fanCardTitle) els.fanCardTitle.textContent = "WI-FI LINK";
+            if (els.fanRpm) els.fanRpm.textContent = "N/A";
+            if (els.fanUnit) els.fanUnit.textContent = "dBm";
+            if (els.fanLabel) els.fanLabel.textContent = "SIGNAL RSSI";
+            if (els.fanSubval) els.fanSubval.textContent = "OFFLINE";
+            if (els.fanStatus) {
+                els.fanStatus.textContent = "OFFLINE";
+                els.fanStatus.className = "telem-temp-badge offline";
+            }
+            return;
         }
 
-        if (notifyServer && ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: "TOGGLE_TELEMETRY",
-                enabled: isTelemetryActive,
-                target: telemetryTarget
-            }));
+        // Standard PC / Server Node metrics
+        if (els.title) {
+            els.title.textContent = isServerNode ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
         }
 
-        // Smoothly resize visor canvas as layout transitions between centered and split view
-        setTimeout(resizeCanvas, 30);
-        setTimeout(resizeCanvas, 200);
-        setTimeout(resizeCanvas, 400);
+        // 1. CPU
+        if (els.cpuCardTitle) els.cpuCardTitle.textContent = "CPU CORE LOAD";
+        if (els.cpuSub1Lbl) els.cpuSub1Lbl.textContent = "CLOCK:";
+        if (els.cpuSub2Lbl) els.cpuSub2Lbl.textContent = "STATUS:";
+        if (els.cpuUsage) els.cpuUsage.textContent = "N/A";
+        if (els.cpuTemp) els.cpuTemp.textContent = "N/A";
+        if (els.cpuFreq) els.cpuFreq.textContent = "-- MHz";
+        if (els.cpuCores) els.cpuCores.textContent = "OFFLINE";
+        if (els.cpuBar) {
+            els.cpuBar.style.width = "0%";
+            els.cpuBar.className = "telem-meter-fill muted";
+        }
+
+        // 2. RAM
+        if (els.ramCardTitle) els.ramCardTitle.textContent = "MEMORY USAGE";
+        if (els.ramUsed) els.ramUsed.textContent = "N/A";
+        if (els.ramTotal) els.ramTotal.textContent = "/ N/A";
+        if (els.ramPct) els.ramPct.textContent = "N/A";
+        if (els.ramFree) els.ramFree.textContent = "N/A";
+        if (els.ramBar) {
+            els.ramBar.style.width = "0%";
+            els.ramBar.className = "telem-meter-fill muted";
+        }
+
+        // 3. GPU(s)
+        if (els.gpuCardTitle) els.gpuCardTitle.textContent = "GRAPHICS (GPU)";
+        if (els.gpuTemp) els.gpuTemp.textContent = "N/A";
+        if (els.gpuList) {
+            els.gpuList.classList.remove("dual-gpu");
+            els.gpuList.innerHTML = `
+                <div class="telem-gpu-item">
+                    <div class="telem-gpu-top">
+                        <span class="telem-gpu-name">Graphics Device</span>
+                        <span class="telem-gpu-badge offline">OFFLINE // N/A</span>
+                    </div>
+                    <div class="telem-meter-track">
+                        <div class="telem-meter-fill muted" style="width: 0%;"></div>
+                    </div>
+                    <div class="telem-gpu-vram">STATUS: NO TELEMETRY FEED</div>
+                </div>`;
+        }
+
+        // 4. Fans
+        if (els.fanCardTitle) els.fanCardTitle.textContent = "COOLING FAN";
+        if (els.fanUnit) els.fanUnit.textContent = "RPM";
+        if (els.fanLabel) els.fanLabel.textContent = "SENSOR:";
+        if (els.fanRpm) els.fanRpm.textContent = "N/A";
+        if (els.fanSubval) els.fanSubval.textContent = "OFFLINE";
+        if (els.fanStatus) {
+            els.fanStatus.textContent = "OFFLINE";
+            els.fanStatus.className = "telem-temp-badge offline";
+        }
     }
 
-    function updateTelemetryData(data, target) {
+    // Toggle visibility of the Top Master Server Mini Sparklines (hidden ONLY when full server telem is open)
+    function updateMiniTelemVisibility() {
+        if (!serverMiniTelem) return;
+        const isFullServerActive = isTelemetryActive && (telemetryTarget === "server" || telemetryTarget === "master");
+        serverMiniTelem.style.display = isFullServerActive ? "none" : "flex";
+    }
+
+    // Live update of the Top Master Server Mini Sparklines (CPU, MEM, GPU sliders + CPU Temp)
+    function updateServerMiniTelemetry(data) {
         if (!data) return;
-        const tgt = target || telemetryTarget || "slave";
-        if (!data._is_fallback) {
-            lastRealTelemetryTime = Date.now();
+        updateMiniTelemVisibility();
+
+        const cpu = data.cpu || {};
+        const mem = data.memory || {};
+        const gpus = data.gpus || [];
+
+        // 1. CPU Load & Temperature
+        const cpuUsage = Math.min(100, Math.max(0, Math.round(cpu.usage_percent || 0)));
+        let cpuTemp = cpu.temperature_c;
+        if (cpuTemp === undefined || cpuTemp === null) {
+            const rawTemps = data.temperatures || {};
+            for (const k of ["coretemp", "k10temp", "cpu_thermal", "zenpower", "acpitz"]) {
+                if (rawTemps[k] && rawTemps[k].length > 0 && rawTemps[k][0].current) {
+                    cpuTemp = Math.round(rawTemps[k][0].current);
+                    break;
+                }
+            }
+        }
+        const resolvedTemp = (cpuTemp !== null && cpuTemp !== undefined) ? Math.round(cpuTemp) : null;
+
+        if (miniCpuFill) {
+            miniCpuFill.style.width = `${cpuUsage}%`;
+            const isCrit = (cpuUsage >= 85) || (resolvedTemp !== null && resolvedTemp >= 82);
+            const isWarn = !isCrit && (cpuUsage >= 70);
+            miniCpuFill.className = "mini-fill" + (isCrit ? " crit" : (isWarn ? " warn" : ""));
+        }
+        if (miniCpuTemp) {
+            miniCpuTemp.textContent = resolvedTemp !== null ? `${resolvedTemp}°C` : "--°C";
+            miniCpuTemp.style.color = (resolvedTemp !== null && resolvedTemp >= 82) ? "var(--red-alert)" : "";
         }
 
-        const isServer = (tgt === "server" || tgt === "master" || telemetryTarget === "server");
+        // 2. GPU Load (Slider only, no numbers)
+        let gpuPct = 0;
+        if (gpus.length > 0) {
+            gpuPct = Math.round(Math.max(...gpus.map(g => g.usage_percent || 0)));
+        } else {
+            gpuPct = Math.round(cpuUsage * 0.45);
+        }
+        gpuPct = Math.min(100, Math.max(0, gpuPct));
 
-        if (telemNodeBadge) {
-            telemNodeBadge.className = "badge badge-telem-online";
-            telemNodeBadge.textContent = isServer
-                ? "NODE: MASTER // LIVE"
-                : `NODE: [${tgt.toUpperCase()}] // LIVE`;
+        if (miniGpuFill) {
+            miniGpuFill.style.width = `${gpuPct}%`;
+            miniGpuFill.className = "mini-fill" + (gpuPct >= 85 ? " crit" : (gpuPct >= 70 ? " warn" : ""));
         }
 
-        if (telemTitle) {
-            telemTitle.textContent = isServer ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
+        // 3. Memory Load (Slider only, no numbers)
+        const memPct = Math.min(100, Math.max(0, Math.round(mem.percent || 0)));
+        if (miniMemFill) {
+            miniMemFill.style.width = `${memPct}%`;
+            miniMemFill.className = "mini-fill" + (memPct >= 85 ? " crit" : (memPct >= 70 ? " warn" : ""));
         }
+    }
+
+    function formatGpuName(rawName, type) {
+        if (!rawName || rawName === "N/A") return "N/A";
+        let n = String(rawName).trim();
+        n = n.replace(/^NVIDIA\s+GeForce\s+/i, "")
+             .replace(/^NVIDIA\s+/i, "")
+             .replace(/^AMD\s+Radeon\(TM\)\s+/i, "AMD ")
+             .replace(/^AMD\s+Radeon\s+/i, "AMD ")
+             .replace(/\s+Laptop\s+GPU$/i, "")
+             .replace(/\s+with\s+Max-Q\s+Design$/i, " Max-Q")
+             .replace(/\s+Graphics$/i, "")
+             .trim();
+        return n || (type === "dedicated" ? "dGPU" : "iGPU");
+    }
+
+    function renderNodeTelemetry(isSec, data, nodeName) {
+        if (!data || data.offline) {
+            renderOfflineTelemetry(nodeName);
+            return;
+        }
+        const els = getPanelElements(isSec);
+        const tgt = (nodeName || "slave").toLowerCase().trim();
+        const isKioskNode = (tgt === "kiosk") || (data.battery_pct !== undefined);
+        if (els.panel) {
+            els.panel.dataset.target = isKioskNode ? "kiosk" : tgt;
+        }
+        body.classList.toggle("telem-target-kiosk", isKioskNode);
+
+        if (isKioskNode) {
+            // Render Android Kiosk metrics
+            if (els.title) els.title.textContent = "KIOSK TELEMETRY";
+            if (els.badge) {
+                els.badge.className = "badge badge-telem-online";
+                els.badge.textContent = "NODE: KIOSK // GALAXY A33";
+            }
+            const battTemp = data.battery_temp || 30.0;
+            const battPct = (data.battery_pct !== undefined && data.battery_pct >= 0) ? data.battery_pct : 88;
+
+            // 1. Card 1: PROCESSOR (CPU / SoC)
+            if (els.cpuCardTitle) els.cpuCardTitle.textContent = "PROCESSOR (CPU)";
+            const kioskCpu = (data.cpu_pct !== undefined) ? Math.round(data.cpu_pct) : Math.max(12, Math.min(65, Math.round(18 + (data.ram_used_pct ? data.ram_used_pct * 0.15 : 5))));
+            if (els.cpuUsage) els.cpuUsage.textContent = `${kioskCpu}%`;
+            if (els.cpuTemp) els.cpuTemp.textContent = `${battTemp.toFixed(1)}°C`;
+            if (els.cpuSub1Lbl) els.cpuSub1Lbl.textContent = "SOC:";
+            if (els.cpuFreq) els.cpuFreq.textContent = data.soc_name || "Exynos 1280";
+            if (els.cpuSub2Lbl) els.cpuSub2Lbl.textContent = "CORES:";
+            if (els.cpuCores) els.cpuCores.textContent = `${data.cpu_cores || 8} Cores`;
+            if (els.cpuBar) {
+                els.cpuBar.style.width = `${kioskCpu}%`;
+                els.cpuBar.className = kioskCpu >= 85 ? "telem-meter-fill crit" : (kioskCpu >= 70 ? "telem-meter-fill warn" : "telem-meter-fill");
+            }
+
+            // 2. Card 2: MEMORY (RAM)
+            if (els.ramCardTitle) els.ramCardTitle.textContent = "MEMORY (RAM)";
+            const ramUsedPct = Math.round(data.ram_used_pct || 48);
+            const ramFreeGb = data.ram_free_mb ? (data.ram_free_mb / 1024).toFixed(1) : "2.6";
+            const ramTotalGb = 6.0;
+            const ramUsedGb = (ramTotalGb - parseFloat(ramFreeGb)).toFixed(1);
+            if (els.ramUsed) els.ramUsed.textContent = ramUsedGb;
+            if (els.ramTotal) els.ramTotal.textContent = `/ ${ramTotalGb.toFixed(1)} GB`;
+            if (els.ramPct) els.ramPct.textContent = `${ramUsedPct}%`;
+            if (els.ramFree) els.ramFree.textContent = `${ramFreeGb} GB`;
+            if (els.ramBar) {
+                els.ramBar.style.width = `${ramUsedPct}%`;
+                els.ramBar.className = ramUsedPct >= 85 ? "telem-meter-fill crit" : (ramUsedPct >= 70 ? "telem-meter-fill warn" : "telem-meter-fill");
+            }
+
+            // 3. Card 3: BATTERY SYSTEM (replaces GPU)
+            if (els.gpuCardTitle) els.gpuCardTitle.textContent = "BATTERY SYSTEM";
+            if (els.gpuList) {
+                const chargeLabel = data.is_charging ? "⚡ AC CHARGING" : "🔋 DISCHARGING";
+                const battColorClass = battPct <= 20 ? "crit" : (battPct <= 35 ? "warn" : "");
+                els.gpuList.classList.remove("dual-gpu");
+                els.gpuList.innerHTML = `
+                    <div class="telem-gpu-item">
+                        <div class="telem-gpu-top">
+                            <span class="telem-gpu-name">Li-Ion 5000 mAh</span>
+                            <span class="telem-gpu-badge">${chargeLabel} // ${battPct}%</span>
+                        </div>
+                        <div class="telem-meter-track">
+                            <div class="telem-meter-fill ${battColorClass}" style="width: ${battPct}%;"></div>
+                        </div>
+                        <div class="telem-gpu-vram">STATUS: ${data.is_charging ? "CHARGING // FAST" : "ON BATTERY // NORMAL"}</div>
+                    </div>`;
+                if (els.gpuTemp) els.gpuTemp.textContent = `${battTemp.toFixed(1)}°C`;
+            }
+
+            // 4. Card 4: WI-FI LINK (replaces COOLING FAN)
+            const rssi = (data.wifi_rssi_dbm !== undefined) ? data.wifi_rssi_dbm : -58;
+            if (els.fanCardTitle) els.fanCardTitle.textContent = "WI-FI LINK";
+            if (els.fanRpm) els.fanRpm.textContent = `${rssi}`;
+            if (els.fanUnit) els.fanUnit.textContent = "dBm";
+            if (els.fanLabel) els.fanLabel.textContent = "SIGNAL RSSI";
+            if (els.fanSubval) els.fanSubval.textContent = rssi >= -65 ? "EXCELLENT" : (rssi >= -80 ? "GOOD" : "WEAK");
+            if (els.fanStatus) {
+                els.fanStatus.textContent = rssi >= -65 ? "ONLINE" : (rssi >= -80 ? "ACTIVE" : "FAIR");
+                els.fanStatus.className = "telem-temp-badge";
+            }
+            return;
+        }
+
+        // Standard PC / Server Node metrics
+        const isServerNode = (tgt === "server" || tgt === "master");
+        if (els.title) {
+            els.title.textContent = isServerNode ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
+        }
+        if (els.badge) {
+            els.badge.className = "badge badge-telem-online";
+            els.badge.textContent = isServerNode ? "NODE: MASTER // LIVE" : `NODE: [${tgt.toUpperCase()}] // LIVE`;
+        }
+
+        // Restore standard PC / Server Node card titles and labels
+        if (els.cpuCardTitle) els.cpuCardTitle.textContent = "CPU CORE LOAD";
+        if (els.cpuSub1Lbl) els.cpuSub1Lbl.textContent = "CLOCK:";
+        if (els.cpuSub2Lbl) els.cpuSub2Lbl.textContent = "CORES:";
+        if (els.ramCardTitle) els.ramCardTitle.textContent = "MEMORY USAGE";
+        if (els.gpuCardTitle) els.gpuCardTitle.textContent = "GRAPHICS (GPU)";
+        if (els.fanCardTitle) els.fanCardTitle.textContent = "COOLING FAN";
+        if (els.fanUnit) els.fanUnit.textContent = "RPM";
+        if (els.fanLabel) els.fanLabel.textContent = "SENSOR:";
 
         // 1. CPU
         const cpu = data.cpu || {};
         const cpuUsage = Math.round(cpu.usage_percent || 0);
-        if (telemCpuUsage) telemCpuUsage.textContent = `${cpuUsage}%`;
-        if (telemCpuBar) {
-            telemCpuBar.style.width = `${Math.min(100, Math.max(0, cpuUsage))}%`;
-            if (cpuUsage >= 85) telemCpuBar.className = "telem-meter-fill crit";
-            else if (cpuUsage >= 70) telemCpuBar.className = "telem-meter-fill warn";
-            else telemCpuBar.className = "telem-meter-fill";
+        if (els.cpuUsage) els.cpuUsage.textContent = `${cpuUsage}%`;
+        if (els.cpuBar) {
+            els.cpuBar.style.width = `${Math.min(100, Math.max(0, cpuUsage))}%`;
+            if (cpuUsage >= 85) els.cpuBar.className = "telem-meter-fill crit";
+            else if (cpuUsage >= 70) els.cpuBar.className = "telem-meter-fill warn";
+            else els.cpuBar.className = "telem-meter-fill";
         }
 
         let resolvedCpuTemp = cpu.temperature_c;
@@ -475,15 +1086,15 @@
                 }
             }
         }
-        if (telemCpuTemp) {
-            telemCpuTemp.textContent = (resolvedCpuTemp !== null && resolvedCpuTemp !== undefined)
+        if (els.cpuTemp) {
+            els.cpuTemp.textContent = (resolvedCpuTemp !== null && resolvedCpuTemp !== undefined)
                 ? `${Math.round(resolvedCpuTemp)}°C` : "44°C";
         }
-        if (telemCpuFreq) {
-            telemCpuFreq.textContent = cpu.freq_mhz ? `${Math.round(cpu.freq_mhz)} MHz` : "-- MHz";
+        if (els.cpuFreq) {
+            els.cpuFreq.textContent = cpu.freq_mhz ? `${Math.round(cpu.freq_mhz)} MHz` : "-- MHz";
         }
-        if (telemCpuCores) {
-            telemCpuCores.textContent = `${cpu.core_count || 4} Cores`;
+        if (els.cpuCores) {
+            els.cpuCores.textContent = `${cpu.core_count || 4} Cores`;
         }
 
         // 2. RAM
@@ -493,23 +1104,23 @@
         const ramPct = Math.round(mem.percent || 0);
         const ramFree = (mem.available_gb || 0).toFixed(1);
 
-        if (telemRamUsed) telemRamUsed.textContent = ramUsed;
-        if (telemRamTotal) telemRamTotal.textContent = `/ ${ramTot} GB`;
-        if (telemRamPct) telemRamPct.textContent = `${ramPct}%`;
-        if (telemRamFree) telemRamFree.textContent = `${ramFree} GB`;
-        if (telemRamBar) {
-            telemRamBar.style.width = `${Math.min(100, Math.max(0, ramPct))}%`;
-            if (ramPct >= 85) telemRamBar.className = "telem-meter-fill crit";
-            else if (ramPct >= 70) telemRamBar.className = "telem-meter-fill warn";
-            else telemRamBar.className = "telem-meter-fill";
+        if (els.ramUsed) els.ramUsed.textContent = ramUsed;
+        if (els.ramTotal) els.ramTotal.textContent = `/ ${ramTot} GB`;
+        if (els.ramPct) els.ramPct.textContent = `${ramPct}%`;
+        if (els.ramFree) els.ramFree.textContent = `${ramFree} GB`;
+        if (els.ramBar) {
+            els.ramBar.style.width = `${Math.min(100, Math.max(0, ramPct))}%`;
+            if (ramPct >= 85) els.ramBar.className = "telem-meter-fill crit";
+            else if (ramPct >= 70) els.ramBar.className = "telem-meter-fill warn";
+            else els.ramBar.className = "telem-meter-fill";
         }
 
         // 3. GPU(s)
         const gpus = data.gpus || [];
-        if (telemGpuList) {
+        if (els.gpuList) {
             if (gpus.length === 0) {
                 const fallbackLoad = Math.max(8, Math.round(cpuUsage * 0.45));
-                telemGpuList.innerHTML = `
+                els.gpuList.innerHTML = `
                     <div class="telem-gpu-item">
                         <div class="telem-gpu-top">
                             <span class="telem-gpu-name">Integrated Graphics</span>
@@ -519,16 +1130,21 @@
                             <div class="telem-meter-fill" style="width: ${fallbackLoad}%;"></div>
                         </div>
                     </div>`;
-                if (telemGpuGlobalTemp) {
-                    telemGpuGlobalTemp.textContent = (resolvedCpuTemp !== null && resolvedCpuTemp !== undefined)
+                if (els.gpuTemp) {
+                    els.gpuTemp.textContent = (resolvedCpuTemp !== null && resolvedCpuTemp !== undefined)
                         ? `${Math.round(resolvedCpuTemp)}°C` : "44°C";
                 }
             } else {
                 let html = "";
                 let maxTemp = null;
+                const isDesktopClient = document.documentElement.classList.contains("client-desktop") || 
+                                        body.classList.contains("client-desktop") || 
+                                        (!clientEnv.isMobile && window.innerWidth > 899 && window.innerHeight > 520);
+                const isDualGpu = gpus.length >= 2;
+                const useCompactDualLayout = !isDesktopClient && isDualGpu;
+
                 gpus.forEach((gpu) => {
                     const isDed = gpu.type === "dedicated";
-                    const typeTag = isDed ? "DEDICATED" : "INTEGRATED";
                     const gUsage = Math.round(gpu.usage_percent || 0);
                     const tempStr = (gpu.temperature_c !== null && gpu.temperature_c !== undefined)
                         ? `${Math.round(gpu.temperature_c)}°C`
@@ -538,74 +1154,301 @@
                         if (maxTemp === null || gpu.temperature_c > maxTemp) maxTemp = gpu.temperature_c;
                     }
 
-                    let vramInfo = "";
-                    if (gpu.memory_used_mb && gpu.memory_total_mb) {
-                        vramInfo = `<div class="telem-gpu-vram">VRAM: ${Math.round(gpu.memory_used_mb)} / ${Math.round(gpu.memory_total_mb)} MB</div>`;
-                    }
+                    if (useCompactDualLayout) {
+                        // Mobile Landscape / compact dual-GPU micro-layout (2 side-by-side columns)
+                        const shortName = formatGpuName(gpu.name, gpu.type);
+                        const typeTag = isDed ? "dGPU" : "iGPU";
+                        let vramInfo = "";
+                        if (gpu.memory_used_mb && gpu.memory_total_mb) {
+                            const uGb = (gpu.memory_used_mb / 1024).toFixed(1);
+                            const tGb = (gpu.memory_total_mb / 1024).toFixed(1);
+                            vramInfo = `<span class="telem-gpu-vram-compact">${uGb}/${tGb} GB</span>`;
+                        } else if (!isDed) {
+                            vramInfo = gpu.freq_mhz ? `<span class="telem-gpu-vram-compact">${Math.round(gpu.freq_mhz)} MHz</span>` : "";
+                        }
 
-                    html += `
-                    <div class="telem-gpu-item">
-                        <div class="telem-gpu-top">
-                            <span class="telem-gpu-name">${escapeHtml(gpu.name || 'GPU')}</span>
-                            <span class="telem-gpu-badge">${typeTag} // ${tempStr}</span>
-                        </div>
-                        <div class="telem-meter-track">
-                            <div class="telem-meter-fill" style="width: ${Math.min(100, Math.max(0, gUsage))}%;"></div>
-                        </div>
-                        ${vramInfo}
-                    </div>`;
+                        html += `
+                        <div class="telem-gpu-item">
+                            <div class="telem-gpu-top">
+                                <span class="telem-gpu-name" title="${escapeHtml(gpu.name || 'N/A')}">${escapeHtml(shortName)}</span>
+                                <span class="telem-gpu-badge">${typeTag} // ${tempStr}</span>
+                            </div>
+                            <div class="telem-meter-track">
+                                <div class="telem-meter-fill" style="width: ${Math.min(100, Math.max(0, gUsage))}%;"></div>
+                            </div>
+                            <div class="telem-gpu-sub-row">
+                                <span class="sub-lbl">LOAD: ${gUsage}%</span>
+                                ${vramInfo}
+                            </div>
+                        </div>`;
+                    } else {
+                        // Desktop PC / Tablet / Single GPU: Full-size, readable stacked layout
+                        const fullName = gpu.name || 'N/A';
+                        const typeTag = isDed ? "DEDICATED" : "INTEGRATED";
+                        let vramInfo = "";
+                        if (gpu.memory_used_mb && gpu.memory_total_mb) {
+                            const uGb = (gpu.memory_used_mb / 1024).toFixed(1);
+                            const tGb = (gpu.memory_total_mb / 1024).toFixed(1);
+                            vramInfo = `<div class="telem-gpu-vram">VRAM: ${uGb} / ${tGb} GB</div>`;
+                        } else if (gpu.freq_mhz) {
+                            vramInfo = `<div class="telem-gpu-vram">FREQ: ${Math.round(gpu.freq_mhz)} MHz</div>`;
+                        }
+
+                        html += `
+                        <div class="telem-gpu-item">
+                            <div class="telem-gpu-top">
+                                <span class="telem-gpu-name" title="${escapeHtml(fullName)}">${escapeHtml(fullName)}</span>
+                                <span class="telem-gpu-badge">${typeTag} // ${tempStr}</span>
+                            </div>
+                            <div class="telem-meter-track">
+                                <div class="telem-meter-fill" style="width: ${Math.min(100, Math.max(0, gUsage))}%;"></div>
+                            </div>
+                            ${vramInfo}
+                        </div>`;
+                    }
                 });
-                telemGpuList.innerHTML = html;
-                if (telemGpuGlobalTemp) {
-                    telemGpuGlobalTemp.textContent = maxTemp !== null ? `${Math.round(maxTemp)}°C` : "45°C";
+                els.gpuList.classList.toggle("dual-gpu", useCompactDualLayout);
+                els.gpuList.innerHTML = html;
+                if (els.gpuTemp) {
+                    els.gpuTemp.textContent = maxTemp !== null ? `${Math.round(maxTemp)}°C` : "45°C";
                 }
             }
         }
 
         // 4. Fans
+        if (els.fanCardTitle) els.fanCardTitle.textContent = "COOLING FAN";
+        if (els.fanUnit) els.fanUnit.textContent = "RPM";
+        if (els.fanLabel) els.fanLabel.textContent = "SENSOR:";
         const fans = data.fans || [];
         if (fans.length > 0) {
             const f = fans[0];
-            if (telemFanRpm) telemFanRpm.textContent = f.rpm;
-            if (telemFanLabel) telemFanLabel.textContent = (f.label || "CPU FAN").toUpperCase();
-            if (telemFanStatus) {
-                telemFanStatus.textContent = f.rpm > 0 ? "ACTIVE" : "IDLE";
-                telemFanStatus.className = "telem-temp-badge";
+            if (els.fanRpm) els.fanRpm.textContent = f.rpm;
+            if (els.fanSubval) els.fanSubval.textContent = (f.label || "CPU FAN").toUpperCase();
+            if (els.fanStatus) {
+                els.fanStatus.textContent = f.rpm > 0 ? "ACTIVE" : "IDLE";
+                els.fanStatus.className = "telem-temp-badge";
             }
         } else {
             const estRpm = Math.round(1450 + cpuUsage * 8);
-            if (telemFanRpm) telemFanRpm.textContent = estRpm;
-            if (telemFanLabel) telemFanLabel.textContent = "SYSTEM COOLING";
-            if (telemFanStatus) {
-                telemFanStatus.textContent = "AUTO";
-                telemFanStatus.className = "telem-temp-badge";
+            if (els.fanRpm) els.fanRpm.textContent = estRpm;
+            if (els.fanSubval) els.fanSubval.textContent = "SYSTEM COOLING";
+            if (els.fanStatus) {
+                els.fanStatus.textContent = "AUTO";
+                els.fanStatus.className = "telem-temp-badge";
             }
         }
     }
 
-    // --- Interactive Telemetry Buttons (Mouse + Touch) ---
-    // Rule: Mutually exclusive - only one telemetry panel can be open at a time; clicking one closes the other.
-    if (serverTelemBtn) {
-        serverTelemBtn.addEventListener("click", (e) => {
+    function startTelemetryLoop() {
+        stopTelemetryLoop();
+        pollTelemetryCycle();
+        telemetrySimInterval = setInterval(() => {
+            if (!isTelemetryActive) {
+                stopTelemetryLoop();
+                return;
+            }
+            pollTelemetryCycle();
+        }, 1500);
+    }
+
+    function stopTelemetryLoop() {
+        if (telemetrySimInterval) {
+            clearInterval(telemetrySimInterval);
+            telemetrySimInterval = null;
+        }
+    }
+
+    function pollTelemetryCycle() {
+        if (!isTelemetryActive) return;
+        const tgt = (telemetryTarget || "slave").toLowerCase().trim();
+        if (tgt === "kiosk") {
+            fetchKioskTelemetry(false);
+        } else {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY", target: tgt }));
+            } else {
+                renderOfflineTelemetry(tgt);
+            }
+            if (Date.now() - lastRealTelemetryTime > 4000) {
+                renderOfflineTelemetry(tgt);
+            }
+        }
+    }
+
+    function fetchKioskTelemetry(isSec = false) {
+        if (window.AXLKiosk && typeof window.AXLKiosk.getKioskTelemetry === "function") {
+            try {
+                const raw = window.AXLKiosk.getKioskTelemetry();
+                if (raw) {
+                    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+                    lastRealTelemetryTime = Date.now();
+                    renderNodeTelemetry(false, data, "kiosk");
+                    return;
+                }
+            } catch (err) {
+                console.warn("[KIOSK] Telemetry bridge error:", err);
+            }
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: "REQUEST_TELEMETRY",
+                target: "kiosk"
+            }));
+        } else {
+            renderOfflineTelemetry("kiosk");
+        }
+        if (Date.now() - lastRealTelemetryTime > 4000) {
+            renderOfflineTelemetry("kiosk");
+        }
+    }
+
+    function setTelemetryMode(enabled, target, notifyServer = true) {
+        isTelemetryActive = !!enabled;
+        if (target) {
+            telemetryTarget = target.toLowerCase().trim();
+        }
+
+        body.classList.toggle("telemetry-active", isTelemetryActive);
+        body.classList.remove("telem-target-kiosk", "telem-target-slave", "telem-target-server");
+        if (isTelemetryActive) {
+            body.classList.add(`telem-target-${telemetryTarget}`);
+        }
+
+        if (telemetryPanel) {
+            telemetryPanel.hidden = !isTelemetryActive;
+            telemetryPanel.style.display = isTelemetryActive ? "flex" : "none";
+            if (isTelemetryActive) {
+                telemetryPanel.dataset.target = telemetryTarget;
+            } else {
+                delete telemetryPanel.dataset.target;
+            }
+        }
+
+        // Update dropdown button label and state
+        if (telemBtn) {
+            telemBtn.classList.toggle("active", isTelemetryActive);
+            if (!isTelemetryActive) {
+                telemBtn.textContent = "TELEM: OFF ▾";
+            } else {
+                let tgtLabel = telemetryTarget.toUpperCase();
+                if (telemetryTarget === "server" || telemetryTarget === "master") tgtLabel = "SERVER";
+                else if (telemetryTarget === "slave") tgtLabel = "SLAVE";
+                else if (telemetryTarget === "kiosk") tgtLabel = "KIOSK";
+                telemBtn.textContent = `TELEM: ${tgtLabel} ▾`;
+            }
+        }
+
+        // Update dropdown active highlight
+        [telemOptServer, telemOptSlave, telemOptKiosk].forEach(btn => {
+            if (btn) btn.classList.remove("active");
+        });
+
+        if (isTelemetryActive) {
+            lastRealTelemetryTime = Date.now();
+            if (telemetryTarget === "server" || telemetryTarget === "master") {
+                if (telemOptServer) telemOptServer.classList.add("active");
+            } else if (telemetryTarget === "kiosk") {
+                if (telemOptKiosk) telemOptKiosk.classList.add("active");
+            } else {
+                if (telemOptSlave) telemOptSlave.classList.add("active");
+            }
+            startTelemetryLoop();
+        } else {
+            stopTelemetryLoop();
+        }
+
+        updateMiniTelemVisibility();
+
+        if (notifyServer && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: "TOGGLE_TELEMETRY",
+                enabled: isTelemetryActive,
+                target: telemetryTarget
+            }));
+        }
+
+        // Smoothly resize visor canvas as layout transitions
+        setTimeout(resizeCanvas, 30);
+        setTimeout(resizeCanvas, 200);
+        setTimeout(resizeCanvas, 400);
+    }
+
+    function updateTelemetryData(data, target) {
+        const tgt = (target || telemetryTarget || "slave").toLowerCase().trim();
+        if (!data || data.offline) {
+            renderOfflineTelemetry(tgt);
+            return;
+        }
+        lastRealTelemetryTime = Date.now();
+        renderNodeTelemetry(false, data, tgt);
+    }
+
+    // Unified Telemetry Dropdown Controller
+    function closeTelemPopup() {
+        if (telemPopup) {
+            telemPopup.classList.remove("open");
+            telemPopup.hidden = true;
+        }
+        if (telemBtn) telemBtn.classList.remove("open");
+    }
+
+    function toggleTelemPopup() {
+        if (!telemPopup) return;
+        const isOpen = telemPopup.classList.contains("open");
+        if (isOpen) {
+            closeTelemPopup();
+        } else {
+            closeSettingsPopup();
+            closeModePopup();
+            updateKioskUI();
+            telemPopup.hidden = false;
+            telemPopup.classList.add("open");
+            if (telemBtn) telemBtn.classList.add("open");
+        }
+    }
+
+    if (telemBtn) {
+        telemBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (isTelemetryActive && (telemetryTarget === "server" || telemetryTarget === "master")) {
-                setTelemetryMode(false, "server", true);
-            } else {
-                setTelemetryMode(true, "server", true);
-            }
+            toggleTelemPopup();
         });
     }
 
-    if (slaveTelemBtn) {
-        slaveTelemBtn.addEventListener("click", (e) => {
+    if (telemOptServer) {
+        telemOptServer.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (isTelemetryActive && telemetryTarget !== "server" && telemetryTarget !== "master") {
-                setTelemetryMode(false, "slave", true);
-            } else {
-                setTelemetryMode(true, "slave", true);
-            }
+            closeTelemPopup();
+            setTelemetryMode(true, "server", true);
+        });
+    }
+
+    if (telemOptSlave) {
+        telemOptSlave.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeTelemPopup();
+            setTelemetryMode(true, "slave", true);
+        });
+    }
+
+    if (telemOptKiosk) {
+        telemOptKiosk.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (telemOptKiosk.disabled) return;
+            closeTelemPopup();
+            setTelemetryMode(true, "kiosk", true);
+        });
+    }
+
+    if (telemOptClose) {
+        telemOptClose.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeTelemPopup();
+            setTelemetryMode(false, telemetryTarget, true);
         });
     }
 
@@ -617,6 +1460,14 @@
         });
     }
 
+    document.addEventListener("click", (e) => {
+        if (telemPopup && telemPopup.classList.contains("open")) {
+            if (!telemPopup.contains(e.target) && e.target !== telemBtn) {
+                closeTelemPopup();
+            }
+        }
+    });
+
     // ==========================================================================
     // 7. ONE-WAY SECURITY MODE CONTROLLER (Clickable ONLY when on FRIENDLY)
     // ==========================================================================
@@ -625,26 +1476,65 @@
             modeSelectorPopup.classList.remove("open");
             modeSelectorPopup.hidden = true;
         }
+        if (secModeBadge) {
+            secModeBadge.classList.remove("open");
+        }
     }
 
     function updateAskButton() {
         if (!askBtn) return;
-        askBtn.classList.remove("ask-friendly", "ask-restrict", "ask-paranoid");
+        askBtn.classList.remove("ask-friendly", "ask-restrict", "ask-paranoid", "ask-stop");
+
+        // When A-X-L is speaking, dynamically transform ASK button into an interactive red STOP button!
+        if (currentState === "SPEAKING") {
+            askBtn.disabled = false;
+            askBtn.classList.remove("disabled-muted", "listening");
+            askBtn.classList.add("ask-stop");
+            if (askBtnIcon) askBtnIcon.textContent = "⏹️";
+            if (askBtnLabel) askBtnLabel.textContent = "STOP";
+            askBtn.title = "Interrompi la risposta vocale di A-X-L";
+            return;
+        }
+
         askBtn.classList.add(`ask-${securityMode}`);
         const listening = currentState === "LISTENING";
         askBtn.classList.toggle("listening", listening);
-        askBtn.disabled = currentState !== "IDLE";
-        if (askBtnLabel) askBtnLabel.textContent = listening ? "LISTENING..." : "ASK ME...";
-        askBtn.title = securityMode === "friendly"
-            ? "Fai una domanda senza dire la wake-word"
-            : "Fai una domanda senza wake-word (verifica vocale ancora attiva)";
+
+        // When microphone is muted, ASK is strictly disabled and unclickable
+        if (isMuted) {
+            askBtn.disabled = true;
+            askBtn.classList.add("disabled-muted");
+            if (askBtnIcon) askBtnIcon.textContent = "🔇";
+            if (askBtnLabel) askBtnLabel.textContent = "MIC MUTO";
+            askBtn.title = "Microfono disattivato: sblocca prima il pulsante MUTE per abilitare le richieste vocali.";
+        } else {
+            askBtn.disabled = currentState !== "IDLE";
+            askBtn.classList.remove("disabled-muted");
+            if (askBtnIcon) askBtnIcon.textContent = listening ? "🎙️" : "💬";
+            if (askBtnLabel) askBtnLabel.textContent = listening ? "LISTENING..." : "ASK ME...";
+            askBtn.title = listening
+                ? "Ascolto in corso..."
+                : (securityMode === "friendly"
+                    ? "Fai una domanda senza dire la wake-word"
+                    : "Fai una domanda senza wake-word (verifica vocale ancora attiva)");
+        }
     }
 
     if (askBtn) {
         askBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (askBtn.disabled) return;
+
+            // If clicked while A-X-L is speaking, immediately abort vocal delivery!
+            if (currentState === "SPEAKING") {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "STOP_SPEECH" }));
+                }
+                setVisorState("IDLE");
+                return;
+            }
+
+            if (askBtn.disabled || isMuted) return;
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: "ASK_START" }));
             } else {
@@ -670,21 +1560,74 @@
         });
     }
 
+    function syncModePopupUI() {
+        const modeOptFriendly = document.getElementById("mode-opt-friendly");
+        const modeOptRestrict = document.getElementById("mode-opt-restrict");
+        const modeOptParanoid = document.getElementById("mode-opt-paranoid");
+        const modeLockMsg = document.getElementById("mode-popup-lock-msg");
+        const modeHeader = document.getElementById("mode-popup-header");
+
+        const isFriendly = (securityMode === "friendly");
+
+        if (modeHeader) {
+            modeHeader.textContent = isFriendly ? "IMPOSTA SICUREZZA (BLOCCO VOCALE):" : "STATO SICUREZZA (BLOCCO ATTIVO):";
+        }
+
+        if (modeLockMsg) {
+            modeLockMsg.style.display = isFriendly ? "none" : "block";
+            modeLockMsg.textContent = `🔒 Sicurezza bloccata su ${securityMode.toUpperCase()}. Solo l'Owner a voce può sbloccare.`;
+        }
+
+        const btnMap = [
+            { btn: modeOptFriendly, mode: "friendly" },
+            { btn: modeOptRestrict, mode: "restrict" },
+            { btn: modeOptParanoid, mode: "paranoid" }
+        ];
+
+        btnMap.forEach(({ btn, mode }) => {
+            if (!btn) return;
+            const isCurrent = (securityMode === mode);
+            btn.classList.toggle("active-mode", isCurrent);
+
+            if (isFriendly) {
+                // In friendly mode, all 3 options are usable and colored
+                btn.disabled = false;
+                btn.classList.remove("mode-btn-locked", "active-locked");
+                if (isCurrent) {
+                    btn.title = "Modalità corrente: FRIENDLY (Accesso Libero)";
+                } else {
+                    btn.title = `Clicca per impostare e bloccare su ${mode.toUpperCase()}`;
+                }
+            } else {
+                // In restrict or paranoid mode, all options are grayed out (disabled/locked)
+                btn.disabled = true;
+                btn.classList.add("mode-btn-locked");
+                btn.classList.toggle("active-locked", isCurrent);
+                if (isCurrent) {
+                    btn.title = `Modalità ATTIVA: ${mode.toUpperCase()} (Bloccata da sicurezza biometrica)`;
+                } else {
+                    btn.title = "Opzione bloccata: modifica consentita solo all'Owner a voce";
+                }
+            }
+        });
+    }
+
     function updateSecurityMode(mode) {
         securityMode = (mode || "friendly").toLowerCase().trim();
         closeModePopup();
         updateAskButton();
+        syncModePopupUI();
 
         if (!secModeBadge) return;
 
         if (securityMode === "friendly") {
             secModeBadge.className = "badge badge-friendly mode-unlocked";
             secModeBadge.textContent = "MODE: FRIENDLY ▾";
-            secModeBadge.title = "Clicca per bloccare la sicurezza su Restrict o Paranoid";
+            secModeBadge.title = "Clicca per visualizzare o bloccare la sicurezza su Restrict o Paranoid";
         } else {
             secModeBadge.className = `badge badge-${securityMode} mode-locked`;
-            secModeBadge.textContent = `🔒 MODE: ${securityMode.toUpperCase()}`;
-            secModeBadge.title = "Modalità bloccata. Solo l'Owner tramite verifica vocale può sbloccare il sistema.";
+            secModeBadge.textContent = `🔒 MODE: ${securityMode.toUpperCase()} ▾`;
+            secModeBadge.title = `Sicurezza ${securityMode.toUpperCase()} bloccata. Clicca per visualizzare lo stato. Sblocco possibile solo dall'Owner a voce.`;
         }
     }
 
@@ -693,32 +1636,40 @@
             e.preventDefault();
             e.stopPropagation();
 
-            // Security Rule: Mode can ONLY be clicked when currently in 'friendly' mode
-            if (securityMode !== "friendly") {
-                if (axlReply) {
-                    axlReply.textContent = `Sicurezza bloccata su ${securityMode.toUpperCase()}. Solo l'Owner con verifica vocale può modificare questa modalità.`;
-                }
-                return;
-            }
-
             if (modeSelectorPopup) {
                 const isOpen = modeSelectorPopup.classList.contains("open");
                 if (isOpen) {
                     closeModePopup();
                 } else {
+                    closeSettingsPopup();
+                    closeTelemPopup();
+                    syncModePopupUI();
                     modeSelectorPopup.hidden = false;
                     modeSelectorPopup.classList.add("open");
+                    secModeBadge.classList.add("open");
+
+                    if (securityMode !== "friendly" && axlReply) {
+                        fitAxlReplyText(`Sicurezza bloccata su ${securityMode.toUpperCase()}. Solo l'Owner con verifica vocale può sbloccare il sistema.`);
+                    }
                 }
             }
         });
     }
 
-    document.querySelectorAll(".mode-option-btn").forEach((btn) => {
+    document.querySelectorAll(".mode-option-btn[data-mode]").forEach((btn) => {
         btn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
+
+            if (securityMode !== "friendly") {
+                if (axlReply) {
+                    fitAxlReplyText(`Azione rifiutata: sicurezza bloccata su ${securityMode.toUpperCase()}. Solo l'Owner tramite comando vocale può sbloccare.`);
+                }
+                return;
+            }
+
             const targetMode = btn.getAttribute("data-mode");
-            if (securityMode === "friendly" && (targetMode === "restrict" || targetMode === "paranoid")) {
+            if (targetMode === "restrict" || targetMode === "paranoid") {
                 updateSecurityMode(targetMode);
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
@@ -727,8 +1678,10 @@
                     }));
                 }
                 if (axlReply) {
-                    axlReply.textContent = `Modalità ${targetMode.toUpperCase()} attivata e bloccata. Verifica biometrica vocale attiva.`;
+                    fitAxlReplyText(`Modalità ${targetMode.toUpperCase()} attivata e bloccata. Verifica biometrica vocale attiva.`);
                 }
+            } else if (targetMode === "friendly") {
+                closeModePopup();
             }
         });
     });
@@ -755,7 +1708,7 @@
             if (muteBtnLabel) muteBtnLabel.textContent = "MIC: MUTO (CLICCA PER SBLOCCARE)";
             muteBtn.title = "Microfono disattivato. Clicca per riattivare l'ascolto vocale.";
             if (axlReply && currentState !== "SPEAKING") {
-                axlReply.textContent = "Modalità muto attiva. Sensori audio disattivati (sblocco consentito solo tramite questo pulsante).";
+                fitAxlReplyText("Modalità muto attiva. Sensori audio disattivati (sblocco consentito solo tramite questo pulsante).");
             }
         } else {
             if (muteBtnIcon) muteBtnIcon.textContent = "🎙️";
@@ -796,13 +1749,13 @@
             bioAuthStatus.className = "bio-value";
             if (id === "OWNER") {
                 bioAuthStatus.classList.add("auth-owner");
-                bioAuthStatus.textContent = "VERIFIED // OWNER";
+                bioAuthStatus.textContent = "ADMIN";
             } else if (auth) {
                 bioAuthStatus.classList.add("auth-friend");
-                bioAuthStatus.textContent = "AUTHORIZED // FRIEND";
+                bioAuthStatus.textContent = "AUTHORIZED";
             } else {
                 bioAuthStatus.classList.add("auth-stranger");
-                bioAuthStatus.textContent = "DENIED // STRANGER";
+                bioAuthStatus.textContent = "STRANGER";
                 if (securityMode !== "friendly") {
                     setVisorState("ALERT", "SECURITY BREACH", "UNAUTHORIZED SPEAKER ACCESS");
                     setTimeout(() => {
@@ -816,9 +1769,21 @@
     function setVisorState(state, customLabel, customSub) {
         currentState = (state || "IDLE").toUpperCase();
 
-        // Preserve non-state classes like 'telemetry-active' and 'hud-subdued'
+        // Preserve non-state classes like 'telemetry-active'
         body.classList.remove("state-idle", "state-listening", "state-thinking", "state-speaking", "state-alert");
         body.classList.add(`state-${currentState.toLowerCase()}`);
+
+        if (currentState === "IDLE") {
+            // When returning to IDLE standby, start/re-arm the subdued dimming timer
+            resetInactivityTimer();
+        } else {
+            // Any active interaction (LISTENING, THINKING, SPEAKING, ALERT) wakes the display immediately
+            wakeScreen();
+            if (idleInactivityTimer) {
+                clearTimeout(idleInactivityTimer);
+                idleInactivityTimer = null;
+            }
+        }
 
         const defaults = {
             IDLE: {
@@ -1061,5 +2026,9 @@
     initVideoAvatar();
     renderVisor();
     startAudioReactiveLoop();
+    resetInactivityTimer();
+    updateAskButton();
+    syncModePopupUI();
+    updateMiniTelemVisibility();
 
 })();
