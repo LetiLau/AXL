@@ -148,6 +148,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
         - `stranger` / `alert`: animazione cane aggressivo / snarl ringhio verso estranei
         - `music` / `balletto`: cane con console DJ o balletto / movimento a ritmo quando suona musica o in festeggiamenti
         - `speaking`: muso che dialoga sincronizzato con la voce Piper TTS
+      - [ ] Fumetto che indica lo stato di axl. Utile per gestire in futuro le animazioni ma avere l'architettura già pronta (not per speaking)
 
 #### FASE 7: Gestione Audio Avanzata, Riproduzione Musicale & Integrazioni Dispositivi
 
