@@ -128,7 +128,16 @@ class StreamManager:
 
         enabled = payload.get("enabled", self.telemetry_active)
         raw_target = payload.get("target", self.telemetry_target)
-        target = "server" if str(raw_target).lower().strip() in ("server", "master", "thinkpad", "locale", "local") else "slave"
+        target_norm = str(raw_target).lower().strip()
+        if target_norm in ("server", "master", "thinkpad", "locale", "local"):
+            target = "server"
+        elif target_norm in ("kiosk", "android", "phone", "galaxy", "a33"):
+            target = "kiosk"
+        elif target_norm in ("split", "dual", "doppia", "due", "both", "entrambi"):
+            target = "split"
+        else:
+            target = "slave"
+
         if enabled != self.telemetry_active or target != self.telemetry_target:
             await self.set_telemetry_mode(enabled, target=target)
         else:
@@ -136,13 +145,15 @@ class StreamManager:
             await self.broadcast_ui(payload)
 
     async def set_telemetry_mode(self, enabled: bool, target: str = "slave"):
-        """Activates or deactivates live telemetry streaming mode for server, slave, or kiosk."""
+        """Activates or deactivates live telemetry streaming mode for server, slave, kiosk, or split."""
         self.telemetry_active = enabled
         target_norm = str(target).lower().strip()
         if target_norm in ("server", "master", "thinkpad", "locale", "local"):
             self.telemetry_target = "server"
         elif target_norm in ("kiosk", "android", "phone", "galaxy", "a33"):
             self.telemetry_target = "kiosk"
+        elif target_norm in ("split", "dual", "doppia", "due", "both", "entrambi"):
+            self.telemetry_target = "split"
         else:
             self.telemetry_target = "slave"
         logger.info(f"[TELEMETRY MODE] State updated: {enabled} (target: {self.telemetry_target})")
@@ -158,7 +169,13 @@ class StreamManager:
             if self.telemetry_target in ("server", "master"):
                 await self.broadcast_ui({
                     "type": "TELEMETRY_UPDATE",
-                    "target": self.telemetry_target,
+                    "target": "server",
+                    "data": self._collect_local_telemetry(),
+                })
+            elif self.telemetry_target == "split":
+                await self.broadcast_ui({
+                    "type": "TELEMETRY_UPDATE",
+                    "target": "server",
                     "data": self._collect_local_telemetry(),
                 })
             elif self.telemetry_target == "kiosk" and self.last_kiosk_telemetry:
@@ -188,9 +205,34 @@ class StreamManager:
                     if self.telemetry_target in ("server", "master"):
                         await self.broadcast_ui({
                             "type": "TELEMETRY_UPDATE",
-                            "target": self.telemetry_target,
+                            "target": "server",
                             "data": self._collect_local_telemetry(),
                         })
+                    elif self.telemetry_target == "split":
+                        # In split mode: broadcast Master Server (left) and Remote Slave (right)
+                        await self.broadcast_ui({
+                            "type": "TELEMETRY_UPDATE",
+                            "target": "server",
+                            "data": self._collect_local_telemetry(),
+                        })
+                        try:
+                            async with httpx.AsyncClient(timeout=1.5) as client:
+                                resp = await client.get(f"{slave_url}/telemetry")
+                                if resp.status_code == 200:
+                                    await self.broadcast_ui({
+                                        "type": "TELEMETRY_UPDATE",
+                                        "target": "slave",
+                                        "data": resp.json(),
+                                    })
+                        except Exception:
+                            pass
+                    elif self.telemetry_target == "kiosk":
+                        if self.last_kiosk_telemetry:
+                            await self.broadcast_ui({
+                                "type": "TELEMETRY_UPDATE",
+                                "target": "kiosk",
+                                "data": self.last_kiosk_telemetry,
+                            })
                     else:
                         try:
                             async with httpx.AsyncClient(timeout=1.5) as client:
@@ -924,11 +966,36 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         logger.info("[ASK BUTTON] Ignored: pipeline busy.")
                 elif mtype == "REQUEST_TELEMETRY":
                     req_target = msg.get("target", stream_manager.telemetry_target)
-                    if req_target in ("server", "master"):
+                    req_norm = str(req_target).lower().strip()
+                    if req_norm in ("server", "master"):
                         await websocket.send_json({
                             "type": "TELEMETRY_UPDATE",
-                            "target": req_target,
+                            "target": "server",
                             "data": stream_manager._collect_local_telemetry(),
+                        })
+                    elif req_norm == "split":
+                        await websocket.send_json({
+                            "type": "TELEMETRY_UPDATE",
+                            "target": "server",
+                            "data": stream_manager._collect_local_telemetry(),
+                        })
+                        slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
+                        try:
+                            async with httpx.AsyncClient(timeout=1.5) as client:
+                                resp = await client.get(f"{slave_url}/telemetry")
+                                if resp.status_code == 200:
+                                    await websocket.send_json({
+                                        "type": "TELEMETRY_UPDATE",
+                                        "target": "slave",
+                                        "data": resp.json(),
+                                    })
+                        except Exception:
+                            pass
+                    elif req_norm == "kiosk" and stream_manager.last_kiosk_telemetry:
+                        await websocket.send_json({
+                            "type": "TELEMETRY_UPDATE",
+                            "target": "kiosk",
+                            "data": stream_manager.last_kiosk_telemetry,
                         })
                     else:
                         slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")

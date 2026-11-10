@@ -130,9 +130,18 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
     * **Pannello HUD Kiosk Dedicato:** Mappatura automatica sui 4 riquadri glassmorphic (Info Dispositivo, RAM, Stato Batteria/Carica e Segnale Wi-Fi RSSI).
     * **Comandi Vocali Bivalenti:** Integrazione in `commands.py` e `brain_gemini.py` dei comandi vocali (*"mostra telemetria kiosk"*, *"telemetria telefono"*, *"stato batteria"*, ecc.).
 
-15. [ ] adding terminal commands linke mc server
-16. [ ] lingua ui dall'ingranaggio
-17. [ ] **Gestione Client Audio Concorrenti / Multi-Client (`/ws/audio`):**
+16. [x] **Riprogettazione Ergonomica Completa HUD Visore (Wireframe & Mobile/Kiosk Optimization):**
+    * **Header a 3 Colonne CSS Grid Anticolloisione (`auto 1fr auto`):** Risolto definitivamente il problema delle sovrapposizioni su display ridotti (smartphone Samsung Galaxy A33 sia orizzontale che verticale, e finestre browser PC ristrette). L'orologio HUD è vincolato nella colonna centrale autonoma con `justify-self: center`, eliminando le collisioni tra il brand a sinistra e la barra comandi a destra.
+    * **Menu a Tendina Telemetria Unificato (`[TELEM: OFF ▾]`):** Raggruppati i vecchi pulsanti separati (`SERVER TELEM`, `SLAVE TELEM`, `KIOSK TELEM`) in un unico selettore a comparsa glassmorphic compatto posizionato a sinistra vicino al logo *A-X-L*. Include: Master Server, Slave PC, Android Kiosk (abilitato dinamicamente solo su Kiosk nativo), Split View (2 Nodi contemporanei) e Chiudi Telemetria.
+    * **Modalità Telemetria SPLIT a Due Nodi (Dual Panel Visor):** Visualizzazione contemporanea di due macchine sul visore: Pannello Sinistro (Master Server), Avatar cane neon compatto al centro, Pannello Destro (Slave PC o Kiosk). Sincronizzazione in background sia tramite WebSocket UI che comandi vocali (*"mostra telemetria split"*, *"doppia telemetria"*, *"telemetria due nodi"*).
+    * **Nuovo Layout Footer Ergonomico:**
+      - Riga 1: Striscia Biometrica a tutta larghezza con terminologia priva di ripetizioni (`SPEAKER ID: OWNER | CONFIDENCE: 0.985 | SECURITY: ADMIN` per proprietario, `AUTHORIZED` per amici registrati, `STRANGER` per estranei, `READY` a riposo).
+      - Riga 2 a due colonne: Colonna sinistra per i sottotitoli del dialogo (`HEARD >` e `A-X-L >`), Colonna destra con pulsanti d'azione impilati verticalmente (`[ 🎙️ MIC: ATTIVO/MUTO ]` in alto e `[ 💬 ASK ME... / ⏹️ STOP ]` in basso).
+    * **Ridimensionamento Dinamico del Testo Subtitles ("Nota Kiosk"):** Implementato algoritmo CSS/JS con classi `reply-sm`, `reply-xs`, `reply-xxs` che scala proporzionalmente la dimensione del font della risposta di A-X-L in base alla lunghezza del testo (oltre 100, 200 e 320 caratteri), evitando strabordamenti e troncamenti visivi sul display del Kiosk.
+
+17. [ ] adding terminal commands linke mc server
+18. [ ] lingua ui dall'ingranaggio
+19. [ ] **Gestione Client Audio Concorrenti / Multi-Client (`/ws/audio`):**
     * Aggiungere controllo ed esclusione mutua o switch di priorità quando più interfacce (es. A33, S25, simulatore PC) tentano di connettersi contemporaneamente allo stream audio del Master.
     * Prevenire conflitti di VAD/ingestione audio e disconnettere graziosamente il client precedente con notifica.
 

@@ -73,19 +73,22 @@ body.hud-subdued #pixel-shift-container {
 
 /* ==========================================================================
    HEADER HUD TELEMETRY BAR & MODERN ROUNDED BUTTONS
+   3-Column Grid guarantees Clock stays physically in the center without overlap
    ========================================================================== */
 .hud-header {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
     border-bottom: 1px solid var(--hud-border);
     padding-bottom: 12px;
     position: relative;
     z-index: 100;
     flex-shrink: 0;
+    gap: 14px;
 }
 
 .hud-brand-wrap {
+    grid-column: 1;
     display: flex;
     align-items: center;
     gap: 14px;
@@ -173,10 +176,11 @@ body.hud-subdued #pixel-shift-container {
 }
 
 .hud-center-clock {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+    grid-column: 2;
+    position: static;
+    transform: none;
     text-align: center;
+    justify-self: center;
     pointer-events: none;
     z-index: 105;
 }
@@ -199,8 +203,10 @@ body.hud-subdued #pixel-shift-container {
 }
 
 .hud-status-tray {
+    grid-column: 3;
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 10px;
     position: relative;
     z-index: 110;
@@ -256,7 +262,7 @@ body.hud-subdued #pixel-shift-container {
 }
 
 /* Security Mode Button & Wrapper */
-.mode-badge-wrapper, .settings-badge-wrapper {
+.mode-badge-wrapper, .settings-badge-wrapper, .telem-badge-wrapper {
     position: relative;
     display: inline-flex;
 }
@@ -466,12 +472,101 @@ body.hud-subdued #pixel-shift-container {
 }
 
 .mode-option-btn.opt-setting:disabled,
-.mode-option-btn.opt-setting.disabled-muted {
+.mode-option-btn.opt-setting.disabled-muted,
+.mode-option-btn.opt-telem:disabled,
+.mode-option-btn.opt-telem.disabled-muted {
     opacity: 0.35 !important;
     cursor: not-allowed !important;
     filter: grayscale(0.85);
     transform: none !important;
     box-shadow: none !important;
+}
+
+/* Unified Telemetry Dropdown Popup */
+.telem-popup {
+    left: 0;
+    right: auto;
+    min-width: 255px;
+}
+
+.opt-telem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0, 240, 255, 0.05);
+    color: var(--text-white);
+    border-color: rgba(0, 240, 255, 0.22);
+    font-size: 0.76rem;
+    letter-spacing: 0.03rem;
+}
+
+.opt-telem:hover:not(:disabled) {
+    background: rgba(0, 240, 255, 0.18);
+    border-color: var(--cyan-glow);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
+    transform: translateX(2px);
+}
+
+.opt-telem.active {
+    background: rgba(0, 230, 118, 0.16);
+    border-color: var(--green-emerald);
+    color: var(--green-emerald);
+    box-shadow: 0 0 12px rgba(0, 230, 118, 0.3);
+}
+
+.telem-opt-indicator {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    display: inline-block;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.opt-telem.active .telem-opt-indicator {
+    background: var(--green-emerald);
+    box-shadow: 0 0 8px var(--green-emerald);
+}
+
+.opt-telem.opt-split {
+    border-color: rgba(176, 56, 255, 0.4);
+    background: rgba(176, 56, 255, 0.08);
+    color: #df9eff;
+}
+
+.opt-telem.opt-split:hover:not(:disabled) {
+    background: rgba(176, 56, 255, 0.22);
+    border-color: #b038ff;
+    box-shadow: 0 0 12px rgba(176, 56, 255, 0.4);
+}
+
+.opt-telem.opt-split.active {
+    background: rgba(176, 56, 255, 0.24);
+    border-color: #b038ff;
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(176, 56, 255, 0.55);
+}
+
+.opt-telem.opt-split.active .telem-opt-indicator {
+    background: #df9eff;
+    box-shadow: 0 0 8px #df9eff;
+}
+
+.opt-telem.opt-close-telem {
+    background: rgba(255, 0, 59, 0.08);
+    color: #ff6b8b;
+    border-color: rgba(255, 0, 59, 0.3);
+    margin-top: 4px;
+    justify-content: center;
+}
+
+.opt-telem.opt-close-telem:hover {
+    background: rgba(255, 0, 59, 0.22);
+    color: #ffffff;
+    border-color: var(--red-alert);
+    box-shadow: 0 0 12px rgba(255, 0, 59, 0.4);
+    transform: none;
 }
 
 /* Connection Status Badge */
@@ -561,6 +656,12 @@ body.telemetry-active .visor-stage {
     padding: 6px 12px;
 }
 
+body.telemetry-active.telemetry-split .visor-stage {
+    justify-content: space-between;
+    gap: 16px;
+    padding: 4px 10px;
+}
+
 /* Wrapper holds both the circular canvas and the status label below it in flex flow */
 .visor-wrapper {
     display: flex;
@@ -585,6 +686,11 @@ body.telemetry-active .visor-stage {
 body.telemetry-active .visor-core-box {
     width: min(36vw, calc(100vh - 280px), 350px);
     height: min(36vw, calc(100vh - 280px), 350px);
+}
+
+body.telemetry-active.telemetry-split .visor-core-box {
+    width: min(22vw, calc(100vh - 300px), 240px);
+    height: min(22vw, calc(100vh - 300px), 240px);
 }
 
 .visor-video {
@@ -722,15 +828,41 @@ body.state-idle .state-sub {
     flex-shrink: 0;
 }
 
-body.telemetry-active .telemetry-panel {
+body.telemetry-active .telemetry-panel:not(.telemetry-panel-sec) {
     display: flex;
     animation: telem-slide-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+body.telemetry-active:not(.telemetry-split) #telemetry-panel-sec {
+    display: none !important;
+}
+
+body.telemetry-active.telemetry-split .telemetry-panel {
+    width: min(34vw, 420px);
+    max-height: calc(100vh - 200px);
+    padding: 14px 16px;
+}
+
+body.telemetry-active.telemetry-split #telemetry-panel-sec {
+    display: flex !important;
+    animation: telem-slide-in-right 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes telem-slide-in {
     from {
         opacity: 0;
         transform: translateX(-24px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+@keyframes telem-slide-in-right {
+    from {
+        opacity: 0;
+        transform: translateX(24px) scale(0.98);
     }
     to {
         opacity: 1;
@@ -1019,25 +1151,180 @@ body.telemetry-active .telemetry-panel {
 }
 
 /* ==========================================================================
-   FOOTER: BIOMETRICS & SUBTITLES
+   FOOTER: BIOMETRICS (ROW 1) & SUBTITLES + ACTIONS (ROW 2)
    ========================================================================== */
 .hud-footer {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     border-top: 1px solid var(--hud-border);
-    padding-top: 12px;
+    padding-top: 10px;
     z-index: 50;
     flex-shrink: 0;
 }
 
-/* Action Strip with Mute (left) and Ask Me (right) buttons */
-.hud-action-strip {
+/* Row 1: Biometric Strip (Full Width) */
+.biometric-strip {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    background: rgba(0, 240, 255, 0.03);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+    padding: 7px 14px;
+    border-radius: 10px;
+}
+
+.bio-tag {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bio-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08rem;
+}
+
+.bio-value {
+    font-family: var(--font-orbitron);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.1rem;
+    color: var(--cyan-glow);
+}
+
+.bio-score-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0.5;
+    max-width: 280px;
+}
+
+.bio-bar-bg {
+    flex: 1;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.bio-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--blue-neon), var(--cyan-glow));
+    transition: width 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.auth-idle { color: var(--text-muted); }
+.auth-owner { color: var(--green-emerald); text-shadow: 0 0 6px var(--green-emerald); }
+.auth-friend { color: var(--cyan-glow); text-shadow: 0 0 6px var(--cyan-glow); }
+.auth-stranger { color: var(--red-alert); text-shadow: 0 0 8px var(--red-alert); }
+
+/* Row 2: Subtitles (left) + Action Column (right) */
+.hud-bottom-row {
+    display: flex;
+    align-items: stretch;
     gap: 12px;
-    margin-bottom: 2px;
+    min-height: 80px;
+}
+
+/* Dialogue Panel (Responsive transcript & reply container) */
+.dialogue-panel {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.85);
+    border: 1px solid rgba(0, 240, 255, 0.12);
+    padding: 10px 14px;
+    border-radius: 12px;
+}
+
+.dialogue-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.speaker-tag {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1rem;
+    min-width: 65px;
+    flex-shrink: 0;
+}
+
+.tag-user { color: var(--text-muted); }
+.tag-axl { color: var(--cyan-glow); }
+
+.speech-text {
+    font-family: var(--font-rajdhani);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: 0.03rem;
+    word-break: break-word;
+}
+
+.transcript-text {
+    color: #b0bec5;
+    font-style: italic;
+}
+
+.reply-text {
+    color: #ffffff;
+    transition: font-size 0.2s ease, line-height 0.2s ease;
+}
+
+/* Dynamic text scaling classes for long replies (Nota Kiosk) */
+.reply-text.reply-sm {
+    font-size: 0.85rem;
+    line-height: 1.25;
+}
+
+.reply-text.reply-xs {
+    font-size: 0.76rem;
+    line-height: 1.2;
+}
+
+.reply-text.reply-xxs {
+    font-size: 0.68rem;
+    line-height: 1.15;
+}
+
+/* Tactical Action Column (Stacked vertically beside Subtitles) */
+.hud-action-column {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    justify-content: space-between;
+    flex-shrink: 0;
+    width: 175px;
+}
+
+.hud-action-column .badge-mute-btn,
+.hud-action-column .badge-ask-btn {
+    width: 100%;
+    min-height: 38px;
+    padding: 6px 14px;
+    font-size: 0.80rem;
+    font-weight: 700;
+    letter-spacing: 0.08rem;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.12);
+    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    user-select: none;
+    touch-action: manipulation;
 }
 
 .badge-mute-btn {
@@ -1045,19 +1332,6 @@ body.telemetry-active .telemetry-panel {
     color: var(--cyan-glow);
     border: 1px solid rgba(0, 240, 255, 0.42);
     cursor: pointer;
-    padding: 10px 20px;
-    min-height: 48px;
-    border-radius: 12px;
-    font-size: 0.95rem;
-    font-weight: 700;
-    letter-spacing: 0.08rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    box-shadow: 0 0 10px rgba(0, 240, 255, 0.12);
-    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-    user-select: none;
-    touch-action: manipulation;
 }
 
 .badge-mute-btn:hover {
@@ -1072,26 +1346,15 @@ body.telemetry-active .telemetry-panel {
 }
 
 .badge-mute-btn .mute-icon {
-    font-size: 1.15rem;
+    font-size: 1.05rem;
     line-height: 1;
 }
 
 /* ASK ME push-to-talk button: colour follows security mode */
 .badge-ask-btn {
     cursor: pointer;
-    padding: 10px 20px;
-    min-height: 48px;
-    border-radius: 12px;
-    font-size: 0.95rem;
-    font-weight: 700;
-    letter-spacing: 0.08rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
     border: 1px solid;
     transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-    user-select: none;
-    touch-action: manipulation;
 }
 
 .badge-ask-btn:active:not(:disabled) { transform: translateY(1px); }
@@ -1187,112 +1450,6 @@ body.telemetry-active .telemetry-panel {
 .badge-mute-btn.muted:hover {
     background: linear-gradient(135deg, rgba(255, 0, 59, 0.35) 0%, rgba(180, 0, 30, 0.2) 100%);
     box-shadow: 0 0 18px rgba(255, 0, 59, 0.6);
-}
-
-.biometric-strip {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: rgba(0, 240, 255, 0.03);
-    border: 1px solid rgba(0, 240, 255, 0.15);
-    padding: 8px 14px;
-    border-radius: 10px;
-}
-
-.bio-tag {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.bio-label {
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    letter-spacing: 0.08rem;
-}
-
-.bio-value {
-    font-family: var(--font-orbitron);
-    font-size: 0.8rem;
-    font-weight: 700;
-    letter-spacing: 0.1rem;
-    color: var(--cyan-glow);
-}
-
-.bio-score-wrap {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 0.5;
-    max-width: 280px;
-}
-
-.bio-bar-bg {
-    flex: 1;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 999px;
-    overflow: hidden;
-}
-
-.bio-bar-fill {
-    height: 100%;
-    border-radius: 999px;
-    background: linear-gradient(90deg, var(--blue-neon), var(--cyan-glow));
-    transition: width 0.4s cubic-bezier(0.25, 1, 0.5, 1);
-}
-
-.auth-idle { color: var(--text-muted); }
-.auth-owner { color: var(--green-emerald); text-shadow: 0 0 6px var(--green-emerald); }
-.auth-friend { color: var(--cyan-glow); text-shadow: 0 0 6px var(--cyan-glow); }
-.auth-stranger { color: var(--red-alert); text-shadow: 0 0 8px var(--red-alert); }
-
-/* Dialogue Panel */
-.dialogue-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    background: rgba(0, 0, 0, 0.85);
-    border: 1px solid rgba(0, 240, 255, 0.12);
-    padding: 10px 14px;
-    border-radius: 10px;
-    min-height: 68px;
-}
-
-.dialogue-row {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-}
-
-.speaker-tag {
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.1rem;
-    min-width: 65px;
-}
-
-.tag-user { color: var(--text-muted); }
-.tag-axl { color: var(--cyan-glow); }
-
-.speech-text {
-    font-family: var(--font-rajdhani);
-    font-size: 0.95rem;
-    font-weight: 600;
-    line-height: 1.3;
-    letter-spacing: 0.03rem;
-    word-break: break-word;
-}
-
-.transcript-text {
-    color: #b0bec5;
-    font-style: italic;
-}
-
-.reply-text {
-    color: #ffffff;
 }
 
 /* ==========================================================================
@@ -1462,10 +1619,12 @@ body.state-alert .alert-overlay {
 }
 
 /* ==========================================================================
-   MOBILE & TABLET RESPONSIVENESS (SAMSUNG GALAXY A33 & SMALL VIEWPORTS)
+   MOBILE & TABLET RESPONSIVENESS (SAMSUNG GALAXY A33 & COMPACT VIEWPORTS)
    ========================================================================== */
-@media (max-width: 900px) {
-    body.telemetry-active .visor-stage {
+
+/* Tablet & Moderate Widths */
+@media (max-width: 900px) and (min-height: 521px) {
+    body.telemetry-active:not(.telemetry-split) .visor-stage {
         flex-direction: column;
         justify-content: center;
         overflow-y: auto;
@@ -1473,7 +1632,7 @@ body.state-alert .alert-overlay {
     }
     body.telemetry-active .telemetry-panel {
         width: 100%;
-        max-height: 290px;
+        max-height: 280px;
     }
     body.telemetry-active .visor-core-box {
         width: 220px;
@@ -1481,59 +1640,188 @@ body.state-alert .alert-overlay {
     }
 }
 
-@media (max-width: 640px) {
+/* Mobile Landscape & Low-Height Screens (Galaxy A33 Landscape: ~800x380px) */
+@media (max-height: 520px) and (orientation: landscape), (max-height: 500px) {
     #pixel-shift-container {
-        padding: 12px 14px;
+        padding: 6px 14px;
     }
     .hud-header {
+        padding-bottom: 6px;
+        gap: 8px;
+    }
+    .brand-title {
+        font-size: 1.25rem;
+        letter-spacing: 0.2rem;
+    }
+    .brand-sub {
+        font-size: 0.58rem;
+    }
+    .brand-conn-line {
+        font-size: 0.52rem;
+    }
+    #clock-time {
+        font-size: 1.25rem;
+    }
+    #clock-date {
+        font-size: 0.60rem;
+    }
+    .badge {
+        padding: 5px 10px;
+        font-size: 0.68rem;
+        min-height: 30px;
+    }
+    .visor-stage {
+        padding: 4px 0;
+        gap: 16px;
+    }
+    .visor-core-box {
+        width: min(32vw, calc(100vh - 175px), 175px);
+        height: min(32vw, calc(100vh - 175px), 175px);
+    }
+    body.telemetry-active .visor-core-box {
+        width: min(20vw, 135px);
+        height: min(20vw, 135px);
+    }
+    body.telemetry-active.telemetry-split .visor-core-box {
+        width: min(16vw, 115px);
+        height: min(16vw, 115px);
+    }
+    .telemetry-panel {
+        max-height: calc(100vh - 145px);
+        padding: 10px 12px;
+    }
+    .telem-title {
+        font-size: 0.88rem;
+    }
+    .telem-grid {
+        gap: 8px;
+    }
+    .telem-card {
+        padding: 8px 10px;
+    }
+    .telem-val-large {
+        font-size: 1.1rem;
+    }
+    .hud-footer {
+        padding-top: 6px;
+        gap: 6px;
+    }
+    .biometric-strip {
+        padding: 4px 10px;
+    }
+    .bio-label, .bio-value {
+        font-size: 0.68rem;
+    }
+    .hud-bottom-row {
+        min-height: 56px;
+        gap: 8px;
+    }
+    .dialogue-panel {
+        padding: 6px 10px;
+        min-height: 50px;
+    }
+    .speaker-tag {
+        font-size: 0.64rem;
+        min-width: 55px;
+    }
+    .speech-text {
+        font-size: 0.82rem;
+    }
+    .hud-action-column {
+        width: 140px;
+        gap: 4px;
+    }
+    .hud-action-column .badge-mute-btn,
+    .hud-action-column .badge-ask-btn {
+        min-height: 27px;
+        padding: 4px 8px;
+        font-size: 0.70rem;
+    }
+}
+
+/* Mobile Portrait (Galaxy A33 Portrait: ~360-420px width) */
+@media (max-width: 640px) {
+    #pixel-shift-container {
+        padding: 10px 12px;
+    }
+    .hud-header {
+        display: flex;
         flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
         gap: 8px;
     }
     .hud-brand-wrap {
+        order: 1;
         gap: 8px;
     }
     .hud-status-tray {
-        flex-wrap: wrap;
+        order: 2;
         gap: 6px;
     }
+    .hud-center-clock {
+        order: 3;
+        width: 100%;
+        margin-top: 4px;
+        text-align: center;
+    }
+    #clock-time {
+        font-size: 1.35rem;
+    }
+    #clock-date {
+        font-size: 0.64rem;
+    }
     .badge {
-        padding: 6px 10px;
+        padding: 5px 9px;
         font-size: 0.68rem;
         min-height: 32px;
+    }
+    .brand-title {
+        font-size: 1.25rem;
+    }
+    .visor-core-box {
+        width: min(64vw, 240px);
+        height: min(64vw, 240px);
+    }
+    body.telemetry-active .visor-stage {
+        flex-direction: column;
+        overflow-y: auto;
+        gap: 12px;
+    }
+    body.telemetry-active .telemetry-panel {
+        width: 100%;
+        max-height: 260px;
+    }
+    body.telemetry-active .visor-core-box {
+        width: 160px;
+        height: 160px;
     }
     .telem-grid {
         grid-template-columns: 1fr;
     }
-    .brand-title {
-        font-size: 1.3rem;
-    }
-    #clock-time {
-        font-size: 1.4rem;
-    }
-    .visor-core-box {
-        width: min(68vw, 260px);
-        height: min(68vw, 260px);
-    }
-    .state-label {
-        font-size: 0.82rem;
-    }
-    .hud-center-clock {
-        position: static;
-        transform: none;
-        width: 100%;
-        order: -1;
-        text-align: center;
-    }
     .biometric-strip {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 6px;
+        padding: 6px 10px;
     }
-    .bio-score-wrap {
-        width: 100%;
-        max-width: 100%;
+    .bio-label {
+        font-size: 0.62rem;
+    }
+    .bio-value {
+        font-size: 0.72rem;
+    }
+    .hud-bottom-row {
+        gap: 8px;
+    }
+    .hud-action-column {
+        width: 125px;
+    }
+    .hud-action-column .badge-mute-btn,
+    .hud-action-column .badge-ask-btn {
+        padding: 5px 6px;
+        font-size: 0.68rem;
+        min-height: 34px;
+        letter-spacing: 0.04rem;
     }
     .speech-text {
-        font-size: 0.88rem;
+        font-size: 0.84rem;
     }
 }

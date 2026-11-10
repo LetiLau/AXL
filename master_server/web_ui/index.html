@@ -7,16 +7,18 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css?v=5.3">
+    <link rel="stylesheet" href="style.css?v=6.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
         /* Fallback critico anti-cache per nascondere sempre i pannelli chiusi */
         [hidden] { display: none !important; }
-        body:not(.telemetry-active) #telemetry-panel { display: none !important; }
+        body:not(.telemetry-active) #telemetry-panel,
+        body:not(.telemetry-split) #telemetry-panel-sec { display: none !important; }
         .mode-selector-popup:not(.open) { display: none !important; }
         #settings-popup:not(.open) { display: none !important; }
+        #telem-popup:not(.open) { display: none !important; }
     </style>
 </head>
 <body class="state-idle">
@@ -34,7 +36,33 @@
                         <span id="connection-status-text">WS: OFFLINE</span>
                     </div>
                 </div>
-                <button type="button" id="server-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Master Server">SERVER TELEM: OFF</button>
+
+                <!-- Unified Telemetry Dropdown (Consolidates Server, Slave, Kiosk, Split) -->
+                <div class="telem-badge-wrapper">
+                    <button type="button" id="telem-btn" class="badge badge-telem-btn" title="Apri selettore telemetria hardware">TELEM: OFF ▾</button>
+                    <div id="telem-popup" class="mode-selector-popup telem-popup" hidden>
+                        <div class="mode-popup-header">TELEMETRIA HARDWARE:</div>
+                        <button type="button" class="mode-option-btn opt-telem" id="telem-opt-server" data-target="server">
+                            <span class="telem-opt-indicator"></span>
+                            <span>🖥️ Master Server</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-telem" id="telem-opt-slave" data-target="slave">
+                            <span class="telem-opt-indicator"></span>
+                            <span>💻 Slave PC (Fedora)</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-telem disabled-muted" id="telem-opt-kiosk" data-target="kiosk" disabled title="Disponibile solo all'interno dell'app Android Kiosk">
+                            <span class="telem-opt-indicator"></span>
+                            <span>📱 Android Kiosk (A33)</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-telem opt-split" id="telem-opt-split" data-target="split">
+                            <span class="telem-opt-indicator"></span>
+                            <span>🔀 Split View (2 Nodi)</span>
+                        </button>
+                        <button type="button" class="mode-option-btn opt-telem opt-close-telem" id="telem-opt-close">
+                            <span>✕ Chiudi Telemetria</span>
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="hud-center-clock">
@@ -43,9 +71,6 @@
             </div>
 
             <div class="hud-status-tray">
-                <button type="button" id="slave-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Slave PC">SLAVE TELEM: OFF</button>
-                <button type="button" id="kiosk-telem-btn" class="badge badge-telem-btn" title="Mostra/Nascondi Telemetria Kiosk Android" hidden>KIOSK TELEM: OFF</button>
-                
                 <div class="mode-badge-wrapper">
                     <button type="button" id="sec-mode-badge" class="badge badge-friendly mode-unlocked" title="Clicca per impostare Restrict o Paranoid">MODE: FRIENDLY ▾</button>
                     <div id="mode-selector-popup" class="mode-selector-popup" hidden>
@@ -249,24 +274,116 @@
                 </div>
 
             </div>
+
+            <!-- Right Side: Secondary Hardware Telemetry Panel (Active in SPLIT Mode) -->
+            <aside id="telemetry-panel-sec" class="telemetry-panel telemetry-panel-sec" hidden>
+                <div class="telem-header">
+                    <div class="telem-title-wrap">
+                        <span class="telem-tag">NODE MONITOR 2</span>
+                        <h2 id="telem-title-sec" class="telem-title">SLAVE TELEMETRY</h2>
+                    </div>
+                    <div class="telem-header-actions">
+                        <span id="telem-node-badge-sec" class="badge badge-telem-online">NODE: SLAVE // LIVE</span>
+                        <button type="button" id="telem-close-btn-sec" class="telem-icon-btn" title="Chiudi Telemetria Secondaria">✕</button>
+                    </div>
+                </div>
+
+                <div class="telem-grid">
+                    <!-- CPU Monitor Card -->
+                    <div class="telem-card">
+                        <div class="telem-card-header">
+                            <span class="telem-card-label">CPU CORE LOAD</span>
+                            <span id="telem-cpu-temp-sec" class="telem-temp-badge">44°C</span>
+                        </div>
+                        <div class="telem-stat-row">
+                            <div class="telem-main-metric">
+                                <span id="telem-cpu-usage-sec" class="telem-val-large">18%</span>
+                            </div>
+                            <div class="telem-sub-metric">
+                                <div class="telem-sub-line">
+                                    <span class="sub-lbl">CLOCK:</span>
+                                    <span id="telem-cpu-freq-sec" class="sub-val">2800 MHz</span>
+                                </div>
+                                <div class="telem-sub-line">
+                                    <span class="sub-lbl">CORES:</span>
+                                    <span id="telem-cpu-cores-sec" class="sub-val">4 Cores</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="telem-meter-track">
+                            <div id="telem-cpu-bar-sec" class="telem-meter-fill" style="width: 18%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- RAM Memory Card -->
+                    <div class="telem-card">
+                        <div class="telem-card-header">
+                            <span class="telem-card-label">MEMORY USAGE</span>
+                            <span id="telem-ram-pct-sec" class="telem-temp-badge">46%</span>
+                        </div>
+                        <div class="telem-stat-row">
+                            <div class="telem-main-metric">
+                                <span id="telem-ram-used-sec" class="telem-val-large">3.7</span>
+                                <span id="telem-ram-total-sec" class="telem-unit">/ 8.0 GB</span>
+                            </div>
+                            <div class="telem-sub-metric">
+                                <div class="telem-sub-line">
+                                    <span class="sub-lbl">FREE:</span>
+                                    <span id="telem-ram-free-sec" class="sub-val">4.3 GB</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="telem-meter-track">
+                            <div id="telem-ram-bar-sec" class="telem-meter-fill" style="width: 46%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- GPU(s) Card -->
+                    <div class="telem-card telem-gpu-card">
+                        <div class="telem-card-header">
+                            <span class="telem-card-label">GRAPHICS (GPU)</span>
+                            <span id="telem-gpu-global-temp-sec" class="telem-temp-badge">45°C</span>
+                        </div>
+                        <div id="telem-gpu-list-sec" class="telem-gpu-list">
+                            <div class="telem-gpu-item">
+                                <div class="telem-gpu-top">
+                                    <span class="telem-gpu-name">GPU Node</span>
+                                    <span class="telem-gpu-badge">ACTIVE</span>
+                                </div>
+                                <div class="telem-meter-track">
+                                    <div class="telem-meter-fill" style="width: 16%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Fans & Cooling Card -->
+                    <div class="telem-card">
+                        <div class="telem-card-header">
+                            <span class="telem-card-label">COOLING FAN</span>
+                            <span id="telem-fan-status-sec" class="telem-temp-badge">ACTIVE</span>
+                        </div>
+                        <div class="telem-stat-row">
+                            <div class="telem-main-metric">
+                                <span id="telem-fan-rpm-sec" class="telem-val-large">1680</span>
+                                <span class="telem-unit">RPM</span>
+                            </div>
+                            <div class="telem-sub-metric">
+                                <div class="telem-sub-line">
+                                    <span class="sub-lbl">SENSOR:</span>
+                                    <span id="telem-fan-label-sec" class="sub-val">CPU FAN</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
         </main>
 
         <!-- Biometric Telemetry & Speech Subtitles Tray -->
         <footer class="hud-footer">
             
-            <!-- Tactical Action Strip: MIC (left) / ASK ME (right) -->
-            <div class="hud-action-strip">
-                <button type="button" id="mute-btn" class="badge badge-mute-btn" title="Disattiva ascolto microfono (Può essere riattivato solo cliccando qui)">
-                    <span id="mute-btn-icon" class="mute-icon">🎙️</span>
-                    <span id="mute-btn-label">MIC: ATTIVO</span>
-                </button>
-                <button type="button" id="ask-btn" class="badge badge-ask-btn ask-friendly" title="Fai una domanda senza dire la wake-word">
-                    <span id="ask-btn-icon" class="mute-icon">💬</span>
-                    <span id="ask-btn-label">ASK ME...</span>
-                </button>
-            </div>
-
-            <!-- Speaker Biometrics Strip -->
+            <!-- Row 1: Speaker Biometrics Strip (Full Width) -->
             <div class="biometric-strip">
                 <div class="bio-tag">
                     <span class="bio-label">SPEAKER ID:</span>
@@ -285,15 +402,30 @@
                 </div>
             </div>
 
-            <!-- Dialogue Subtitles Panel -->
-            <div class="dialogue-panel">
-                <div class="dialogue-row user-row">
-                    <span class="speaker-tag tag-user">HEARD &gt;</span>
-                    <span id="user-transcript" class="speech-text transcript-text">"Hey Jarvis..."</span>
+            <!-- Row 2: Subtitles (Left) + Vertically Stacked MIC & ASK ME Actions (Right) -->
+            <div class="hud-bottom-row">
+                <!-- Dialogue Subtitles Panel (fills width, responsive font scaling) -->
+                <div class="dialogue-panel">
+                    <div class="dialogue-row user-row">
+                        <span class="speaker-tag tag-user">HEARD &gt;</span>
+                        <span id="user-transcript" class="speech-text transcript-text">"Hey Jarvis..."</span>
+                    </div>
+                    <div class="dialogue-row axl-row">
+                        <span class="speaker-tag tag-axl">A-X-L &gt;</span>
+                        <span id="axl-reply" class="speech-text reply-text">Pronto all'azione, capo. In ascolto sui sensori.</span>
+                    </div>
                 </div>
-                <div class="dialogue-row axl-row">
-                    <span class="speaker-tag tag-axl">A-X-L &gt;</span>
-                    <span id="axl-reply" class="speech-text reply-text">Pronto all'azione, capo. In ascolto sui sensori.</span>
+
+                <!-- Tactical Action Column (Stacked vertically beside Subtitles) -->
+                <div class="hud-action-column">
+                    <button type="button" id="mute-btn" class="badge badge-mute-btn" title="Disattiva ascolto microfono (Può essere riattivato solo cliccando qui)">
+                        <span id="mute-btn-icon" class="mute-icon">🎙️</span>
+                        <span id="mute-btn-label">MIC: ATTIVO</span>
+                    </button>
+                    <button type="button" id="ask-btn" class="badge badge-ask-btn ask-friendly" title="Fai una domanda senza dire la wake-word">
+                        <span id="ask-btn-icon" class="mute-icon">💬</span>
+                        <span id="ask-btn-label">ASK ME...</span>
+                    </button>
                 </div>
             </div>
 
@@ -304,6 +436,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <script src="app.js?v=5.3"></script>
+    <script src="app.js?v=6.0"></script>
 </body>
 </html>

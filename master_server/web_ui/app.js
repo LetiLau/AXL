@@ -25,11 +25,64 @@
     const connStatus = document.getElementById("connection-status");
     const connStatusText = document.getElementById("connection-status-text");
     const connBadge = connStatus; // alias for backwards compatibility
-    const serverTelemBtn = document.getElementById("server-telem-btn");
-    const slaveTelemBtn = document.getElementById("slave-telem-btn");
-    const kioskTelemBtn = document.getElementById("kiosk-telem-btn");
-    const telemetryBtn = slaveTelemBtn; // alias for backwards compatibility
+    
+    // Unified Telemetry Selector Elements
+    const telemBtn = document.getElementById("telem-btn");
+    const telemPopup = document.getElementById("telem-popup");
+    const telemOptServer = document.getElementById("telem-opt-server");
+    const telemOptSlave = document.getElementById("telem-opt-slave");
+    const telemOptKiosk = document.getElementById("telem-opt-kiosk");
+    const telemOptSplit = document.getElementById("telem-opt-split");
+    const telemOptClose = document.getElementById("telem-opt-close");
+
+    // Legacy button aliases for backwards compatibility
+    const serverTelemBtn = telemOptServer;
+    const slaveTelemBtn = telemOptSlave;
+    const kioskTelemBtn = telemOptKiosk;
+    const telemetryBtn = telemBtn;
+
+    // Primary Telemetry HUD Panel (Left)
+    const telemetryPanel = document.getElementById("telemetry-panel");
+    const telemCloseBtn = document.getElementById("telem-close-btn");
     const telemTitle = document.getElementById("telem-title");
+    const telemNodeBadge = document.getElementById("telem-node-badge");
+    const telemCpuUsage = document.getElementById("telem-cpu-usage");
+    const telemCpuTemp = document.getElementById("telem-cpu-temp");
+    const telemCpuFreq = document.getElementById("telem-cpu-freq");
+    const telemCpuCores = document.getElementById("telem-cpu-cores");
+    const telemCpuBar = document.getElementById("telem-cpu-bar");
+    const telemRamUsed = document.getElementById("telem-ram-used");
+    const telemRamTotal = document.getElementById("telem-ram-total");
+    const telemRamFree = document.getElementById("telem-ram-free");
+    const telemRamPct = document.getElementById("telem-ram-pct");
+    const telemRamBar = document.getElementById("telem-ram-bar");
+    const telemGpuList = document.getElementById("telem-gpu-list");
+    const telemGpuGlobalTemp = document.getElementById("telem-gpu-global-temp");
+    const telemFanRpm = document.getElementById("telem-fan-rpm");
+    const telemFanStatus = document.getElementById("telem-fan-status");
+    const telemFanLabel = document.getElementById("telem-fan-label");
+
+    // Secondary Telemetry HUD Panel (Right - Active in SPLIT Mode)
+    const telemetryPanelSec = document.getElementById("telemetry-panel-sec");
+    const telemCloseBtnSec = document.getElementById("telem-close-btn-sec");
+    const telemTitleSec = document.getElementById("telem-title-sec");
+    const telemNodeBadgeSec = document.getElementById("telem-node-badge-sec");
+    const telemCpuUsageSec = document.getElementById("telem-cpu-usage-sec");
+    const telemCpuTempSec = document.getElementById("telem-cpu-temp-sec");
+    const telemCpuFreqSec = document.getElementById("telem-cpu-freq-sec");
+    const telemCpuCoresSec = document.getElementById("telem-cpu-cores-sec");
+    const telemCpuBarSec = document.getElementById("telem-cpu-bar-sec");
+    const telemRamUsedSec = document.getElementById("telem-ram-used-sec");
+    const telemRamTotalSec = document.getElementById("telem-ram-total-sec");
+    const telemRamFreeSec = document.getElementById("telem-ram-free-sec");
+    const telemRamPctSec = document.getElementById("telem-ram-pct-sec");
+    const telemRamBarSec = document.getElementById("telem-ram-bar-sec");
+    const telemGpuListSec = document.getElementById("telem-gpu-list-sec");
+    const telemGpuGlobalTempSec = document.getElementById("telem-gpu-global-temp-sec");
+    const telemFanRpmSec = document.getElementById("telem-fan-rpm-sec");
+    const telemFanStatusSec = document.getElementById("telem-fan-status-sec");
+    const telemFanLabelSec = document.getElementById("telem-fan-label-sec");
+
     const stateLabel = document.getElementById("visor-state-label");
     const stateSub = document.getElementById("visor-sub-label");
     const bioIdentity = document.getElementById("bio-identity");
@@ -53,34 +106,17 @@
     const askBtnIcon = document.getElementById("ask-btn-icon");
     const askBtnLabel = document.getElementById("ask-btn-label");
 
-    // --- Telemetry Elements ---
-    const telemetryPanel = document.getElementById("telemetry-panel");
-    const telemCloseBtn = document.getElementById("telem-close-btn");
-    const telemNodeBadge = document.getElementById("telem-node-badge");
-    const telemCpuUsage = document.getElementById("telem-cpu-usage");
-    const telemCpuTemp = document.getElementById("telem-cpu-temp");
-    const telemCpuFreq = document.getElementById("telem-cpu-freq");
-    const telemCpuCores = document.getElementById("telem-cpu-cores");
-    const telemCpuBar = document.getElementById("telem-cpu-bar");
-    const telemRamUsed = document.getElementById("telem-ram-used");
-    const telemRamTotal = document.getElementById("telem-ram-total");
-    const telemRamFree = document.getElementById("telem-ram-free");
-    const telemRamPct = document.getElementById("telem-ram-pct");
-    const telemRamBar = document.getElementById("telem-ram-bar");
-    const telemGpuList = document.getElementById("telem-gpu-list");
-    const telemGpuGlobalTemp = document.getElementById("telem-gpu-global-temp");
-    const telemFanRpm = document.getElementById("telem-fan-rpm");
-    const telemFanStatus = document.getElementById("telem-fan-status");
-    const telemFanLabel = document.getElementById("telem-fan-label");
-
     // --- State Variables ---
     let currentState = "IDLE";
     let securityMode = "friendly";
     let isMuted = false;
     let isTelemetryActive = false;
-    let telemetryTarget = "fedora";
+    let isTelemetrySplit = false;
+    let telemetryTarget = "slave";
+    let telemetrySecondaryTarget = "slave";
     let telemetrySimInterval = null;
     let lastRealTelemetryTime = 0;
+    let lastRealSecondaryTime = 0;
     let simCpuPercent = 22;
     let simRamPercent = 46;
     let simGpuPercent = 28;
@@ -93,10 +129,30 @@
     let targetMicLevel = 0.0;
     let currentMicLevel = 0.0;
 
-    // Ensure telemetry panel is strictly hidden at startup
+    // Ensure telemetry panels are strictly hidden at startup
     if (telemetryPanel) {
         telemetryPanel.hidden = true;
         telemetryPanel.style.display = "none";
+    }
+    if (telemetryPanelSec) {
+        telemetryPanelSec.hidden = true;
+        telemetryPanelSec.style.display = "none";
+    }
+
+    // Dynamic text scaler for A-X-L replies (prevents subtitle overflow on Galaxy A33 / mobile kiosk)
+    function fitAxlReplyText(text) {
+        if (!axlReply) return;
+        const clean = (text || "").trim();
+        axlReply.textContent = clean;
+        axlReply.classList.remove("reply-sm", "reply-xs", "reply-xxs");
+        const len = clean.length;
+        if (len > 220) {
+            axlReply.classList.add("reply-xxs");
+        } else if (len > 130) {
+            axlReply.classList.add("reply-xs");
+        } else if (len > 70) {
+            axlReply.classList.add("reply-sm");
+        }
     }
 
     // Canvas resolution setup
@@ -254,13 +310,15 @@
             (navigator.userAgent && navigator.userAgent.includes("AXL-Kiosk"))
         );
 
-        if (kioskTelemBtn) {
+        if (telemOptKiosk) {
             if (isKiosk) {
-                kioskTelemBtn.hidden = false;
-                kioskTelemBtn.style.display = "inline-flex";
+                telemOptKiosk.disabled = false;
+                telemOptKiosk.classList.remove("disabled-muted");
+                telemOptKiosk.title = "Visualizza telemetria hardware del dispositivo Android Kiosk (A33)";
             } else {
-                kioskTelemBtn.hidden = true;
-                kioskTelemBtn.style.display = "none";
+                telemOptKiosk.disabled = true;
+                telemOptKiosk.classList.add("disabled-muted");
+                telemOptKiosk.title = "Disponibile solo all'interno dell'app Android Kiosk (disattivato da browser PC)";
             }
         }
 
@@ -296,6 +354,7 @@
             closeSettingsPopup();
         } else {
             closeModePopup();
+            closeTelemPopup();
             updateKioskUI();
             settingsPopup.hidden = false;
             settingsPopup.classList.add("open");
@@ -348,7 +407,7 @@
             closeSettingsPopup();
             connectWebSocket();
             if (axlReply && currentState !== "SPEAKING") {
-                axlReply.textContent = "Tentativo di riconnessione WebSocket in corso...";
+                fitAxlReplyText("Tentativo di riconnessione WebSocket in corso...");
             }
         });
     }
@@ -359,7 +418,7 @@
             e.stopPropagation();
             closeSettingsPopup();
             if (axlReply && currentState !== "SPEAKING") {
-                axlReply.textContent = "Lingua interfaccia: ENG (Default). Switch ITA/ENG attivo nelle prossime versioni.";
+                fitAxlReplyText("Lingua interfaccia: ENG (Default). Switch ITA/ENG attivo nelle prossime versioni.");
             }
         });
     }
@@ -515,7 +574,7 @@
             case "TRANSCRIPT":
                 resetInactivityTimer();
                 if (msg.user_text && userTranscript) userTranscript.textContent = `"${msg.user_text}"`;
-                if (msg.axl_text && axlReply) axlReply.textContent = msg.axl_text;
+                if (msg.axl_text && axlReply) fitAxlReplyText(msg.axl_text);
                 break;
 
             case "SECURITY_MODE":
@@ -605,234 +664,109 @@
         };
     }
 
-    function startTelemetryLoop() {
-        stopTelemetryLoop();
-        if (telemetryTarget === "kiosk") {
-            fetchKioskTelemetry();
-        } else if (Date.now() - lastRealTelemetryTime > 2500) {
-            updateTelemetryData(generateFallbackTelemetry(), telemetryTarget);
-        }
-        telemetrySimInterval = setInterval(() => {
-            if (!isTelemetryActive) {
-                stopTelemetryLoop();
-                return;
-            }
-            if (telemetryTarget === "kiosk") {
-                fetchKioskTelemetry();
-                return;
-            }
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: "REQUEST_TELEMETRY",
-                    target: telemetryTarget
-                }));
-            }
-            if (Date.now() - lastRealTelemetryTime > 2500) {
-                updateTelemetryData(generateFallbackTelemetry(), telemetryTarget);
-            }
-        }, 1500);
+    // Helper to retrieve elements for either the Primary (left) or Secondary (right) Telemetry Panel
+    function getPanelElements(isSec) {
+        return {
+            panel: isSec ? telemetryPanelSec : telemetryPanel,
+            title: isSec ? telemTitleSec : telemTitle,
+            badge: isSec ? telemNodeBadgeSec : telemNodeBadge,
+            cpuUsage: isSec ? telemCpuUsageSec : telemCpuUsage,
+            cpuTemp: isSec ? telemCpuTempSec : telemCpuTemp,
+            cpuFreq: isSec ? telemCpuFreqSec : telemCpuFreq,
+            cpuCores: isSec ? telemCpuCoresSec : telemCpuCores,
+            cpuBar: isSec ? telemCpuBarSec : telemCpuBar,
+            ramUsed: isSec ? telemRamUsedSec : telemRamUsed,
+            ramTotal: isSec ? telemRamTotalSec : telemRamTotal,
+            ramPct: isSec ? telemRamPctSec : telemRamPct,
+            ramFree: isSec ? telemRamFreeSec : telemRamFree,
+            ramBar: isSec ? telemRamBarSec : telemRamBar,
+            gpuList: isSec ? telemGpuListSec : telemGpuList,
+            gpuTemp: isSec ? telemGpuGlobalTempSec : telemGpuGlobalTemp,
+            fanRpm: isSec ? telemFanRpmSec : telemFanRpm,
+            fanStatus: isSec ? telemFanStatusSec : telemFanStatus,
+            fanLabel: isSec ? telemFanLabelSec : telemFanLabel
+        };
     }
 
-    function stopTelemetryLoop() {
-        if (telemetrySimInterval) {
-            clearInterval(telemetrySimInterval);
-            telemetrySimInterval = null;
-        }
-    }
-
-    function fetchKioskTelemetry() {
-        if (window.AXLKiosk && typeof window.AXLKiosk.getKioskTelemetry === "function") {
-            try {
-                const raw = window.AXLKiosk.getKioskTelemetry();
-                if (raw) {
-                    const data = JSON.parse(raw);
-                    updateKioskTelemetryUI(data);
-                    return;
-                }
-            } catch (err) {
-                console.warn("[KIOSK] Telemetry bridge error:", err);
-            }
-        }
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: "REQUEST_TELEMETRY",
-                target: "kiosk"
-            }));
-        }
-    }
-
-    function updateKioskTelemetryUI(data) {
+    function renderNodeTelemetry(isSec, data, nodeName) {
         if (!data) return;
-        lastRealTelemetryTime = Date.now();
+        const els = getPanelElements(isSec);
+        const tgt = (nodeName || "slave").toLowerCase().trim();
+        const isKioskNode = (tgt === "kiosk") || (data.battery_pct !== undefined);
 
-        if (telemTitle) telemTitle.textContent = "KIOSK TELEMETRY";
-        if (telemNodeBadge) {
-            telemNodeBadge.className = "badge badge-telem-online";
-            telemNodeBadge.textContent = "NODE: KIOSK // GALAXY A33";
-        }
-
-        // 1. CPU / Android Device Info
-        const battTemp = data.battery_temp || 30.0;
-        const battPct = (data.battery_pct !== undefined && data.battery_pct >= 0) ? data.battery_pct : 88;
-        if (telemCpuUsage) telemCpuUsage.textContent = `${battPct}%`;
-        if (telemCpuTemp) telemCpuTemp.textContent = `${battTemp.toFixed(1)}°C`;
-        if (telemCpuFreq) telemCpuFreq.textContent = data.is_charging ? "CHARGING" : "DISCHARGING";
-        if (telemCpuCores) telemCpuCores.textContent = "SAMSUNG A33";
-        if (telemCpuBar) {
-            telemCpuBar.style.width = `${Math.min(100, Math.max(0, battPct))}%`;
-            telemCpuBar.className = "telem-meter-fill";
-        }
-
-        // 2. RAM Memory
-        const ramUsedPct = Math.round(data.ram_used_pct || 48);
-        const ramFreeGb = data.ram_free_mb ? (data.ram_free_mb / 1024).toFixed(1) : "3.1";
-        const ramUsedGb = (6.0 - parseFloat(ramFreeGb)).toFixed(1);
-        if (telemRamUsed) telemRamUsed.textContent = ramUsedGb;
-        if (telemRamTotal) telemRamTotal.textContent = "/ 6.0 GB";
-        if (telemRamPct) telemRamPct.textContent = `${ramUsedPct}%`;
-        if (telemRamFree) telemRamFree.textContent = `${ramFreeGb} GB`;
-        if (telemRamBar) {
-            telemRamBar.style.width = `${ramUsedPct}%`;
-            telemRamBar.className = ramUsedPct >= 85 ? "telem-meter-fill crit" : (ramUsedPct >= 70 ? "telem-meter-fill warn" : "telem-meter-fill");
-        }
-
-        // 3. Battery Health & Charging
-        if (telemGpuList) {
-            telemGpuList.innerHTML = `
-                <div class="telem-gpu-item">
-                    <div class="telem-gpu-top">
-                        <span class="telem-gpu-name">Li-Ion Battery Health</span>
-                        <span class="telem-gpu-badge">${data.is_charging ? "⚡ AC CHARGING" : "🔋 BATTERY"} // ${battPct}%</span>
-                    </div>
-                    <div class="telem-meter-track">
-                        <div class="telem-meter-fill" style="width: ${battPct}%;"></div>
-                    </div>
-                </div>
-            `;
-            if (telemGpuGlobalTemp) {
-                telemGpuGlobalTemp.textContent = `${battTemp.toFixed(1)}°C`;
+        if (isKioskNode) {
+            // Render Android Kiosk metrics
+            if (els.title) els.title.textContent = "KIOSK TELEMETRY";
+            if (els.badge) {
+                els.badge.className = "badge badge-telem-online";
+                els.badge.textContent = "NODE: KIOSK // GALAXY A33";
             }
-        }
-
-        // 4. Wi-Fi Wireless RSSI
-        const rssi = data.wifi_rssi_dbm || -54;
-        if (telemFanRpm) telemFanRpm.textContent = `${rssi}`;
-        if (telemFanLabel) telemFanLabel.textContent = "WI-FI SIGNAL (RSSI)";
-        if (telemFanStatus) {
-            telemFanStatus.textContent = rssi >= -65 ? "EXCELLENT" : (rssi >= -80 ? "GOOD" : "WEAK");
-            telemFanStatus.className = "telem-temp-badge";
-        }
-    }
-
-    function setTelemetryMode(enabled, target, notifyServer = true) {
-        isTelemetryActive = !!enabled;
-        if (target) telemetryTarget = target;
-
-        body.classList.toggle("telemetry-active", isTelemetryActive);
-
-        if (telemetryPanel) {
-            telemetryPanel.hidden = !isTelemetryActive;
-            telemetryPanel.style.display = isTelemetryActive ? "flex" : "none";
-        }
-
-        const isServer = (telemetryTarget === "server" || telemetryTarget === "master");
-        const isKiosk = (telemetryTarget === "kiosk");
-        const isSlave = (!isServer && !isKiosk);
-
-        // Mutually exclusive button states: only the active node's button is highlighted
-        if (serverTelemBtn) {
-            const active = isTelemetryActive && isServer;
-            serverTelemBtn.classList.toggle("active", active);
-            serverTelemBtn.textContent = active ? "SERVER TELEM: ON" : "SERVER TELEM: OFF";
-        }
-
-        if (slaveTelemBtn) {
-            const active = isTelemetryActive && isSlave;
-            slaveTelemBtn.classList.toggle("active", active);
-            slaveTelemBtn.textContent = active ? "SLAVE TELEM: ON" : "SLAVE TELEM: OFF";
-        }
-
-        if (kioskTelemBtn) {
-            const active = isTelemetryActive && isKiosk;
-            kioskTelemBtn.classList.toggle("active", active);
-            kioskTelemBtn.textContent = active ? "KIOSK TELEM: ON" : "KIOSK TELEM: OFF";
-        }
-
-        // Update panel titles and badge
-        if (isTelemetryActive) {
-            if (telemTitle) {
-                if (isKiosk) {
-                    telemTitle.textContent = "KIOSK TELEMETRY";
-                } else if (isServer) {
-                    telemTitle.textContent = "SERVER TELEMETRY";
-                } else {
-                    telemTitle.textContent = "SLAVE TELEMETRY";
-                }
+            const battTemp = data.battery_temp || 30.0;
+            const battPct = (data.battery_pct !== undefined && data.battery_pct >= 0) ? data.battery_pct : 88;
+            if (els.cpuUsage) els.cpuUsage.textContent = `${battPct}%`;
+            if (els.cpuTemp) els.cpuTemp.textContent = `${battTemp.toFixed(1)}°C`;
+            if (els.cpuFreq) els.cpuFreq.textContent = data.is_charging ? "CHARGING" : "DISCHARGING";
+            if (els.cpuCores) els.cpuCores.textContent = "SAMSUNG A33";
+            if (els.cpuBar) {
+                els.cpuBar.style.width = `${Math.min(100, Math.max(0, battPct))}%`;
+                els.cpuBar.className = "telem-meter-fill";
             }
-            if (telemNodeBadge) {
-                if (isKiosk) {
-                    telemNodeBadge.textContent = "NODE: KIOSK // GALAXY A33";
-                } else if (isServer) {
-                    telemNodeBadge.textContent = "NODE: MASTER // LIVE";
-                } else {
-                    telemNodeBadge.textContent = `NODE: [${telemetryTarget.toUpperCase()}] // LIVE`;
-                }
+
+            const ramUsedPct = Math.round(data.ram_used_pct || 48);
+            const ramFreeGb = data.ram_free_mb ? (data.ram_free_mb / 1024).toFixed(1) : "3.1";
+            const ramUsedGb = (6.0 - parseFloat(ramFreeGb)).toFixed(1);
+            if (els.ramUsed) els.ramUsed.textContent = ramUsedGb;
+            if (els.ramTotal) els.ramTotal.textContent = "/ 6.0 GB";
+            if (els.ramPct) els.ramPct.textContent = `${ramUsedPct}%`;
+            if (els.ramFree) els.ramFree.textContent = `${ramFreeGb} GB`;
+            if (els.ramBar) {
+                els.ramBar.style.width = `${ramUsedPct}%`;
+                els.ramBar.className = ramUsedPct >= 85 ? "telem-meter-fill crit" : (ramUsedPct >= 70 ? "telem-meter-fill warn" : "telem-meter-fill");
             }
-            if (isKiosk) {
-                fetchKioskTelemetry();
+
+            if (els.gpuList) {
+                els.gpuList.innerHTML = `
+                    <div class="telem-gpu-item">
+                        <div class="telem-gpu-top">
+                            <span class="telem-gpu-name">Li-Ion Battery Health</span>
+                            <span class="telem-gpu-badge">${data.is_charging ? "⚡ AC CHARGING" : "🔋 BATTERY"} // ${battPct}%</span>
+                        </div>
+                        <div class="telem-meter-track">
+                            <div class="telem-meter-fill" style="width: ${battPct}%;"></div>
+                        </div>
+                    </div>`;
+                if (els.gpuTemp) els.gpuTemp.textContent = `${battTemp.toFixed(1)}°C`;
             }
-            startTelemetryLoop();
-        } else {
-            stopTelemetryLoop();
-        }
 
-        if (notifyServer && ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: "TOGGLE_TELEMETRY",
-                enabled: isTelemetryActive,
-                target: telemetryTarget
-            }));
-        }
-
-        // Smoothly resize visor canvas as layout transitions between centered and split view
-        setTimeout(resizeCanvas, 30);
-        setTimeout(resizeCanvas, 200);
-        setTimeout(resizeCanvas, 400);
-    }
-
-    function updateTelemetryData(data, target) {
-        if (!data) return;
-        const tgt = target || telemetryTarget || "slave";
-        if (tgt === "kiosk" || (data && data.battery_pct !== undefined)) {
-            updateKioskTelemetryUI(data);
+            const rssi = data.wifi_rssi_dbm || -54;
+            if (els.fanRpm) els.fanRpm.textContent = `${rssi}`;
+            if (els.fanLabel) els.fanLabel.textContent = "WI-FI SIGNAL (RSSI)";
+            if (els.fanStatus) {
+                els.fanStatus.textContent = rssi >= -65 ? "EXCELLENT" : (rssi >= -80 ? "GOOD" : "WEAK");
+                els.fanStatus.className = "telem-temp-badge";
+            }
             return;
         }
-        if (!data._is_fallback) {
-            lastRealTelemetryTime = Date.now();
+
+        // Standard PC / Server Node metrics
+        const isServerNode = (tgt === "server" || tgt === "master");
+        if (els.title) {
+            els.title.textContent = isServerNode ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
         }
-
-        const isServer = (tgt === "server" || tgt === "master" || telemetryTarget === "server");
-
-        if (telemNodeBadge) {
-            telemNodeBadge.className = "badge badge-telem-online";
-            telemNodeBadge.textContent = isServer
-                ? "NODE: MASTER // LIVE"
-                : `NODE: [${tgt.toUpperCase()}] // LIVE`;
-        }
-
-        if (telemTitle) {
-            telemTitle.textContent = isServer ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
+        if (els.badge) {
+            els.badge.className = "badge badge-telem-online";
+            els.badge.textContent = isServerNode ? "NODE: MASTER // LIVE" : `NODE: [${tgt.toUpperCase()}] // LIVE`;
         }
 
         // 1. CPU
         const cpu = data.cpu || {};
         const cpuUsage = Math.round(cpu.usage_percent || 0);
-        if (telemCpuUsage) telemCpuUsage.textContent = `${cpuUsage}%`;
-        if (telemCpuBar) {
-            telemCpuBar.style.width = `${Math.min(100, Math.max(0, cpuUsage))}%`;
-            if (cpuUsage >= 85) telemCpuBar.className = "telem-meter-fill crit";
-            else if (cpuUsage >= 70) telemCpuBar.className = "telem-meter-fill warn";
-            else telemCpuBar.className = "telem-meter-fill";
+        if (els.cpuUsage) els.cpuUsage.textContent = `${cpuUsage}%`;
+        if (els.cpuBar) {
+            els.cpuBar.style.width = `${Math.min(100, Math.max(0, cpuUsage))}%`;
+            if (cpuUsage >= 85) els.cpuBar.className = "telem-meter-fill crit";
+            else if (cpuUsage >= 70) els.cpuBar.className = "telem-meter-fill warn";
+            else els.cpuBar.className = "telem-meter-fill";
         }
 
         let resolvedCpuTemp = cpu.temperature_c;
@@ -845,15 +779,15 @@
                 }
             }
         }
-        if (telemCpuTemp) {
-            telemCpuTemp.textContent = (resolvedCpuTemp !== null && resolvedCpuTemp !== undefined)
+        if (els.cpuTemp) {
+            els.cpuTemp.textContent = (resolvedCpuTemp !== null && resolvedCpuTemp !== undefined)
                 ? `${Math.round(resolvedCpuTemp)}°C` : "44°C";
         }
-        if (telemCpuFreq) {
-            telemCpuFreq.textContent = cpu.freq_mhz ? `${Math.round(cpu.freq_mhz)} MHz` : "-- MHz";
+        if (els.cpuFreq) {
+            els.cpuFreq.textContent = cpu.freq_mhz ? `${Math.round(cpu.freq_mhz)} MHz` : "-- MHz";
         }
-        if (telemCpuCores) {
-            telemCpuCores.textContent = `${cpu.core_count || 4} Cores`;
+        if (els.cpuCores) {
+            els.cpuCores.textContent = `${cpu.core_count || 4} Cores`;
         }
 
         // 2. RAM
@@ -863,23 +797,23 @@
         const ramPct = Math.round(mem.percent || 0);
         const ramFree = (mem.available_gb || 0).toFixed(1);
 
-        if (telemRamUsed) telemRamUsed.textContent = ramUsed;
-        if (telemRamTotal) telemRamTotal.textContent = `/ ${ramTot} GB`;
-        if (telemRamPct) telemRamPct.textContent = `${ramPct}%`;
-        if (telemRamFree) telemRamFree.textContent = `${ramFree} GB`;
-        if (telemRamBar) {
-            telemRamBar.style.width = `${Math.min(100, Math.max(0, ramPct))}%`;
-            if (ramPct >= 85) telemRamBar.className = "telem-meter-fill crit";
-            else if (ramPct >= 70) telemRamBar.className = "telem-meter-fill warn";
-            else telemRamBar.className = "telem-meter-fill";
+        if (els.ramUsed) els.ramUsed.textContent = ramUsed;
+        if (els.ramTotal) els.ramTotal.textContent = `/ ${ramTot} GB`;
+        if (els.ramPct) els.ramPct.textContent = `${ramPct}%`;
+        if (els.ramFree) els.ramFree.textContent = `${ramFree} GB`;
+        if (els.ramBar) {
+            els.ramBar.style.width = `${Math.min(100, Math.max(0, ramPct))}%`;
+            if (ramPct >= 85) els.ramBar.className = "telem-meter-fill crit";
+            else if (ramPct >= 70) els.ramBar.className = "telem-meter-fill warn";
+            else els.ramBar.className = "telem-meter-fill";
         }
 
         // 3. GPU(s)
         const gpus = data.gpus || [];
-        if (telemGpuList) {
+        if (els.gpuList) {
             if (gpus.length === 0) {
                 const fallbackLoad = Math.max(8, Math.round(cpuUsage * 0.45));
-                telemGpuList.innerHTML = `
+                els.gpuList.innerHTML = `
                     <div class="telem-gpu-item">
                         <div class="telem-gpu-top">
                             <span class="telem-gpu-name">Integrated Graphics</span>
@@ -889,8 +823,8 @@
                             <div class="telem-meter-fill" style="width: ${fallbackLoad}%;"></div>
                         </div>
                     </div>`;
-                if (telemGpuGlobalTemp) {
-                    telemGpuGlobalTemp.textContent = (resolvedCpuTemp !== null && resolvedCpuTemp !== undefined)
+                if (els.gpuTemp) {
+                    els.gpuTemp.textContent = (resolvedCpuTemp !== null && resolvedCpuTemp !== undefined)
                         ? `${Math.round(resolvedCpuTemp)}°C` : "44°C";
                 }
             } else {
@@ -925,9 +859,9 @@
                         ${vramInfo}
                     </div>`;
                 });
-                telemGpuList.innerHTML = html;
-                if (telemGpuGlobalTemp) {
-                    telemGpuGlobalTemp.textContent = maxTemp !== null ? `${Math.round(maxTemp)}°C` : "45°C";
+                els.gpuList.innerHTML = html;
+                if (els.gpuTemp) {
+                    els.gpuTemp.textContent = maxTemp !== null ? `${Math.round(maxTemp)}°C` : "45°C";
                 }
             }
         }
@@ -936,58 +870,261 @@
         const fans = data.fans || [];
         if (fans.length > 0) {
             const f = fans[0];
-            if (telemFanRpm) telemFanRpm.textContent = f.rpm;
-            if (telemFanLabel) telemFanLabel.textContent = (f.label || "CPU FAN").toUpperCase();
-            if (telemFanStatus) {
-                telemFanStatus.textContent = f.rpm > 0 ? "ACTIVE" : "IDLE";
-                telemFanStatus.className = "telem-temp-badge";
+            if (els.fanRpm) els.fanRpm.textContent = f.rpm;
+            if (els.fanLabel) els.fanLabel.textContent = (f.label || "CPU FAN").toUpperCase();
+            if (els.fanStatus) {
+                els.fanStatus.textContent = f.rpm > 0 ? "ACTIVE" : "IDLE";
+                els.fanStatus.className = "telem-temp-badge";
             }
         } else {
             const estRpm = Math.round(1450 + cpuUsage * 8);
-            if (telemFanRpm) telemFanRpm.textContent = estRpm;
-            if (telemFanLabel) telemFanLabel.textContent = "SYSTEM COOLING";
-            if (telemFanStatus) {
-                telemFanStatus.textContent = "AUTO";
-                telemFanStatus.className = "telem-temp-badge";
+            if (els.fanRpm) els.fanRpm.textContent = estRpm;
+            if (els.fanLabel) els.fanLabel.textContent = "SYSTEM COOLING";
+            if (els.fanStatus) {
+                els.fanStatus.textContent = "AUTO";
+                els.fanStatus.className = "telem-temp-badge";
             }
         }
     }
 
-    // --- Interactive Telemetry Buttons (Mouse + Touch) ---
-    // Rule: Mutually exclusive - only one telemetry panel can be open at a time; clicking one closes the other.
-    if (serverTelemBtn) {
-        serverTelemBtn.addEventListener("click", (e) => {
+    function startTelemetryLoop() {
+        stopTelemetryLoop();
+        pollTelemetryCycle();
+        telemetrySimInterval = setInterval(() => {
+            if (!isTelemetryActive) {
+                stopTelemetryLoop();
+                return;
+            }
+            pollTelemetryCycle();
+        }, 1500);
+    }
+
+    function stopTelemetryLoop() {
+        if (telemetrySimInterval) {
+            clearInterval(telemetrySimInterval);
+            telemetrySimInterval = null;
+        }
+    }
+
+    function pollTelemetryCycle() {
+        const isKioskClient = Boolean(window.axlClient && window.axlClient.isKiosk);
+        if (isTelemetrySplit) {
+            // Split mode: Panel 1 = Server, Panel 2 = Kiosk (if on Kiosk) or Slave (if on PC)
+            const secTarget = isKioskClient ? "kiosk" : "slave";
+            telemetrySecondaryTarget = secTarget;
+
+            // Poll Primary (Server)
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY", target: "server" }));
+            }
+            if (Date.now() - lastRealTelemetryTime > 2500) {
+                renderNodeTelemetry(false, generateFallbackTelemetry(), "server");
+            }
+
+            // Poll Secondary (Kiosk or Slave)
+            if (secTarget === "kiosk") {
+                fetchKioskTelemetry(true);
+            } else {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY", target: "slave" }));
+                }
+                if (Date.now() - lastRealSecondaryTime > 2500) {
+                    renderNodeTelemetry(true, generateFallbackTelemetry(), "slave");
+                }
+            }
+        } else {
+            // Single panel mode
+            if (telemetryTarget === "kiosk") {
+                fetchKioskTelemetry(false);
+            } else {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY", target: telemetryTarget }));
+                }
+                if (Date.now() - lastRealTelemetryTime > 2500) {
+                    renderNodeTelemetry(false, generateFallbackTelemetry(), telemetryTarget);
+                }
+            }
+        }
+    }
+
+    function fetchKioskTelemetry(isSec = false) {
+        if (window.AXLKiosk && typeof window.AXLKiosk.getKioskTelemetry === "function") {
+            try {
+                const raw = window.AXLKiosk.getKioskTelemetry();
+                if (raw) {
+                    const data = JSON.parse(raw);
+                    if (isSec) lastRealSecondaryTime = Date.now();
+                    else lastRealTelemetryTime = Date.now();
+                    renderNodeTelemetry(isSec, data, "kiosk");
+                    return;
+                }
+            } catch (err) {
+                console.warn("[KIOSK] Telemetry bridge error:", err);
+            }
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: "REQUEST_TELEMETRY",
+                target: "kiosk"
+            }));
+        }
+    }
+
+    function setTelemetryMode(enabled, target, notifyServer = true) {
+        isTelemetryActive = !!enabled;
+        if (target) {
+            telemetryTarget = target.toLowerCase().trim();
+        }
+        isTelemetrySplit = isTelemetryActive && (telemetryTarget === "split");
+
+        body.classList.toggle("telemetry-active", isTelemetryActive);
+        body.classList.toggle("telemetry-split", isTelemetrySplit);
+
+        if (telemetryPanel) {
+            telemetryPanel.hidden = !isTelemetryActive;
+            telemetryPanel.style.display = isTelemetryActive ? "flex" : "none";
+        }
+        if (telemetryPanelSec) {
+            telemetryPanelSec.hidden = !isTelemetrySplit;
+            telemetryPanelSec.style.display = isTelemetrySplit ? "flex" : "none";
+        }
+
+        // Update dropdown button label and state
+        if (telemBtn) {
+            telemBtn.classList.toggle("active", isTelemetryActive);
+            if (!isTelemetryActive) {
+                telemBtn.textContent = "TELEM: OFF ▾";
+            } else if (isTelemetrySplit) {
+                telemBtn.textContent = "TELEM: SPLIT (2) ▾";
+            } else {
+                telemBtn.textContent = `TELEM: ${telemetryTarget.toUpperCase()} ▾`;
+            }
+        }
+
+        // Update dropdown active highlight
+        [telemOptServer, telemOptSlave, telemOptKiosk, telemOptSplit].forEach(btn => {
+            if (btn) btn.classList.remove("active");
+        });
+
+        if (isTelemetryActive) {
+            if (isTelemetrySplit) {
+                if (telemOptSplit) telemOptSplit.classList.add("active");
+            } else if (telemetryTarget === "server" || telemetryTarget === "master") {
+                if (telemOptServer) telemOptServer.classList.add("active");
+            } else if (telemetryTarget === "kiosk") {
+                if (telemOptKiosk) telemOptKiosk.classList.add("active");
+            } else {
+                if (telemOptSlave) telemOptSlave.classList.add("active");
+            }
+            startTelemetryLoop();
+        } else {
+            stopTelemetryLoop();
+        }
+
+        if (notifyServer && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: "TOGGLE_TELEMETRY",
+                enabled: isTelemetryActive,
+                target: telemetryTarget
+            }));
+        }
+
+        // Smoothly resize visor canvas as layout transitions between centered and split view
+        setTimeout(resizeCanvas, 30);
+        setTimeout(resizeCanvas, 200);
+        setTimeout(resizeCanvas, 400);
+    }
+
+    function updateTelemetryData(data, target, isSec = false) {
+        if (!data) return;
+        const tgt = (target || telemetryTarget || "slave").toLowerCase().trim();
+        if (isTelemetrySplit) {
+            // In split mode, server data goes to panel 1 (isSec=false), others to panel 2 (isSec=true)
+            const sendToSec = (tgt !== "server" && tgt !== "master");
+            if (sendToSec) lastRealSecondaryTime = Date.now();
+            else lastRealTelemetryTime = Date.now();
+            renderNodeTelemetry(sendToSec, data, tgt);
+        } else {
+            lastRealTelemetryTime = Date.now();
+            renderNodeTelemetry(false, data, tgt);
+        }
+    }
+
+    // Unified Telemetry Dropdown Controller
+    function closeTelemPopup() {
+        if (telemPopup) {
+            telemPopup.classList.remove("open");
+            telemPopup.hidden = true;
+        }
+        if (telemBtn) telemBtn.classList.remove("open");
+    }
+
+    function toggleTelemPopup() {
+        if (!telemPopup) return;
+        const isOpen = telemPopup.classList.contains("open");
+        if (isOpen) {
+            closeTelemPopup();
+        } else {
+            closeSettingsPopup();
+            closeModePopup();
+            updateKioskUI();
+            telemPopup.hidden = false;
+            telemPopup.classList.add("open");
+            if (telemBtn) telemBtn.classList.add("open");
+        }
+    }
+
+    if (telemBtn) {
+        telemBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (isTelemetryActive && (telemetryTarget === "server" || telemetryTarget === "master")) {
-                setTelemetryMode(false, "server", true);
-            } else {
-                setTelemetryMode(true, "server", true);
-            }
+            toggleTelemPopup();
         });
     }
 
-    if (slaveTelemBtn) {
-        slaveTelemBtn.addEventListener("click", (e) => {
+    if (telemOptServer) {
+        telemOptServer.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (isTelemetryActive && telemetryTarget === "slave") {
-                setTelemetryMode(false, "slave", true);
-            } else {
-                setTelemetryMode(true, "slave", true);
-            }
+            closeTelemPopup();
+            setTelemetryMode(true, "server", true);
         });
     }
 
-    if (kioskTelemBtn) {
-        kioskTelemBtn.addEventListener("click", (e) => {
+    if (telemOptSlave) {
+        telemOptSlave.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (isTelemetryActive && telemetryTarget === "kiosk") {
-                setTelemetryMode(false, "kiosk", true);
-            } else {
-                setTelemetryMode(true, "kiosk", true);
-            }
+            closeTelemPopup();
+            setTelemetryMode(true, "slave", true);
+        });
+    }
+
+    if (telemOptKiosk) {
+        telemOptKiosk.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (telemOptKiosk.disabled) return;
+            closeTelemPopup();
+            setTelemetryMode(true, "kiosk", true);
+        });
+    }
+
+    if (telemOptSplit) {
+        telemOptSplit.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeTelemPopup();
+            setTelemetryMode(true, "split", true);
+        });
+    }
+
+    if (telemOptClose) {
+        telemOptClose.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeTelemPopup();
+            setTelemetryMode(false, telemetryTarget, true);
         });
     }
 
@@ -998,6 +1135,23 @@
             setTelemetryMode(false, telemetryTarget, true);
         });
     }
+
+    if (telemCloseBtnSec) {
+        telemCloseBtnSec.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // Closing secondary panel returns cleanly to single Server panel!
+            setTelemetryMode(true, "server", true);
+        });
+    }
+
+    document.addEventListener("click", (e) => {
+        if (telemPopup && telemPopup.classList.contains("open")) {
+            if (!telemPopup.contains(e.target) && e.target !== telemBtn) {
+                closeTelemPopup();
+            }
+        }
+    });
 
     // ==========================================================================
     // 7. ONE-WAY SECURITY MODE CONTROLLER (Clickable ONLY when on FRIENDLY)
@@ -1114,7 +1268,7 @@
             // Security Rule: Mode can ONLY be clicked when currently in 'friendly' mode
             if (securityMode !== "friendly") {
                 if (axlReply) {
-                    axlReply.textContent = `Sicurezza bloccata su ${securityMode.toUpperCase()}. Solo l'Owner con verifica vocale può modificare questa modalità.`;
+                    fitAxlReplyText(`Sicurezza bloccata su ${securityMode.toUpperCase()}. Solo l'Owner con verifica vocale può modificare questa modalità.`);
                 }
                 return;
             }
@@ -1125,6 +1279,7 @@
                     closeModePopup();
                 } else {
                     closeSettingsPopup();
+                    closeTelemPopup();
                     modeSelectorPopup.hidden = false;
                     modeSelectorPopup.classList.add("open");
                 }
@@ -1146,7 +1301,7 @@
                     }));
                 }
                 if (axlReply) {
-                    axlReply.textContent = `Modalità ${targetMode.toUpperCase()} attivata e bloccata. Verifica biometrica vocale attiva.`;
+                    fitAxlReplyText(`Modalità ${targetMode.toUpperCase()} attivata e bloccata. Verifica biometrica vocale attiva.`);
                 }
             }
         });
@@ -1174,7 +1329,7 @@
             if (muteBtnLabel) muteBtnLabel.textContent = "MIC: MUTO (CLICCA PER SBLOCCARE)";
             muteBtn.title = "Microfono disattivato. Clicca per riattivare l'ascolto vocale.";
             if (axlReply && currentState !== "SPEAKING") {
-                axlReply.textContent = "Modalità muto attiva. Sensori audio disattivati (sblocco consentito solo tramite questo pulsante).";
+                fitAxlReplyText("Modalità muto attiva. Sensori audio disattivati (sblocco consentito solo tramite questo pulsante).");
             }
         } else {
             if (muteBtnIcon) muteBtnIcon.textContent = "🎙️";
@@ -1215,13 +1370,13 @@
             bioAuthStatus.className = "bio-value";
             if (id === "OWNER") {
                 bioAuthStatus.classList.add("auth-owner");
-                bioAuthStatus.textContent = "VERIFIED // OWNER";
+                bioAuthStatus.textContent = "ADMIN";
             } else if (auth) {
                 bioAuthStatus.classList.add("auth-friend");
-                bioAuthStatus.textContent = "AUTHORIZED // FRIEND";
+                bioAuthStatus.textContent = "AUTHORIZED";
             } else {
                 bioAuthStatus.classList.add("auth-stranger");
-                bioAuthStatus.textContent = "DENIED // STRANGER";
+                bioAuthStatus.textContent = "STRANGER";
                 if (securityMode !== "friendly") {
                     setVisorState("ALERT", "SECURITY BREACH", "UNAUTHORIZED SPEAKER ACCESS");
                     setTimeout(() => {
