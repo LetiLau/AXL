@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var layoutOffline: LinearLayout
+    private lateinit var tvStatus: TextView
     private lateinit var tvTargetUrl: TextView
     private lateinit var btnRetry: Button
     private lateinit var btnChangeIp: Button
@@ -76,6 +77,7 @@ class MainActivity : AppCompatActivity() {
 
         webView = findViewById(R.id.webView)
         layoutOffline = findViewById(R.id.layoutOffline)
+        tvStatus = findViewById(R.id.tvStatus)
         tvTargetUrl = findViewById(R.id.tvTargetUrl)
         btnRetry = findViewById(R.id.btnRetry)
         btnChangeIp = findViewById(R.id.btnChangeIp)
@@ -187,8 +189,24 @@ class MainActivity : AppCompatActivity() {
                 super.onReceivedError(view, request, error)
                 if (request?.isForMainFrame == true) {
                     hasPageError = true
-                    showOfflineScreen()
+                    val desc = error?.description?.toString() ?: "Connessione rifiutata o timeout"
+                    val code = error?.errorCode ?: -1
+                    Log.e(TAG, "WebView load failed [$code]: $desc")
+                    showOfflineScreen("A-X-L NON RAGGIUNGIBILE\n[$desc ($code)]")
                 }
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onReceivedError(
+                view: WebView?,
+                errorCode: Int,
+                description: String?,
+                failingUrl: String?
+            ) {
+                super.onReceivedError(view, errorCode, description, failingUrl)
+                hasPageError = true
+                Log.e(TAG, "WebView load failed legacy [$errorCode]: $description")
+                showOfflineScreen("A-X-L NON RAGGIUNGIBILE\n[${description ?: "Errore"} ($errorCode)]")
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -251,9 +269,10 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(uiUrl)
     }
 
-    private fun showOfflineScreen() {
+    private fun showOfflineScreen(statusMessage: String? = null) {
         connectionWatchdog?.let { mainHandler.removeCallbacks(it) }
         tvTargetUrl.text = KioskConfig.getUiUrl(this)
+        tvStatus.text = statusMessage ?: "A-X-L MASTER NON RAGGIUNGIBILE"
         layoutOffline.visibility = View.VISIBLE
         btnFloatingSetup.visibility = View.VISIBLE
     }
@@ -318,6 +337,14 @@ class MainActivity : AppCompatActivity() {
                 permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+
+        // Android 17+ Local Network Access Permission
+        val localNetPerm = "android.permission.ACCESS_LOCAL_NETWORK"
+        try {
+            if (ContextCompat.checkSelfPermission(this, localNetPerm) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(localNetPerm)
+            }
+        } catch (_: Exception) {}
 
         if (permissionsToRequest.isNotEmpty()) {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())

@@ -132,6 +132,9 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 15. [ ] adding terminal commands linke mc server
 16. [ ] lingua ui dall'ingranaggio
+17. [ ] **Gestione Client Audio Concorrenti / Multi-Client (`/ws/audio`):**
+    * Aggiungere controllo ed esclusione mutua o switch di priorità quando più interfacce (es. A33, S25, simulatore PC) tentano di connettersi contemporaneamente allo stream audio del Master.
+    * Prevenire conflitti di VAD/ingestione audio e disconnettere graziosamente il client precedente con notifica.
 
 #### FASE 6: Animazioni Espressive Web UI (Video Neon / Avatar Reattivo)
 
