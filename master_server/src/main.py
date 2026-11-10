@@ -80,6 +80,7 @@ class StreamManager:
         self.telemetry_target: str = "fedora"
         self.last_kiosk_telemetry: Optional[dict] = None
         self._telemetry_task: Optional[asyncio.Task] = None
+        self._server_heartbeat_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
 
     def initialize_pipeline(self):
@@ -133,8 +134,6 @@ class StreamManager:
             target = "server"
         elif target_norm in ("kiosk", "android", "phone", "galaxy", "a33"):
             target = "kiosk"
-        elif target_norm in ("split", "dual", "doppia", "due", "both", "entrambi"):
-            target = "split"
         else:
             target = "slave"
 
@@ -145,15 +144,13 @@ class StreamManager:
             await self.broadcast_ui(payload)
 
     async def set_telemetry_mode(self, enabled: bool, target: str = "slave"):
-        """Activates or deactivates live telemetry streaming mode for server, slave, kiosk, or split."""
+        """Activates or deactivates live telemetry streaming mode for server, slave, or kiosk."""
         self.telemetry_active = enabled
         target_norm = str(target).lower().strip()
         if target_norm in ("server", "master", "thinkpad", "locale", "local"):
             self.telemetry_target = "server"
         elif target_norm in ("kiosk", "android", "phone", "galaxy", "a33"):
             self.telemetry_target = "kiosk"
-        elif target_norm in ("split", "dual", "doppia", "due", "both", "entrambi"):
-            self.telemetry_target = "split"
         else:
             self.telemetry_target = "slave"
         logger.info(f"[TELEMETRY MODE] State updated: {enabled} (target: {self.telemetry_target})")
@@ -167,12 +164,6 @@ class StreamManager:
 
         if self.telemetry_active:
             if self.telemetry_target in ("server", "master"):
-                await self.broadcast_ui({
-                    "type": "TELEMETRY_UPDATE",
-                    "target": "server",
-                    "data": self._collect_local_telemetry(),
-                })
-            elif self.telemetry_target == "split":
                 await self.broadcast_ui({
                     "type": "TELEMETRY_UPDATE",
                     "target": "server",
@@ -208,24 +199,6 @@ class StreamManager:
                             "target": "server",
                             "data": self._collect_local_telemetry(),
                         })
-                    elif self.telemetry_target == "split":
-                        # In split mode: broadcast Master Server (left) and Remote Slave (right)
-                        await self.broadcast_ui({
-                            "type": "TELEMETRY_UPDATE",
-                            "target": "server",
-                            "data": self._collect_local_telemetry(),
-                        })
-                        try:
-                            async with httpx.AsyncClient(timeout=1.5) as client:
-                                resp = await client.get(f"{slave_url}/telemetry")
-                                if resp.status_code == 200:
-                                    await self.broadcast_ui({
-                                        "type": "TELEMETRY_UPDATE",
-                                        "target": "slave",
-                                        "data": resp.json(),
-                                    })
-                        except Exception:
-                            pass
                     elif self.telemetry_target == "kiosk":
                         if self.last_kiosk_telemetry:
                             await self.broadcast_ui({
@@ -260,6 +233,26 @@ class StreamManager:
             pass
         finally:
             logger.info("[TELEMETRY STREAM] Background poller loop terminated.")
+
+    async def _server_heartbeat_loop(self):
+        """Periodically broadcasts Master Server telemetry (every 2.5s) to feed the top mini-sparklines in UI."""
+        logger.info("[SERVER HEARTBEAT] Started Master Server background telemetry feed.")
+        try:
+            while self.ui_clients:
+                await asyncio.sleep(2.5)
+                if self.ui_clients:
+                    try:
+                        server_data = self._collect_local_telemetry()
+                        await self.broadcast_ui({
+                            "type": "SERVER_TELEMETRY",
+                            "data": server_data,
+                        })
+                    except Exception as ex:
+                        logger.debug(f"[SERVER HEARTBEAT] Error broadcasting: {ex}")
+        except asyncio.CancelledError:
+            pass
+        finally:
+            logger.info("[SERVER HEARTBEAT] Stopped Master Server background telemetry feed.")
 
     async def register_ui(self, websocket: WebSocket, is_kiosk: bool = False):
         """Registers a connected Web UI client and sends initial state synchronization with assigned node tag."""
@@ -299,6 +292,18 @@ class StreamManager:
             "is_kiosk": is_kiosk,
         })
 
+        # Send initial live Master Server telemetry frame for the top mini sparklines
+        try:
+            await websocket.send_json({
+                "type": "SERVER_TELEMETRY",
+                "data": self._collect_local_telemetry(),
+            })
+        except Exception:
+            pass
+
+        if self._server_heartbeat_task is None or self._server_heartbeat_task.done():
+            self._server_heartbeat_task = asyncio.create_task(self._server_heartbeat_loop())
+
     async def unregister_ui(self, websocket: WebSocket):
         """Detaches a Web UI client cleanly and frees its node slot."""
         self.ui_clients.discard(websocket)
@@ -309,6 +314,10 @@ class StreamManager:
                 self._assigned_browser_nodes.discard(num)
         node_tag = info.get("node_tag", "UNKNOWN") if info else "UNKNOWN"
         logger.info(f"UI client [{node_tag}] detached. Active UI clients: {len(self.ui_clients)}")
+
+        if not self.ui_clients and self._server_heartbeat_task and not self._server_heartbeat_task.done():
+            self._server_heartbeat_task.cancel()
+            self._server_heartbeat_task = None
 
     async def broadcast_ui(self, message: dict):
         """Dispatches an asynchronous state event to all connected Web UI clients."""
@@ -973,24 +982,6 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                             "target": "server",
                             "data": stream_manager._collect_local_telemetry(),
                         })
-                    elif req_norm == "split":
-                        await websocket.send_json({
-                            "type": "TELEMETRY_UPDATE",
-                            "target": "server",
-                            "data": stream_manager._collect_local_telemetry(),
-                        })
-                        slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
-                        try:
-                            async with httpx.AsyncClient(timeout=1.5) as client:
-                                resp = await client.get(f"{slave_url}/telemetry")
-                                if resp.status_code == 200:
-                                    await websocket.send_json({
-                                        "type": "TELEMETRY_UPDATE",
-                                        "target": "slave",
-                                        "data": resp.json(),
-                                    })
-                        except Exception:
-                            pass
                     elif req_norm == "kiosk" and stream_manager.last_kiosk_telemetry:
                         await websocket.send_json({
                             "type": "TELEMETRY_UPDATE",

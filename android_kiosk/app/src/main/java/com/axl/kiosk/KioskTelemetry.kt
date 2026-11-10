@@ -75,6 +75,10 @@ object KioskTelemetry {
         }
         payload.put("wifi_rssi_dbm", wifiRssiDbm)
 
+        // 4. SoC / Hardware Info
+        payload.put("cpu_cores", Runtime.getRuntime().availableProcessors())
+        payload.put("soc_name", "Exynos 1280")
+
         return payload
     }
 }

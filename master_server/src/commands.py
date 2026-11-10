@@ -317,12 +317,10 @@ def toggle_telemetry_hud(show: bool = True, target: str = "slave") -> str:
 
     Args:
         show: True to show the telemetry monitor panel on the Visor, False to hide it.
-        target: Target node to monitor: 'server' (Master Server host), 'slave' (remote PC / workstation node), or 'split' (dual view: server and slave together). Default is 'slave'.
+        target: Target node to monitor: 'server' (Master Server host), 'slave' (remote PC / workstation node), or 'kiosk' (Galaxy A33 kiosk). Default is 'slave'.
     """
     clean_target = str(target).lower().strip()
-    if clean_target in ["split", "dual", "doppia", "due", "both", "entrambi"]:
-        resolved_target = "split"
-    elif clean_target in ["server", "master", "thinkpad", "locale", "local"]:
+    if clean_target in ["server", "master", "thinkpad", "locale", "local"]:
         resolved_target = "server"
     elif clean_target in ["kiosk", "android", "telefono", "cellulare", "a33", "phone"]:
         resolved_target = "kiosk"
@@ -334,8 +332,6 @@ def toggle_telemetry_hud(show: bool = True, target: str = "slave") -> str:
         notify_telemetry({"type": "TELEMETRY_MODE", "enabled": False, "target": resolved_target})
         if resolved_target == "server":
             node_label = "del server"
-        elif resolved_target == "split":
-            node_label = "split a due nodi"
         elif resolved_target == "kiosk":
             node_label = "del kiosk"
         else:
@@ -344,9 +340,6 @@ def toggle_telemetry_hud(show: bool = True, target: str = "slave") -> str:
 
     if resolved_target == "server":
         return get_server_telemetry()
-    elif resolved_target == "split":
-        notify_telemetry({"type": "TELEMETRY_MODE", "enabled": True, "target": "split"})
-        return "Modalità telemetria split a due nodi (Server e Slave) attivata sul visore."
     else:
         return get_slave_telemetry(target="slave")
 
@@ -644,15 +637,13 @@ def detect_security_mode_intent(text: str) -> Optional[str]:
 
 
 def detect_telemetry_intent(text: str) -> Optional[Dict[str, Any]]:
-    """Detects if user utterance expressed intent to show (True) or hide (False) telemetry HUD for server, slave, kiosk, or split."""
+    """Detects if user utterance expressed intent to show (True) or hide (False) telemetry HUD for server, slave, or kiosk."""
     if not text:
         return None
     lower = text.lower().strip()
 
     # Determine target if mentioned (defaults to slave if unspecified)
-    if any(w in lower for w in ["split", "doppia telemetria", "due nodi", "entrambi i nodi", "entrambe le telemetrie", "server e slave", "slave e server"]):
-        target = "split"
-    elif any(w in lower for w in ["server", "master", "thinkpad", "locale", "local"]):
+    if any(w in lower for w in ["server", "master", "thinkpad", "locale", "local"]):
         target = "server"
     elif any(w in lower for w in ["kiosk", "android", "telefono", "cellulare", "a33", "phone", "batteria"]):
         target = "kiosk"
@@ -672,10 +663,9 @@ def detect_telemetry_intent(text: str) -> Optional[Dict[str, Any]]:
         r"\b(mostra|apri|attiva|visualizza|proietta|fammi\s+vedere)\s+(la\s+)?telemetria\b",
         r"\btelemetria\s+(del\s+|dello\s+)?(server|master|slave|pc|thinkpad|workstation|kiosk|telefono|cellulare)\b",
         r"\b(server|slave|master|pc|kiosk|android)\s+telemetr(ia|y)\b",
-        r"\b(split|doppi[ao]|entramb[ie])\s+telemetr(ia|y)\b",
-        r"\btelemetria\s+(split|doppia|a\s+due\s+nodi|on|aperta|attiva)\b",
+        r"\btelemetria\s+(on|aperta|attiva)\b",
         r"\b(stato|monitor)\s+(del\s+)?(server|master|slave|pc|hardware|kiosk|telefono|batteria)\b",
-        r"^(hey\s+jarvis\s+|axl\s+)?(server\s+telemetry|slave\s+telemetry|kiosk\s+telemetry|split\s+telemetry|telemetria\s+server|telemetria\s+slave|telemetria\s+pc|telemetria\s+kiosk|telemetria\s+telefono|telemetria\s+split)\.?$",
+        r"^(hey\s+jarvis\s+|axl\s+)?(server\s+telemetry|slave\s+telemetry|kiosk\s+telemetry|telemetria\s+server|telemetria\s+slave|telemetria\s+pc|telemetria\s+kiosk|telemetria\s+telefono)\.?$",
     ]):
         return {"show": True, "target": target}
 
