@@ -812,12 +812,12 @@ body.state-idle .state-sub {
 .telemetry-panel {
     display: none;
     flex-direction: column;
-    width: min(52vw, 540px);
-    max-height: calc(100vh - 210px);
+    width: min(50vw, 520px);
+    max-height: calc(100vh - 170px);
     background: linear-gradient(160deg, rgba(2, 16, 28, 0.92) 0%, rgba(0, 8, 16, 0.96) 100%);
     border: 1.5px solid rgba(0, 240, 255, 0.35);
     border-radius: 20px;
-    padding: 18px 20px;
+    padding: 16px 18px;
     box-shadow: 0 18px 45px rgba(0, 0, 0, 0.8), 0 0 25px rgba(0, 240, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -826,6 +826,18 @@ body.state-idle .state-sub {
     scrollbar-color: rgba(0, 240, 255, 0.3) transparent;
     z-index: 40;
     flex-shrink: 0;
+}
+
+/* Kiosk & Mobile Glanceable Constraints (Zero scrollbar, real-time fit) */
+body.client-kiosk .telemetry-panel,
+body.client-mobile .telemetry-panel {
+    overflow: hidden !important;
+    scrollbar-width: none !important;
+}
+
+body.client-kiosk .telemetry-panel::-webkit-scrollbar,
+body.client-mobile .telemetry-panel::-webkit-scrollbar {
+    display: none !important;
 }
 
 body.telemetry-active .telemetry-panel:not(.telemetry-panel-sec) {
@@ -1223,18 +1235,59 @@ body.telemetry-active.telemetry-split #telemetry-panel-sec {
 .auth-friend { color: var(--cyan-glow); text-shadow: 0 0 6px var(--cyan-glow); }
 .auth-stranger { color: var(--red-alert); text-shadow: 0 0 8px var(--red-alert); }
 
-/* Row 2: Subtitles (left) + Action Column (right) */
-.hud-bottom-row {
+/* ==========================================================================
+   FOOTER LAYOUT (ADAPTIVE: DESKTOP vs KIOSK / MOBILE)
+   ========================================================================== */
+
+/* PC DESKTOP (DEFAULT or .client-desktop):
+   - Row 1: Actions: [ MIC ] pinned left, [ ASK ME ] pinned right (across top of footer)
+   - Row 2: Biometric Strip (Full Width)
+   - Row 3: Dialogue Subtitles Panel (Full Width)
+   (matches handwritten wireframe notewise -4)
+*/
+.hud-footer {
     display: flex;
-    align-items: stretch;
-    gap: 12px;
-    min-height: 80px;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.hud-action-bar {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.hud-action-bar .badge-mute-btn,
+.hud-action-bar .badge-ask-btn {
+    min-width: 165px;
+    min-height: 38px;
+    padding: 6px 16px;
+    font-size: 0.80rem;
+    font-weight: 700;
+    letter-spacing: 0.08rem;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.12);
+    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.biometric-strip {
+    width: 100%;
 }
 
 /* Dialogue Panel (Responsive transcript & reply container) */
 .dialogue-panel {
-    flex: 1;
+    width: 100%;
     min-width: 0;
+    min-height: 56px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -1298,33 +1351,101 @@ body.telemetry-active.telemetry-split #telemetry-panel-sec {
     line-height: 1.15;
 }
 
-/* Tactical Action Column (Stacked vertically beside Subtitles) */
-.hud-action-column {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    justify-content: space-between;
-    flex-shrink: 0;
-    width: 175px;
+/* KIOSK & MOBILE LAYOUT (.client-kiosk, .client-mobile, or screens <= 899px unless client-desktop):
+   - Row 1: Biometric Strip (Full Width)
+   - Row 2: Dialogue Subtitles (Left) + Stacked Actions (Right: [MIC] top, [ASK ME] bottom)
+   (matches handwritten wireframe sketch 5)
+*/
+body.client-kiosk .hud-footer,
+body.client-mobile .hud-footer {
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    grid-template-rows: auto 1fr !important;
+    grid-template-areas:
+        "bio  bio"
+        "diag act" !important;
+    gap: 6px 10px !important;
+    width: 100% !important;
 }
 
-.hud-action-column .badge-mute-btn,
-.hud-action-column .badge-ask-btn {
-    width: 100%;
-    min-height: 38px;
-    padding: 6px 14px;
-    font-size: 0.80rem;
-    font-weight: 700;
-    letter-spacing: 0.08rem;
-    border-radius: 10px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    box-shadow: 0 0 10px rgba(0, 240, 255, 0.12);
-    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-    user-select: none;
-    touch-action: manipulation;
+body.client-kiosk .biometric-strip,
+body.client-mobile .biometric-strip {
+    grid-area: bio !important;
+    width: 100% !important;
+}
+
+body.client-kiosk .dialogue-panel,
+body.client-mobile .dialogue-panel {
+    grid-area: diag !important;
+    width: 100% !important;
+    min-height: 52px;
+}
+
+body.client-kiosk .hud-action-bar,
+body.client-mobile .hud-action-bar {
+    grid-area: act !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: stretch !important;
+    gap: 5px !important;
+    width: 135px !important;
+    align-self: stretch !important;
+}
+
+body.client-kiosk .hud-action-bar .badge-mute-btn,
+body.client-kiosk .hud-action-bar .badge-ask-btn,
+body.client-mobile .hud-action-bar .badge-mute-btn,
+body.client-mobile .hud-action-bar .badge-ask-btn {
+    flex: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 28px !important;
+    padding: 4px 6px !important;
+    font-size: 0.68rem !important;
+}
+
+@media (max-width: 899px) {
+    body:not(.client-desktop) .hud-footer {
+        display: grid !important;
+        grid-template-columns: 1fr auto !important;
+        grid-template-rows: auto 1fr !important;
+        grid-template-areas:
+            "bio  bio"
+            "diag act" !important;
+        gap: 6px 10px !important;
+        width: 100% !important;
+    }
+
+    body:not(.client-desktop) .biometric-strip {
+        grid-area: bio !important;
+        width: 100% !important;
+    }
+
+    body:not(.client-desktop) .dialogue-panel {
+        grid-area: diag !important;
+        width: 100% !important;
+        min-height: 52px;
+    }
+
+    body:not(.client-desktop) .hud-action-bar {
+        grid-area: act !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: stretch !important;
+        gap: 5px !important;
+        width: 135px !important;
+        align-self: stretch !important;
+    }
+
+    body:not(.client-desktop) .hud-action-bar .badge-mute-btn,
+    body:not(.client-desktop) .hud-action-bar .badge-ask-btn {
+        flex: 1 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 28px !important;
+        padding: 4px 6px !important;
+        font-size: 0.68rem !important;
+    }
 }
 
 .badge-mute-btn {
@@ -1686,25 +1807,99 @@ body.state-alert .alert-overlay {
         width: min(16vw, 115px);
         height: min(16vw, 115px);
     }
+
+    /* Compact glanceable telemetry panel without scrollbars */
     .telemetry-panel {
-        max-height: calc(100vh - 145px);
-        padding: 10px 12px;
+        width: min(44vw, 340px);
+        max-height: calc(100vh - 105px);
+        padding: 6px 10px;
+        overflow: hidden !important;
+        scrollbar-width: none;
+    }
+    .telemetry-panel::-webkit-scrollbar {
+        display: none !important;
+    }
+    .telem-header {
+        padding-bottom: 3px;
+        margin-bottom: 4px;
+    }
+    .telem-tag {
+        font-size: 0.50rem;
+        letter-spacing: 0.08rem;
     }
     .telem-title {
-        font-size: 0.88rem;
+        font-size: 0.78rem;
+        letter-spacing: 0.06rem;
+    }
+    .badge-telem-online,
+    .badge-telem-offline {
+        font-size: 0.54rem;
+        padding: 2px 6px;
+    }
+    .telem-icon-btn {
+        width: 22px;
+        height: 22px;
+        font-size: 0.75rem;
+        border-radius: 6px;
     }
     .telem-grid {
-        gap: 8px;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 5px;
     }
     .telem-card {
-        padding: 8px 10px;
+        padding: 5px 7px;
+        border-radius: 10px;
+        gap: 2px;
+    }
+    .telem-card-header {
+        margin-bottom: 1px;
+    }
+    .telem-card-label {
+        font-size: 0.56rem;
+        letter-spacing: 0.04rem;
+    }
+    .telem-temp-badge {
+        font-size: 0.54rem;
+        padding: 1px 5px;
     }
     .telem-val-large {
-        font-size: 1.1rem;
+        font-size: 0.95rem;
     }
+    .telem-unit {
+        font-size: 0.58rem;
+    }
+    .telem-sub-line {
+        font-size: 0.52rem;
+        gap: 2px;
+    }
+    .telem-meter-track {
+        height: 3px;
+        margin-top: 2px;
+    }
+    .telem-gpu-item {
+        padding: 2px 4px;
+        border-radius: 6px;
+        gap: 2px;
+    }
+    .telem-gpu-name {
+        font-size: 0.58rem;
+    }
+    .telem-gpu-badge {
+        font-size: 0.50rem;
+        padding: 1px 4px;
+    }
+
+    body.telemetry-active.telemetry-split .telemetry-panel {
+        width: min(34vw, 250px);
+        padding: 5px 7px;
+    }
+    body.telemetry-active.telemetry-split .telem-sub-metric {
+        display: none;
+    }
+
     .hud-footer {
-        padding-top: 6px;
-        gap: 6px;
+        padding-top: 4px;
+        gap: 5px;
     }
     .biometric-strip {
         padding: 4px 10px;
@@ -1712,13 +1907,9 @@ body.state-alert .alert-overlay {
     .bio-label, .bio-value {
         font-size: 0.68rem;
     }
-    .hud-bottom-row {
-        min-height: 56px;
-        gap: 8px;
-    }
     .dialogue-panel {
         padding: 6px 10px;
-        min-height: 50px;
+        min-height: 48px;
     }
     .speaker-tag {
         font-size: 0.64rem;
@@ -1727,15 +1918,15 @@ body.state-alert .alert-overlay {
     .speech-text {
         font-size: 0.82rem;
     }
-    .hud-action-column {
-        width: 140px;
+    .hud-action-bar {
+        width: 135px;
         gap: 4px;
     }
-    .hud-action-column .badge-mute-btn,
-    .hud-action-column .badge-ask-btn {
-        min-height: 27px;
-        padding: 4px 8px;
-        font-size: 0.70rem;
+    .hud-action-bar .badge-mute-btn,
+    .hud-action-bar .badge-ask-btn {
+        min-height: 25px;
+        padding: 3px 6px;
+        font-size: 0.68rem;
     }
 }
 
@@ -1790,14 +1981,21 @@ body.state-alert .alert-overlay {
     }
     body.telemetry-active .telemetry-panel {
         width: 100%;
-        max-height: 260px;
+        max-height: calc(100vh - 280px);
+        padding: 8px 10px;
+        overflow: hidden !important;
+        scrollbar-width: none;
+    }
+    body.telemetry-active .telemetry-panel::-webkit-scrollbar {
+        display: none !important;
     }
     body.telemetry-active .visor-core-box {
         width: 160px;
         height: 160px;
     }
     .telem-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 6px;
     }
     .biometric-strip {
         padding: 6px 10px;
@@ -1808,17 +2006,15 @@ body.state-alert .alert-overlay {
     .bio-value {
         font-size: 0.72rem;
     }
-    .hud-bottom-row {
-        gap: 8px;
-    }
-    .hud-action-column {
+    .hud-action-bar {
         width: 125px;
+        gap: 4px;
     }
-    .hud-action-column .badge-mute-btn,
-    .hud-action-column .badge-ask-btn {
+    .hud-action-bar .badge-mute-btn,
+    .hud-action-bar .badge-ask-btn {
         padding: 5px 6px;
         font-size: 0.68rem;
-        min-height: 34px;
+        min-height: 32px;
         letter-spacing: 0.04rem;
     }
     .speech-text {

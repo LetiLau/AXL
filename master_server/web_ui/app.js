@@ -247,13 +247,19 @@
         const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
         const isMobileUa = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
         const isAndroidWv = /;\s*wv\s*\)/i.test(ua) || (ua.includes("Version/4.0") && isMobileUa);
-        const isKiosk = ua.includes("AXL-Kiosk") || (new URLSearchParams(window.location.search).get("client") === "kiosk");
+        const isKiosk = Boolean(
+            (window.AXLKiosk && typeof window.AXLKiosk.exitKiosk === "function") ||
+            ua.includes("AXL-Kiosk") ||
+            (new URLSearchParams(window.location.search).get("client") === "kiosk")
+        );
 
         let clientType = "desktop";
         if (isKiosk || isAndroidWv) {
             clientType = "kiosk";
-        } else if (isMobileUa || isTouch) {
+        } else if (isMobileUa) {
             clientType = "mobile";
+        } else {
+            clientType = "desktop";
         }
 
         body.classList.remove("client-desktop", "client-mobile", "client-kiosk");
@@ -534,6 +540,15 @@
         switch (msg.type) {
             case "INIT":
                 if (msg.node_tag) updateBrandNodeTag(msg.node_tag);
+                if (msg.node_tag === "KIOSK" || msg.is_kiosk) {
+                    body.classList.remove("client-desktop", "client-mobile");
+                    body.classList.add("client-kiosk");
+                } else if (msg.node_tag && msg.node_tag.startsWith("NODE-")) {
+                    if (!/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "")) {
+                        body.classList.remove("client-kiosk", "client-mobile");
+                        body.classList.add("client-desktop");
+                    }
+                }
                 if (msg.security_mode) updateSecurityMode(msg.security_mode);
                 if (msg.state) setVisorState(msg.state);
                 if (msg.is_muted !== undefined) updateMuteUI(msg.is_muted);

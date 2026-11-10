@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css?v=6.0">
+    <link rel="stylesheet" href="style.css?v=7.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -21,7 +21,7 @@
         #telem-popup:not(.open) { display: none !important; }
     </style>
 </head>
-<body class="state-idle">
+<body class="state-idle client-desktop">
     <!-- AMOLED Pure Black Shield & Pixel-Shift Wrapper -->
     <div id="pixel-shift-container">
         
@@ -383,7 +383,19 @@
         <!-- Biometric Telemetry & Speech Subtitles Tray -->
         <footer class="hud-footer">
             
-            <!-- Row 1: Speaker Biometrics Strip (Full Width) -->
+            <!-- Tactical Action Strip (On PC: [MIC] left, [ASK ME] right across top. On Kiosk: stacked next to Subtitles) -->
+            <div class="hud-action-bar">
+                <button type="button" id="mute-btn" class="badge badge-mute-btn" title="Disattiva ascolto microfono (Può essere riattivato solo cliccando qui)">
+                    <span id="mute-btn-icon" class="mute-icon">🎙️</span>
+                    <span id="mute-btn-label">MIC: ATTIVO</span>
+                </button>
+                <button type="button" id="ask-btn" class="badge badge-ask-btn ask-friendly" title="Fai una domanda senza dire la wake-word">
+                    <span id="ask-btn-icon" class="mute-icon">💬</span>
+                    <span id="ask-btn-label">ASK ME...</span>
+                </button>
+            </div>
+
+            <!-- Speaker Biometrics Strip -->
             <div class="biometric-strip">
                 <div class="bio-tag">
                     <span class="bio-label">SPEAKER ID:</span>
@@ -402,30 +414,15 @@
                 </div>
             </div>
 
-            <!-- Row 2: Subtitles (Left) + Vertically Stacked MIC & ASK ME Actions (Right) -->
-            <div class="hud-bottom-row">
-                <!-- Dialogue Subtitles Panel (fills width, responsive font scaling) -->
-                <div class="dialogue-panel">
-                    <div class="dialogue-row user-row">
-                        <span class="speaker-tag tag-user">HEARD &gt;</span>
-                        <span id="user-transcript" class="speech-text transcript-text">"Hey Jarvis..."</span>
-                    </div>
-                    <div class="dialogue-row axl-row">
-                        <span class="speaker-tag tag-axl">A-X-L &gt;</span>
-                        <span id="axl-reply" class="speech-text reply-text">Pronto all'azione, capo. In ascolto sui sensori.</span>
-                    </div>
+            <!-- Dialogue Subtitles Panel -->
+            <div class="dialogue-panel">
+                <div class="dialogue-row user-row">
+                    <span class="speaker-tag tag-user">HEARD &gt;</span>
+                    <span id="user-transcript" class="speech-text transcript-text">"Hey Jarvis..."</span>
                 </div>
-
-                <!-- Tactical Action Column (Stacked vertically beside Subtitles) -->
-                <div class="hud-action-column">
-                    <button type="button" id="mute-btn" class="badge badge-mute-btn" title="Disattiva ascolto microfono (Può essere riattivato solo cliccando qui)">
-                        <span id="mute-btn-icon" class="mute-icon">🎙️</span>
-                        <span id="mute-btn-label">MIC: ATTIVO</span>
-                    </button>
-                    <button type="button" id="ask-btn" class="badge badge-ask-btn ask-friendly" title="Fai una domanda senza dire la wake-word">
-                        <span id="ask-btn-icon" class="mute-icon">💬</span>
-                        <span id="ask-btn-label">ASK ME...</span>
-                    </button>
+                <div class="dialogue-row axl-row">
+                    <span class="speaker-tag tag-axl">A-X-L &gt;</span>
+                    <span id="axl-reply" class="speech-text reply-text">Pronto all'azione, capo. In ascolto sui sensori.</span>
                 </div>
             </div>
 
@@ -436,6 +433,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <script src="app.js?v=6.0"></script>
+    <script src="app.js?v=7.0"></script>
 </body>
 </html>
