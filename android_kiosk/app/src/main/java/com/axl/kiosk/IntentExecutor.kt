@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.provider.AlarmClock
+import android.provider.CalendarContract
 import android.util.Log
 import android.view.KeyEvent
 import org.json.JSONObject
@@ -49,6 +50,14 @@ object IntentExecutor {
                     val minutes = commandJson.optInt("minutes", 0)
                     val message = commandJson.optString("message", "Sveglia A-X-L")
                     setAlarm(context, hour, minutes, message)
+                    true
+                }
+                "add_calendar_event" -> {
+                    val title = commandJson.optString("title", "Nuovo Evento A-X-L")
+                    val description = commandJson.optString("description", "")
+                    val beginTime = commandJson.optLong("begin_time", System.currentTimeMillis() + 3600000L)
+                    val endTime = commandJson.optLong("end_time", beginTime + 3600000L)
+                    addCalendarEvent(context, title, description, beginTime, endTime)
                     true
                 }
                 else -> {
@@ -134,5 +143,18 @@ object IntentExecutor {
         }
         context.startActivity(intent)
         Log.i(TAG, "Set alarm for $hour:$minutes - '$message'")
+    }
+
+    private fun addCalendarEvent(context: Context, title: String, description: String, beginTime: Long, endTime: Long) {
+        val intent = Intent(Intent.ACTION_INSERT).apply {
+            data = CalendarContract.Events.CONTENT_URI
+            putExtra(CalendarContract.Events.TITLE, title)
+            putExtra(CalendarContract.Events.DESCRIPTION, description)
+            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginTime)
+            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endTime)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+        Log.i(TAG, "Launched Calendar intent for '$title' ($beginTime - $endTime)")
     }
 }

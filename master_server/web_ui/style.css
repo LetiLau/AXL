@@ -701,8 +701,8 @@ html.client-kiosk body #fullscreen-btn {
     justify-content: flex-end;
     align-items: center;
     gap: 8px;
-    padding: 3px 6px 0 0;
-    margin-top: -6px;
+    padding: 0 6px 0 0;
+    margin-top: 5px;
     margin-bottom: 2px;
     width: 100%;
     z-index: 95;
@@ -764,6 +764,12 @@ html.client-kiosk body #fullscreen-btn {
     background: linear-gradient(90deg, #ff1744, #ff0055) !important;
     box-shadow: 0 0 8px rgba(255, 0, 85, 0.8) !important;
     animation: mini-pulse-crit 0.8s infinite alternate ease-in-out;
+}
+
+.mini-fill.muted {
+    background: rgba(255, 255, 255, 0.15) !important;
+    box-shadow: none !important;
+    animation: none !important;
 }
 
 @keyframes mini-pulse-crit {
@@ -1190,6 +1196,12 @@ body.music-active .telemetry-panel {
     border: 1px solid rgba(0, 240, 255, 0.3);
 }
 
+.telem-temp-badge.offline {
+    background: rgba(255, 23, 68, 0.15) !important;
+    color: var(--red-alert) !important;
+    border: 1px solid rgba(255, 23, 68, 0.4) !important;
+}
+
 .telem-stat-row {
     display: flex;
     justify-content: space-between;
@@ -1265,6 +1277,11 @@ body.music-active .telemetry-panel {
     background: linear-gradient(90deg, #ff1744, #ff0055);
 }
 
+.telem-meter-fill.muted {
+    background: rgba(255, 255, 255, 0.12) !important;
+    box-shadow: none !important;
+}
+
 /* GPU Sub-items inside GPU Card (Default PC Desktop & Tablets) */
 .telem-gpu-list {
     display: flex;
@@ -1307,6 +1324,10 @@ body.music-active .telemetry-panel {
     color: var(--cyan-glow);
     flex-shrink: 0;
     white-space: nowrap;
+}
+
+.telem-gpu-badge.offline {
+    color: var(--red-alert) !important;
 }
 
 .telem-gpu-vram {
@@ -2034,9 +2055,9 @@ body.state-alert .alert-overlay {
         font-size: 0.52rem;
     }
     .server-mini-telem {
-        margin-top: -5px;
+        margin-top: 4px;
         margin-bottom: 0;
-        padding-top: 1px;
+        padding-top: 0;
         gap: 5px;
     }
     .server-mini-telem .mini-track {
@@ -2424,7 +2445,7 @@ body.state-alert .alert-overlay {
     .server-mini-telem {
         justify-content: center;
         gap: 6px;
-        margin-top: 1px;
+        margin-top: 5px;
         margin-bottom: 3px;
         padding-right: 0;
     }

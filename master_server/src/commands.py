@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 import psutil
 import requests
 from telemetry_utils import collect_system_telemetry
+from task_manager import task_manager
 
 logger = logging.getLogger("AXL-Commands")
 
@@ -112,6 +113,14 @@ def set_timer(duration_seconds: int, label: str = "Timer") -> str:
     except RuntimeError:
         pass
 
+    # Dispatch native Android Intent to Kiosk if connected
+    notify_telemetry({
+        "type": "INTENT",
+        "action": "set_timer",
+        "seconds": int(duration_seconds),
+        "message": label,
+    })
+
     mins = duration_seconds // 60
     secs = duration_seconds % 60
     time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
@@ -127,8 +136,24 @@ def set_alarm(time_str: str, label: str = "Alarm") -> str:
         label: Reason or label for the alarm (e.g. 'Work', 'Workout').
     """
     logger.info(f"[COMMAND: set_alarm] Time: {time_str} | Label: '{label}'")
-    # Will be dispatched to Android Intent (AlarmClock) in Phase 5
-    return f"Alarm '{label}' scheduled for {time_str}."
+    hour = 8
+    minutes = 0
+    try:
+        parts = time_str.strip().split(":")
+        hour = int(parts[0])
+        minutes = int(parts[1]) if len(parts) > 1 else 0
+    except Exception:
+        pass
+
+    # Dispatch native Android Intent to Kiosk
+    notify_telemetry({
+        "type": "INTENT",
+        "action": "set_alarm",
+        "hour": hour,
+        "minutes": minutes,
+        "message": label,
+    })
+    return f"Alarm '{label}' scheduled for {hour:02d}:{minutes:02d}."
 
 
 def get_current_time() -> str:
@@ -163,7 +188,90 @@ def media_control(action: str, target: str = "local") -> str:
         target: Target playback device ('local', 'fedora', 'android').
     """
     logger.info(f"[COMMAND: media_control] Action: '{action}' | Target: '{target}'")
+    notify_telemetry({
+        "type": "INTENT",
+        "action": "media_control",
+        "command": action,
+        "target": target,
+    })
     return f"Media command '{action}' dispatched to target '{target}'."
+
+
+def add_task(text: str) -> str:
+    """
+    Adds a new task to the user's to-do task list.
+    
+    Args:
+        text: Description of the task to add (e.g. 'comprare il latte', 'studiare per l'esame').
+    """
+    res = task_manager.add_task(text)
+    if "error" in res:
+        return f"Errore nell'aggiunta del compito: {res['error']}"
+    return f"Ho aggiunto '{text}' alla tua lista dei compiti (ID #{res['id']})."
+
+
+def list_tasks() -> str:
+    """
+    Returns the list of active to-do tasks and reminders.
+    """
+    tasks = task_manager.list_tasks(include_completed=False)
+    if not tasks:
+        return "Non hai compiti in sospeso nella tua lista."
+    task_lines = [f"- #{t['id']}: {t['text']}" for t in tasks]
+    return f"Ecco i tuoi compiti attivi:\n" + "\n".join(task_lines)
+
+
+def complete_task(task_id: int) -> str:
+    """
+    Marks a task as completed given its numeric ID.
+    
+    Args:
+        task_id: The numeric ID of the task to complete.
+    """
+    success = task_manager.complete_task(task_id)
+    if success:
+        return f"Compito #{task_id} contrassegnato come completato."
+    return f"Nessun compito trovato con ID #{task_id}."
+
+
+def create_calendar_event(title: str, date_time: str = "", description: str = "") -> str:
+    """
+    Creates an event or appointment in the calendar and synchronizes it with Android / Google Calendar.
+    
+    Args:
+        title: Title of the event (e.g. 'Visita dentista', 'Riunione con Marco').
+        date_time: Date and time of the event (e.g. '2026-11-12 15:30' or '17:00').
+        description: Optional notes or description.
+    """
+    ev = task_manager.add_calendar_event(title, date_time_str=date_time, description=description)
+    if "error" in ev:
+        return f"Errore nella creazione dell'evento: {ev['error']}"
+
+    # Dispatch to Android Kiosk over WebSocket
+    notify_telemetry({
+        "type": "INTENT",
+        "action": "add_calendar_event",
+        "title": ev["title"],
+        "description": ev.get("description", ""),
+        "begin_time": ev["begin_time_ms"],
+        "end_time": ev["end_time_ms"],
+    })
+    return f"Evento '{title}' programmato per {ev['date_time']} e inviato al calendario."
+
+
+def get_calendar_events(today_only: bool = True) -> str:
+    """
+    Returns the scheduled calendar events and appointments (defaults to today's events).
+    
+    Args:
+        today_only: If True, returns only events scheduled for today. If False, returns all upcoming events.
+    """
+    events = task_manager.list_calendar_events(today_only=today_only)
+    scope = "per oggi" if today_only else "in programma"
+    if not events:
+        return f"Non ci sono eventi sul calendario {scope}."
+    lines = [f"- #{e['id']}: {e['title']} alle {e['date_time']}" for e in events]
+    return f"Eventi sul calendario {scope}:\n" + "\n".join(lines)
 
 
 def execute_slave_command(command: str, target: str = "fedora") -> str:
@@ -733,6 +841,11 @@ REGISTERED_TOOLS: List[Callable[..., Any]] = [
     set_security_mode,
     set_mute_mode,
     enroll_voice_profile,
+    add_task,
+    list_tasks,
+    complete_task,
+    create_calendar_event,
+    get_calendar_events,
 ]
 
 # Lookup map for runtime dynamic dispatching

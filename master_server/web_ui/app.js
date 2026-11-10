@@ -107,10 +107,7 @@
     let telemetryTarget = "slave";
     let telemetrySimInterval = null;
     let lastRealTelemetryTime = 0;
-    let simCpuPercent = 22;
-    let simRamPercent = 46;
-    let simGpuPercent = 28;
-    let simFanRpm = 1720;
+    let serverMiniTelemInterval = null;
     let ws = null;
     let wsReconnectTimeout = null;
     let animFrameId = null;
@@ -454,6 +451,27 @@
     // ==========================================================================
     // 4. WEBSOCKET HUD CLIENT
     // ==========================================================================
+    function requestServerMiniTelemetry() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "REQUEST_SERVER_TELEMETRY" }));
+        }
+    }
+
+    function startServerMiniTelemLoop() {
+        if (serverMiniTelemInterval) clearInterval(serverMiniTelemInterval);
+        requestServerMiniTelemetry();
+        serverMiniTelemInterval = setInterval(() => {
+            requestServerMiniTelemetry();
+        }, 1000);
+    }
+
+    function stopServerMiniTelemLoop() {
+        if (serverMiniTelemInterval) {
+            clearInterval(serverMiniTelemInterval);
+            serverMiniTelemInterval = null;
+        }
+    }
+
     function connectWebSocket() {
         if (wsReconnectTimeout) clearTimeout(wsReconnectTimeout);
 
@@ -478,8 +496,10 @@
         ws.onopen = () => {
             updateConnectionStatus("online");
             updateKioskUI();
+            requestServerMiniTelemetry();
+            startServerMiniTelemLoop();
             if (isTelemetryActive) {
-                ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY" }));
+                ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY", target: telemetryTarget }));
             }
         };
 
@@ -493,11 +513,13 @@
         };
 
         ws.onclose = () => {
+            stopServerMiniTelemLoop();
             updateConnectionStatus("offline");
             scheduleReconnect();
         };
 
         ws.onerror = () => {
+            stopServerMiniTelemLoop();
             try { ws.close(); } catch (_) {}
         };
     }
@@ -513,9 +535,14 @@
             if (connStatusText) connStatusText.textContent = "WS: CONNECTING";
             connStatus.title = "Stato: Connessione in corso al Master Server...";
         } else {
+            stopServerMiniTelemLoop();
             connStatus.className = "brand-conn-line conn-offline";
             if (connStatusText) connStatusText.textContent = "WS: OFFLINE";
             connStatus.title = "Stato: Offline. Clicca per riconnettere subito";
+            renderServerMiniTelemetryOffline();
+            if (isTelemetryActive) {
+                renderOfflineTelemetry(telemetryTarget);
+            }
         }
     }
 
@@ -561,6 +588,7 @@
                 if (msg.telemetry_active !== undefined) {
                     setTelemetryMode(msg.telemetry_active, msg.telemetry_target || "slave", false);
                 }
+                requestServerMiniTelemetry();
                 resetInactivityTimer();
                 break;
 
@@ -572,11 +600,20 @@
             case "TELEMETRY_MODE":
                 resetInactivityTimer();
                 setTelemetryMode(msg.enabled, msg.target || "slave", false);
-                if (msg.data) updateTelemetryData(msg.data, msg.target || "slave");
+                if (msg.offline || msg.error || !msg.data) {
+                    renderOfflineTelemetry(msg.target || "slave");
+                } else if (msg.data) {
+                    updateTelemetryData(msg.data, msg.target || "slave");
+                }
                 break;
 
             case "SERVER_TELEMETRY":
-                if (msg.data) {
+                if (msg.offline || msg.error || !msg.data) {
+                    renderServerMiniTelemetryOffline();
+                    if (isTelemetryActive && (telemetryTarget === "server" || telemetryTarget === "master")) {
+                        renderOfflineTelemetry("server");
+                    }
+                } else if (msg.data) {
                     updateServerMiniTelemetry(msg.data);
                     if (isTelemetryActive && (telemetryTarget === "server" || telemetryTarget === "master")) {
                         updateTelemetryData(msg.data, "server");
@@ -586,17 +623,18 @@
 
             case "TELEMETRY_UPDATE":
                 // Passive background telemetry - do NOT reset inactivity timer!
-                if (msg.data) {
-                    const tgt = (msg.target || telemetryTarget || "").toLowerCase();
+                if (msg.offline || msg.error || !msg.data) {
+                    const tgt = (msg.target || telemetryTarget || "slave").toLowerCase().trim();
+                    if (tgt === "server" || tgt === "master") {
+                        renderServerMiniTelemetryOffline();
+                    }
+                    renderOfflineTelemetry(tgt);
+                } else if (msg.data) {
+                    const tgt = (msg.target || telemetryTarget || "").toLowerCase().trim();
                     if (tgt === "server" || tgt === "master") {
                         updateServerMiniTelemetry(msg.data);
                     }
                     updateTelemetryData(msg.data, msg.target || telemetryTarget);
-                } else if (msg.error) {
-                    // Node unreachable: keep live fallback metrics running so values update smoothly
-                    if (Date.now() - lastRealTelemetryTime > 2500) {
-                        updateTelemetryData(generateFallbackTelemetry(), msg.target || telemetryTarget);
-                    }
                 }
                 break;
 
@@ -649,54 +687,8 @@
     }
 
     // ==========================================================================
-    // 6. TELEMETRY ENGINE (Live Slave Data + Dynamic Fallback for Browser Tests)
+    // 6. TELEMETRY ENGINE (Live Hardware Data + Clean Offline / N/A Fallback)
     // ==========================================================================
-    function generateFallbackTelemetry() {
-        simCpuPercent = Math.max(12, Math.min(82, simCpuPercent + (Math.floor(Math.random() * 11) - 5)));
-        const cpuTemp = Math.round(42 + (simCpuPercent / 100) * 24);
-        const cpuFreq = Math.round(2500 + (simCpuPercent / 100) * 1300);
-
-        simRamPercent = Math.max(36, Math.min(76, simRamPercent + (Math.floor(Math.random() * 5) - 2)));
-        const ramTotal = 8.0;
-        const ramUsed = ((simRamPercent / 100) * ramTotal).toFixed(1);
-        const ramFree = (ramTotal - parseFloat(ramUsed)).toFixed(1);
-
-        simGpuPercent = Math.max(10, Math.min(72, simGpuPercent + (Math.floor(Math.random() * 9) - 4)));
-        const gpuTemp = Math.round(43 + (simGpuPercent / 100) * 20);
-
-        simFanRpm = Math.max(1350, Math.min(2600, Math.round(1480 + (simCpuPercent / 100) * 800 + (Math.random() * 50 - 25))));
-
-        return {
-            _is_fallback: true,
-            cpu: {
-                usage_percent: simCpuPercent,
-                temperature_c: cpuTemp,
-                freq_mhz: cpuFreq,
-                core_count: navigator.hardwareConcurrency || 4
-            },
-            memory: {
-                total_gb: ramTotal,
-                used_gb: parseFloat(ramUsed),
-                available_gb: parseFloat(ramFree),
-                percent: simRamPercent
-            },
-            gpus: [
-                {
-                    name: "Integrated / System GPU",
-                    type: "integrated",
-                    usage_percent: simGpuPercent,
-                    temperature_c: gpuTemp,
-                    freq_mhz: 950
-                }
-            ],
-            fans: [
-                {
-                    label: "CPU FAN",
-                    rpm: simFanRpm
-                }
-            ]
-        };
-    }
 
     // Helper to retrieve elements for the Primary Hardware Telemetry Panel
     function getPanelElements() {
@@ -728,6 +720,166 @@
             fanSubval: telemFanSubval,
             fanCardTitle: telemFanCardTitle
         };
+    }
+
+    // Offline / fallback renderer for the Top Master Server Mini Sparklines
+    function renderServerMiniTelemetryOffline() {
+        updateMiniTelemVisibility();
+        if (miniCpuFill) {
+            miniCpuFill.style.width = "0%";
+            miniCpuFill.className = "mini-fill muted";
+        }
+        if (miniCpuTemp) {
+            miniCpuTemp.textContent = "N/A";
+            miniCpuTemp.style.color = "var(--text-muted)";
+        }
+        if (miniGpuFill) {
+            miniGpuFill.style.width = "0%";
+            miniGpuFill.className = "mini-fill muted";
+        }
+        if (miniMemFill) {
+            miniMemFill.style.width = "0%";
+            miniMemFill.className = "mini-fill muted";
+        }
+    }
+
+    // Offline / fallback renderer for the Primary Hardware Telemetry Panel
+    function renderOfflineTelemetry(nodeName) {
+        const els = getPanelElements();
+        const tgt = (nodeName || telemetryTarget || "slave").toLowerCase().trim();
+        const isKioskNode = (tgt === "kiosk");
+        const isServerNode = (tgt === "server" || tgt === "master");
+
+        if (els.panel) {
+            els.panel.dataset.target = isKioskNode ? "kiosk" : tgt;
+        }
+        body.classList.toggle("telem-target-kiosk", isKioskNode);
+
+        if (els.badge) {
+            els.badge.className = "badge badge-telem-offline";
+            if (isKioskNode) {
+                els.badge.textContent = "NODE: KIOSK // OFFLINE";
+            } else if (isServerNode) {
+                els.badge.textContent = "NODE: MASTER // OFFLINE";
+            } else {
+                els.badge.textContent = `NODE: [${tgt.toUpperCase()}] // OFFLINE`;
+            }
+        }
+
+        if (isKioskNode) {
+            if (els.title) els.title.textContent = "KIOSK TELEMETRY";
+            // 1. Processor (CPU)
+            if (els.cpuCardTitle) els.cpuCardTitle.textContent = "PROCESSOR (CPU)";
+            if (els.cpuUsage) els.cpuUsage.textContent = "N/A";
+            if (els.cpuTemp) els.cpuTemp.textContent = "N/A";
+            if (els.cpuSub1Lbl) els.cpuSub1Lbl.textContent = "SOC:";
+            if (els.cpuFreq) els.cpuFreq.textContent = "Exynos 1280";
+            if (els.cpuSub2Lbl) els.cpuSub2Lbl.textContent = "STATUS:";
+            if (els.cpuCores) els.cpuCores.textContent = "OFFLINE";
+            if (els.cpuBar) {
+                els.cpuBar.style.width = "0%";
+                els.cpuBar.className = "telem-meter-fill muted";
+            }
+
+            // 2. Memory (RAM)
+            if (els.ramCardTitle) els.ramCardTitle.textContent = "MEMORY (RAM)";
+            if (els.ramUsed) els.ramUsed.textContent = "N/A";
+            if (els.ramTotal) els.ramTotal.textContent = "/ N/A";
+            if (els.ramPct) els.ramPct.textContent = "N/A";
+            if (els.ramFree) els.ramFree.textContent = "N/A";
+            if (els.ramBar) {
+                els.ramBar.style.width = "0%";
+                els.ramBar.className = "telem-meter-fill muted";
+            }
+
+            // 3. Battery System
+            if (els.gpuCardTitle) els.gpuCardTitle.textContent = "BATTERY SYSTEM";
+            if (els.gpuTemp) els.gpuTemp.textContent = "N/A";
+            if (els.gpuList) {
+                els.gpuList.classList.remove("dual-gpu");
+                els.gpuList.innerHTML = `
+                    <div class="telem-gpu-item">
+                        <div class="telem-gpu-top">
+                            <span class="telem-gpu-name">Li-Ion Battery</span>
+                            <span class="telem-gpu-badge offline">OFFLINE // N/A</span>
+                        </div>
+                        <div class="telem-meter-track">
+                            <div class="telem-meter-fill muted" style="width: 0%;"></div>
+                        </div>
+                        <div class="telem-gpu-vram">STATUS: DISCONNECTED // OFFLINE</div>
+                    </div>`;
+            }
+
+            // 4. Wi-Fi Link
+            if (els.fanCardTitle) els.fanCardTitle.textContent = "WI-FI LINK";
+            if (els.fanRpm) els.fanRpm.textContent = "N/A";
+            if (els.fanUnit) els.fanUnit.textContent = "dBm";
+            if (els.fanLabel) els.fanLabel.textContent = "SIGNAL RSSI";
+            if (els.fanSubval) els.fanSubval.textContent = "OFFLINE";
+            if (els.fanStatus) {
+                els.fanStatus.textContent = "OFFLINE";
+                els.fanStatus.className = "telem-temp-badge offline";
+            }
+            return;
+        }
+
+        // Standard PC / Server Node metrics
+        if (els.title) {
+            els.title.textContent = isServerNode ? "SERVER TELEMETRY" : "SLAVE TELEMETRY";
+        }
+
+        // 1. CPU
+        if (els.cpuCardTitle) els.cpuCardTitle.textContent = "CPU CORE LOAD";
+        if (els.cpuSub1Lbl) els.cpuSub1Lbl.textContent = "CLOCK:";
+        if (els.cpuSub2Lbl) els.cpuSub2Lbl.textContent = "STATUS:";
+        if (els.cpuUsage) els.cpuUsage.textContent = "N/A";
+        if (els.cpuTemp) els.cpuTemp.textContent = "N/A";
+        if (els.cpuFreq) els.cpuFreq.textContent = "-- MHz";
+        if (els.cpuCores) els.cpuCores.textContent = "OFFLINE";
+        if (els.cpuBar) {
+            els.cpuBar.style.width = "0%";
+            els.cpuBar.className = "telem-meter-fill muted";
+        }
+
+        // 2. RAM
+        if (els.ramCardTitle) els.ramCardTitle.textContent = "MEMORY USAGE";
+        if (els.ramUsed) els.ramUsed.textContent = "N/A";
+        if (els.ramTotal) els.ramTotal.textContent = "/ N/A";
+        if (els.ramPct) els.ramPct.textContent = "N/A";
+        if (els.ramFree) els.ramFree.textContent = "N/A";
+        if (els.ramBar) {
+            els.ramBar.style.width = "0%";
+            els.ramBar.className = "telem-meter-fill muted";
+        }
+
+        // 3. GPU(s)
+        if (els.gpuCardTitle) els.gpuCardTitle.textContent = "GRAPHICS (GPU)";
+        if (els.gpuTemp) els.gpuTemp.textContent = "N/A";
+        if (els.gpuList) {
+            els.gpuList.classList.remove("dual-gpu");
+            els.gpuList.innerHTML = `
+                <div class="telem-gpu-item">
+                    <div class="telem-gpu-top">
+                        <span class="telem-gpu-name">Graphics Device</span>
+                        <span class="telem-gpu-badge offline">OFFLINE // N/A</span>
+                    </div>
+                    <div class="telem-meter-track">
+                        <div class="telem-meter-fill muted" style="width: 0%;"></div>
+                    </div>
+                    <div class="telem-gpu-vram">STATUS: NO TELEMETRY FEED</div>
+                </div>`;
+        }
+
+        // 4. Fans
+        if (els.fanCardTitle) els.fanCardTitle.textContent = "COOLING FAN";
+        if (els.fanUnit) els.fanUnit.textContent = "RPM";
+        if (els.fanLabel) els.fanLabel.textContent = "SENSOR:";
+        if (els.fanRpm) els.fanRpm.textContent = "N/A";
+        if (els.fanSubval) els.fanSubval.textContent = "OFFLINE";
+        if (els.fanStatus) {
+            els.fanStatus.textContent = "OFFLINE";
+            els.fanStatus.className = "telem-temp-badge offline";
+        }
     }
 
     // Toggle visibility of the Top Master Server Mini Sparklines (hidden ONLY when full server telem is open)
@@ -808,7 +960,10 @@
     }
 
     function renderNodeTelemetry(isSec, data, nodeName) {
-        if (!data) return;
+        if (!data || data.offline) {
+            renderOfflineTelemetry(nodeName);
+            return;
+        }
         const els = getPanelElements(isSec);
         const tgt = (nodeName || "slave").toLowerCase().trim();
         const isKioskNode = (tgt === "kiosk") || (data.battery_pct !== undefined);
@@ -1111,9 +1266,11 @@
         } else {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY", target: tgt }));
+            } else {
+                renderOfflineTelemetry(tgt);
             }
-            if (Date.now() - lastRealTelemetryTime > 2500) {
-                renderNodeTelemetry(false, generateFallbackTelemetry(), tgt);
+            if (Date.now() - lastRealTelemetryTime > 4000) {
+                renderOfflineTelemetry(tgt);
             }
         }
     }
@@ -1137,6 +1294,11 @@
                 type: "REQUEST_TELEMETRY",
                 target: "kiosk"
             }));
+        } else {
+            renderOfflineTelemetry("kiosk");
+        }
+        if (Date.now() - lastRealTelemetryTime > 4000) {
+            renderOfflineTelemetry("kiosk");
         }
     }
 
@@ -1182,6 +1344,7 @@
         });
 
         if (isTelemetryActive) {
+            lastRealTelemetryTime = Date.now();
             if (telemetryTarget === "server" || telemetryTarget === "master") {
                 if (telemOptServer) telemOptServer.classList.add("active");
             } else if (telemetryTarget === "kiosk") {
@@ -1211,8 +1374,11 @@
     }
 
     function updateTelemetryData(data, target) {
-        if (!data) return;
         const tgt = (target || telemetryTarget || "slave").toLowerCase().trim();
+        if (!data || data.offline) {
+            renderOfflineTelemetry(tgt);
+            return;
+        }
         lastRealTelemetryTime = Date.now();
         renderNodeTelemetry(false, data, tgt);
     }

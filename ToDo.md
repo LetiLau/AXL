@@ -124,19 +124,18 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
       - **Risoluzione Troncamento Messaggi Lunghi:** Eliminata l'alterazione forzata della punteggiatura (sostituzione dei punti con virgole) che causava l'esaurimento del buffer prosodico neurale di Edge-TTS e Piper, e inibito l'audio microfonico per tutta la durata del parlato per evitare che A-X-L si auto-ascoltasse e interrompesse le proprie risposte lunghe.
 11. [x] **Nodo Slave (Fedora/Windows):** Scrittura di `slave_daemon.py` per esporre telemetria (`psutil`: CPU, RAM, temperature, GPU dedicate/integrate, ventole) e ricevere dal Master i webhook per eseguire script o comandi di sistema. Visualizzazione split-layout HUD in tempo reale sul visore.
 
-#### FASE 5: App Android "Thin Kiosk" (Galaxy A33)
+#### FASE 5: App Android "Thin Kiosk" (Galaxy A33) [COMPLETATA AL 100%]
 
 12. [x] **Progetto Android Puro Kotlin (Zero NDK):** Creazione della nuova app leggera senza CMake né C++.
 
-
-13. [x]  **Servizio Audio Bidirezionale (`AudioStreamService.kt`):** Implementazione di un *Foreground Service* con `OkHttp WebSocket`:
-* Thread 1: Legge da `AudioRecord` e invia byte binari al ThinkPad --> cambiare in caso da test_mic_client.py al nuovo nel master?.
+13. [x] **Servizio Audio Bidirezionale (`AudioStreamService.kt`):** Implementazione di un *Foreground Service* con `OkHttp WebSocket`:
+* Thread 1: Legge da `AudioRecord` e invia byte binari PCM 16kHz al ThinkPad.
 * Thread 2: Riceve byte binari dal ThinkPad e li scrive direttamente su `AudioTrack` per far parlare A-X-L dal telefono.
 
-
-14. [x] **WebView Kiosk, Javascript Bridge & Intent Receiver:** Configurazione di `MainActivity.kt` per mostrare la Web UI ospitata sul ThinkPad e ricezione di comandi JSON sul WebSocket per lanciare `Intent` Android (sveglie, apertura app, controlli media).
-      - **Interfaccia Bridge Javascript (`window.AXLKiosk`):** Esposizione dei metodi `reload()`, `showIpConfig()`, `exitKiosk()` e `getKioskTelemetry()`.
-      - [ ] """ Dettaglio esplicito delle integrazioni Android native: `AlarmClock` (sveglie/timer), `CalendarContract` (eventi Google) e `AudioManager` (gestione volume/media)."""
+14. [x] **WebView Kiosk, Javascript Bridge & Architettura Periferica Pura (`MainActivity.kt`):**
+      - **Ruolo Deliberato dell'A33 (Thin Kiosk)**: Il Galaxy A33 è rigorosamente una **periferica hardware di I/O** (display visore immersivo + microfono + altoparlante). Tutta la logica di business, l'intelligenza e la gestione di calendario, compiti e promemoria risiedono e vengono gestiti **fuori dall'A33** (sul Master Server ThinkPad e via API Cloud), per evitare qualsiasi dipendenza dallo smartphone.
+      - **Interfaccia Bridge Javascript (`window.AXLKiosk`):** Esposizione dei comandi nativi Kiosk: `reload()`, `showIpConfig()`, `exitKiosk()` e `getKioskTelemetry()`.
+      - **Media Session Hardware (`IntentExecutor.kt`):** Mantenuti i controlli volume hardware (`AudioManager`) per la futura riproduzione musicale.
 
 15. [x] **Telemetria Hardware Kiosk (Galaxy A33) & Tasto Dedicato Visore:**
     * Monitoraggio metriche fisiche del dispositivo Android tramite API native (`BatteryManager`, `ActivityManager` in `KioskTelemetry.kt`):
@@ -166,13 +165,29 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
       - **Modalità Mobile & Android Kiosk (come da wireframe sketch 5):** Disposizione compatta a due colonne: Riga 1 con la striscia biometrica a tutta larghezza, Riga 2 con i sottotitoli a sinistra e i due tasti impilati verticalmente a destra.
     * **Ridimensionamento Dinamico del Testo Subtitles ("Nota Kiosk"):** Implementato algoritmo CSS/JS con classi `reply-sm`, `reply-xs`, `reply-xxs` che scala proporzionalmente la dimensione del font della risposta di A-X-L in base alla lunghezza del testo (oltre 100, 200 e 320 caratteri), evitando strabordamenti e troncamenti visivi sul display del Kiosk.
 
-17. [ ] adding terminal commands linke mc server
-18. [ ] lingua ui dall'ingranaggio
-19. [ ] **Gestione Client Audio Concorrenti / Multi-Client (`/ws/audio`):**
-    * Aggiungere controllo ed esclusione mutua o switch di priorità quando più interfacce (es. A33, S25, simulatore PC) tentano di connettersi contemporaneamente allo stream audio del Master.
-    * Prevenire conflitti di VAD/ingestione audio e disconnettere graziosamente il client precedente con notifica.
+    * **Gestione Fallback N/A e Disconnessione/Sospensione Nodi (Niente Più Numeri Finti):**
+      - **Rimozione Dati Falsi/Simulati:** Eliminato definitivamente il generatore di numeri finti casuali (`generateFallbackTelemetry()`) sia su errore HTTP che su timeout. La UI mostra unicamente dati hardware reali oppure `N/A`.
+      - **Zero Mascheramento Slave da parte del Master:** Risolto il bug in `main.py` (`_telemetry_poll_loop` e `REQUEST_TELEMETRY`) che, alla caduta o sospensione dello slave daemon, inviava le metriche del Master Server camuffate da metriche dello Slave. Ora il Master notifica esplicitamente `offline: True`, `error: "OFFLINE"` e `data: None`.
+      - **Stato Offline Istantaneo su Disconnessione WebSocket:** Quando il WebSocket passa a `WS: OFFLINE` (caduta di rete o spegnimento del Master), il pannello di telemetria attiva e le mini sparkline superiori (`#server-mini-telem`) scattano immediatamente in modalità offline: barre a 0% con classe oscurata `.muted`, valori `N/A` su CPU, RAM, GPU/Batteria, Ventole/Wi-Fi e badge rosso `.badge-telem-offline` (`NODE: [TARGET] // OFFLINE`).
+      - **Auto-Ripristino Live:** Alla riapertura del demone o al risveglio della macchina da sospensione, l'arrivo dei pacchetti di telemetria reali ripristina all'istante le barre animate e il badge verde `LIVE`.
+      - **Connessione Istantanea & Heartbeat Real-Time 1Hz per i Mini-Slider del Server:**
+        - I cursori compatti in alto (CPU, GPU, MEM + temp CPU) ora si collegano istantaneamente all'avvio dell'app tramite richiesta immediata `REQUEST_SERVER_TELEMETRY` all'apertura del WebSocket e all'evento `INIT`, senza dover più attivare e disattivare la telemetria del master dal riquadro.
+        - Frequenza aumentata a 1.0s (1 Hz effettivo in tempo reale sia lato client che backend) e processo in background permanente durante il ciclo di vita del server.
+        - **Fix Sovrapposizione Header:** Eliminato il margine negativo (`margin-top: -6px`) e impostato un offset pulito verso il basso (`margin-top: 5px` su desktop e `4px` su mobile landscape), staccando visivamente gli slider dalla linea orizzontale di confine dell'header.
 
-#### FASE 6: Animazioni Espressive Web UI (Video Neon / Avatar Reattivo)
+17. [x] **Console Terminale Server (Minecraft-Style REPL & Admin Slash Commands):** Implementata console server interattiva in background (`console_manager.py`) nel terminale del Master. Chi digita nel terminale opera con privilegi root/Admin bypassando i guardrail vocali. Supporta comandi slash bilingui: `/speak` (vocal test su client con language detection automatica o flag `--en`/`--it`), `/ask` (query diretta a Gemini Brain), `/tasks` (aggiunta/elenco compiti filtrati di default per oggi salvati su `data/tasks.json`), `/calendar` (creazione/elenco eventi filtrati di default per oggi su `data/calendar.json`), `/mode`, `/mute`, `/telem`, `/audio`, `/status`, `/stop`, `/help`. Documentazione salvata in `terminal_commands.md`.
+18. [x] **Gestione Client Audio Concorrenti & Takeover Dinamico (`/ws/audio`):** Implementata gestione graziosa del passaggio tra sorgenti audio. Se si collega un nuovo client audio (es. Galaxy A33 o PC), il Master disconnette in modo pulito il vecchio stream (`code=1000`) e accoglie il nuovo senza errori né riavvii. Separazione architetturale tra Visori UI (multipli schermi simultanei su `/ws/ui` come tablet o browser) e Streaming Microfono/Cassa (singolo stream attivo su `/ws/audio`).
+
+---
+
+#### PROSSIMO STEP OPERATIVO: Revisione Strutturale Gestione Audio (Master Audio Engine Overhaul)
+- [ ] **Riorganizzazione Architetturale del Flusso Audio:**
+  - Modifica strutturale e pulizia della pipeline audio sul Master Server (ingestione, buffering, VAD e transizioni di stato audio) prima di procedere con la fase 7 e post-produzione.
+
+---
+
+#### FASE 6: Animazioni Espressive Web UI (Video Neon / Avatar Reattivo) [IN SOSPESO / STANDBY]
+*(In attesa di definire e reperire gli asset video/grafici per le varie animazioni prima dello sviluppo)*
 
 15. [ ] **Avatar Dinamico A-X-L nel Visore (Video / Animazioni Contestuali):**
     * [x] **Video Avatar Neon A-X-L nello Stage Centrale:** Integrato il video `neon_axl_robo_dog.mp4` al posto del cerchio procedurale Canvas, con crop responsive quadrato 1:1 hardware (`object-fit: cover`), 
@@ -186,18 +201,26 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
         - `speaking`: muso che dialoga sincronizzato con la voce Piper TTS
       - [ ] Fumetto che indica lo stato di axl. Utile per gestire in futuro le animazioni ma avere l'architettura già pronta (not per speaking)
 
-#### FASE 7: Gestione Audio Avanzata, Riproduzione Musicale & Integrazioni Dispositivi
+---
+
+#### FASE 7: Gestione Audio Avanzata, Riproduzione Musicale & Integrazioni Cloud (Post-Kiosk)
 
 16. [ ] **Routing Audio e Riproduzione Musicale Dinamica (Slave vs Galaxy A33):**
     * Selezione del target di riproduzione vocale e musicale ("suona su PC" vs "suona sul visore A33"):
       - Routing su Slave (Fedora/Windows): controllo riproduzione multimediale locale (player di sistema, Spotify desktop, daemon multimediale).
-      - Routing su Galaxy A33: dispatch comandi Intent/MediaSession su Android per riproduzione su smartphone.
+      - Routing su Galaxy A33: comandi riproduzione su smartphone (se abilitato per l'output musicale) o casse Bluetooth esterne.
     * Gestione periferiche di output audio:
       - Collegamento e gestione casse esterne Bluetooth o via jack AUX / auricolari (configurazione audio sink, prevenzione loopback acustico tra casse e microfono A33).
     * Integrazione Spotify & Smart Apps:
-      - Supporto comandi vocali A-X-L per avvio playlist/brani Spotify (via Spotify Connect, Web API, o Android Intent).
-      - Predisposizione comandi per app smart domestiche (es. app lavastoviglie, smart home appliance con notifiche di stato e avvio programmato).
-17. [x] **Comando Vocale Biometric Enrollment & Calibrazione Dual-Mode (Online & Offline):**
+      - Supporto comandi vocali A-X-L per avvio playlist/brani Spotify (via Spotify Connect, Web API, o local daemon).
+17. [ ] **Integrazione Cloud APIs Nativi su Master Server (Completamente Esterni all'A33):**
+    * **Google Calendar API Ufficiale (Cloud)**:
+      - Modulo di autenticazione OAuth 2.0 (`credentials.json` / `token.json`) sul Master Server ThinkPad.
+      - Lettura e scrittura in tempo reale degli eventi direttamente dai server Google Cloud, indipendente dal telefono.
+    * **Microsoft To Do API / Samsung Reminders Sync**:
+      - Integrazione Microsoft Graph API per la sincronizzazione diretta dei promemoria dell'ecosistema Samsung / Microsoft To Do con A-X-L.
+18. [ ] **Comando Vocale Biometric Enrollment & Calibrazione Dual-Mode (Online & Offline):**
+  sistemare precisione e aggiungere persone via comando
     * **Architettura Duale (Online Conversazionale vs Offline CLI):**
       - **Modalità Online (In-System Live Voice Enrollment - Opzione A):**
         - Attivabile a voce direttamente dal Kiosk Android o PC mic (*"A-X-L aggiorna la mia voce"*, *"ricalibra la mia voce"*, *"registra un nuovo amico: Luca"*, *"aggiungi amico Marco"*).
@@ -215,11 +238,16 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 #### FASE 8: Deploy su ThinkPad Debian 12
 
-18. [ ] **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
+19. [ ] **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
 
 ---
 
 #### NOTE FUTURE & OTTIMIZZAZIONI POST-SVILUPPO
+- [ ] **Cambio Lingua UI dall'Ingranaggio Cyberpunk (Settings Dropdown):**
+  - Implementazione del selettore lingua (IT / EN) dal menu rapido a comparsa (#setting-opt-lang) con persistenza delle preferenze su localStorage / SharedPreferences Kiosk.
+- [ ] **Integrazioni Cloud APIs Native su Master Server (Google Calendar & Microsoft To Do):**
+  - Autenticazione OAuth 2.0 (`credentials.json`) per leggere e sincronizzare gli eventi Google Calendar direttamente su cloud dal ThinkPad.
+  - Integrazione API Microsoft Graph / Microsoft To Do (con cui l'app Promemoria nativa di Samsung si sincronizza su Samsung Cloud) per recuperare e aggiornare i promemoria direttamente tramite A-X-L.
 - [ ] **Switch Dinamico Animazioni Avatar A-X-L da Sottotitoli e Azioni:**
   - Sistema di selezione automatica del clip video avatar (da `web_ui/dog_animation/`) in base al contenuto dei sottotitoli (`user_text` e `axl_text`), allo stato di sicurezza o all'azione in svolgimento (es. dorme in idle, ringhio su estraneo, balletto/console DJ quando c'è musica).
 - [ ] **Ottimizzazione Riconoscimento Vocale (Speaker Verification):** 

@@ -23,6 +23,8 @@ See the links below to read specific part of `README.md`.
 
 [setUp and progress Diary](#How-to-setUp-and-progress-Diary)
 
+[Terminal Admin Commands](terminal_commands.md)
+
 ## Architectural and Coding Info
 The project is vibe-coded : ) and designed to run in an old pc with Debian 12 LTS.
 
@@ -270,7 +272,7 @@ Phase 4 introduces visual feedback and workstation orchestration:
     - **"ASK ME..." Push-to-Ask Button:** Large action button opposite the MIC button that starts listening without saying the wake-word (`ASK_START` WebSocket message → `AudioPipeline.force_listen()`). Its colour follows the security mode (green in `friendly`, orange in `restrict`, red in `paranoid`); speaker verification still applies in protected modes. Strictly disabled and unclickable while microphone mute is active (ensuring total audio sensor silence until explicitly unmuted via the MUTE button); it is also disabled while A-X-L is listening/thinking/speaking. MIC and ASK ME are sized for easy visibility/tapping on the kiosk.
     - **Live Security Mode Voice Synchronization:** Real-time bi-directional sync: commands like "passa in modalità paranoica" or "metti restrict" update `speaker_verifier.py`, `os.environ`, and instantly broadcast WebSocket events to update the UI badge without reload.
     - **Modernized Hardware Telemetry Panel:** Redesigned in a 2x2 glassmorphic card grid with rounded corners (`border-radius: 16px-20px`), dedicated monitor cards for CPU core load, RAM memory, dedicated & integrated GPUs, and cooling fans with rounded progress bars, preserving A-X-L's cyberpunk palette.
-    - **Dynamic Split-Stage Layout & Live/Fallback Telemetry:** Responsive stage geometry that prevents visor-to-subtitle overlap across all aspect ratios, cleanly hides/shows the telemetry panel on toggle, and streams live hardware telemetry (with automatic local `psutil` and dynamic browser fallback when the external slave daemon is offline).
+    - **Dynamic Split-Stage Layout & Live/Offline Telemetry:** Responsive stage geometry that prevents visor-to-subtitle overlap across all aspect ratios, cleanly hides/shows the telemetry panel on toggle, and streams live hardware telemetry (with strict `N/A` fallback, zero simulated numbers, and instant `OFFLINE` badge states whenever a node daemon or WebSocket disconnects/suspends).
 - **Workstation Slave Daemon (`slave_node/slave_daemon.py`):**
   - Standalone lightweight daemon running on Fedora or Windows workstations on port `8001`.
   - Exposes real-time hardware telemetry (`psutil`: CPU load, RAM usage, storage, thermal sensors, battery status).

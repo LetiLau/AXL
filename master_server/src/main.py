@@ -29,6 +29,7 @@ from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
 from tts_engine import PiperTTSEngine
 from telemetry_utils import collect_system_telemetry
+from console_manager import ConsoleManager
 from commands import (
     detect_enrollment_intent,
     detect_security_mode_in_reply,
@@ -206,6 +207,14 @@ class StreamManager:
                                 "target": "kiosk",
                                 "data": self.last_kiosk_telemetry,
                             })
+                        else:
+                            await self.broadcast_ui({
+                                "type": "TELEMETRY_UPDATE",
+                                "target": "kiosk",
+                                "offline": True,
+                                "error": "NO_KIOSK_FEED",
+                                "data": None,
+                            })
                     else:
                         try:
                             async with httpx.AsyncClient(timeout=1.5) as client:
@@ -220,13 +229,17 @@ class StreamManager:
                                     await self.broadcast_ui({
                                         "type": "TELEMETRY_UPDATE",
                                         "target": self.telemetry_target,
-                                        "data": self._collect_local_telemetry(),
+                                        "offline": True,
+                                        "error": f"HTTP {resp.status_code}",
+                                        "data": None,
                                     })
-                        except Exception:
+                        except Exception as e:
                             await self.broadcast_ui({
                                 "type": "TELEMETRY_UPDATE",
                                 "target": self.telemetry_target,
-                                "data": self._collect_local_telemetry(),
+                                "offline": True,
+                                "error": str(e),
+                                "data": None,
                             })
                 await asyncio.sleep(1.5)
         except asyncio.CancelledError:
@@ -235,11 +248,10 @@ class StreamManager:
             logger.info("[TELEMETRY STREAM] Background poller loop terminated.")
 
     async def _server_heartbeat_loop(self):
-        """Periodically broadcasts Master Server telemetry (every 2.5s) to feed the top mini-sparklines in UI."""
+        """Periodically broadcasts Master Server telemetry (every 1.0s) to feed the top mini-sparklines in UI."""
         logger.info("[SERVER HEARTBEAT] Started Master Server background telemetry feed.")
         try:
-            while self.ui_clients:
-                await asyncio.sleep(2.5)
+            while True:
                 if self.ui_clients:
                     try:
                         server_data = self._collect_local_telemetry()
@@ -249,6 +261,7 @@ class StreamManager:
                         })
                     except Exception as ex:
                         logger.debug(f"[SERVER HEARTBEAT] Error broadcasting: {ex}")
+                await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             pass
         finally:
@@ -315,10 +328,6 @@ class StreamManager:
         node_tag = info.get("node_tag", "UNKNOWN") if info else "UNKNOWN"
         logger.info(f"UI client [{node_tag}] detached. Active UI clients: {len(self.ui_clients)}")
 
-        if not self.ui_clients and self._server_heartbeat_task and not self._server_heartbeat_task.done():
-            self._server_heartbeat_task.cancel()
-            self._server_heartbeat_task = None
-
     async def broadcast_ui(self, message: dict):
         """Dispatches an asynchronous state event to all connected Web UI clients."""
         if not self.ui_clients:
@@ -336,7 +345,19 @@ class StreamManager:
     async def connect(self, websocket: WebSocket) -> bool:
         async with self._lock:
             if self.active_client is not None:
-                return False
+                old_client = self.active_client
+                old_host = old_client.client.host if old_client.client else "unknown"
+                new_host = websocket.client.host if websocket.client else "unknown"
+                logger.info(
+                    f"[AUDIO TAKEOVER] Gracefully disconnecting previous audio source ({old_host}) "
+                    f"to accept new incoming audio source ({new_host})."
+                )
+                try:
+                    await old_client.close(code=status.WS_1000_NORMAL_CLOSURE, reason="Audio takeover by new client")
+                except Exception:
+                    pass
+                self.active_client = None
+
             await websocket.accept()
             self.active_client = websocket
             self.audio_buffer.clear()
@@ -504,7 +525,7 @@ class StreamManager:
                 if not self.stop_speech_requested:
                     logger.info("[TTS STREAM] Vocal response fully delivered.")
 
-    async def speak_text(self, text: str) -> bool:
+    async def speak_text(self, text: str, lang: Optional[str] = None) -> bool:
         """
         Synthesizes and streams a vocal response to the active client.
         Crucially maintains is_speaking = True and UI state = SPEAKING for the full
@@ -520,7 +541,7 @@ class StreamManager:
             "label": "VOCAL TRANSMISSION // STREAMING PCM",
         })
         try:
-            pcm_bytes = await self.tts.synthesize_bytes(text)
+            pcm_bytes = await self.tts.synthesize_bytes(text, lang=lang)
             if not pcm_bytes:
                 return False
 
@@ -765,8 +786,19 @@ stream_manager = StreamManager()
 async def lifespan(app: FastAPI):
     logger.info("Starting A-X-L Master Core...")
     stream_manager.initialize_pipeline()
+    if stream_manager._server_heartbeat_task is None or stream_manager._server_heartbeat_task.done():
+        stream_manager._server_heartbeat_task = asyncio.create_task(stream_manager._server_heartbeat_loop())
+
+    # Launch Admin Console Terminal REPL (Minecraft-style slash commands)
+    loop = asyncio.get_running_loop()
+    console = ConsoleManager(stream_manager, loop)
+    console.start()
+
     yield
     logger.info("Shutting down A-X-L Master Core...")
+    console.stop()
+    if stream_manager._server_heartbeat_task and not stream_manager._server_heartbeat_task.done():
+        stream_manager._server_heartbeat_task.cancel()
 
 
 app = FastAPI(title="A-X-L System Master Server", version="1.0.0", lifespan=lifespan)
@@ -973,21 +1005,36 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         })
                     else:
                         logger.info("[ASK BUTTON] Ignored: pipeline busy.")
-                elif mtype == "REQUEST_TELEMETRY":
-                    req_target = msg.get("target", stream_manager.telemetry_target)
+                elif mtype in ("REQUEST_SERVER_TELEMETRY", "REQUEST_TELEMETRY"):
+                    req_target = msg.get("target", "server" if mtype == "REQUEST_SERVER_TELEMETRY" else stream_manager.telemetry_target)
                     req_norm = str(req_target).lower().strip()
                     if req_norm in ("server", "master"):
+                        server_data = stream_manager._collect_local_telemetry()
                         await websocket.send_json({
-                            "type": "TELEMETRY_UPDATE",
-                            "target": "server",
-                            "data": stream_manager._collect_local_telemetry(),
+                            "type": "SERVER_TELEMETRY",
+                            "data": server_data,
                         })
-                    elif req_norm == "kiosk" and stream_manager.last_kiosk_telemetry:
-                        await websocket.send_json({
-                            "type": "TELEMETRY_UPDATE",
-                            "target": "kiosk",
-                            "data": stream_manager.last_kiosk_telemetry,
-                        })
+                        if stream_manager.telemetry_active and stream_manager.telemetry_target in ("server", "master"):
+                            await websocket.send_json({
+                                "type": "TELEMETRY_UPDATE",
+                                "target": "server",
+                                "data": server_data,
+                            })
+                    elif req_norm == "kiosk":
+                        if stream_manager.last_kiosk_telemetry:
+                            await websocket.send_json({
+                                "type": "TELEMETRY_UPDATE",
+                                "target": "kiosk",
+                                "data": stream_manager.last_kiosk_telemetry,
+                            })
+                        else:
+                            await websocket.send_json({
+                                "type": "TELEMETRY_UPDATE",
+                                "target": "kiosk",
+                                "offline": True,
+                                "error": "NO_KIOSK_FEED",
+                                "data": None,
+                            })
                     else:
                         slave_url = os.environ.get("AXL_SLAVE_URL", "http://127.0.0.1:8001")
                         try:
@@ -1003,13 +1050,17 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                                     await websocket.send_json({
                                         "type": "TELEMETRY_UPDATE",
                                         "target": req_target,
-                                        "data": stream_manager._collect_local_telemetry(),
+                                        "offline": True,
+                                        "error": f"HTTP {resp.status_code}",
+                                        "data": None,
                                     })
-                        except Exception:
+                        except Exception as e:
                             await websocket.send_json({
                                 "type": "TELEMETRY_UPDATE",
                                 "target": req_target,
-                                "data": stream_manager._collect_local_telemetry(),
+                                "offline": True,
+                                "error": str(e),
+                                "data": None,
                             })
             except Exception:
                 pass
