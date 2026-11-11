@@ -28,6 +28,7 @@ from brain_gemini import GeminiBrain
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
 from tts_engine import PiperTTSEngine
+from stt_engine import STTEngine
 from telemetry_utils import collect_system_telemetry
 from console_manager import ConsoleManager
 from commands import (
@@ -35,6 +36,7 @@ from commands import (
     detect_security_mode_in_reply,
     detect_security_mode_intent,
     detect_telemetry_intent,
+    handle_local_fast_path,
     is_mute_in_reply,
     is_mute_intent,
     register_telemetry_listener,
@@ -64,6 +66,7 @@ class StreamManager:
         self.audio_buffer = AudioRingBuffer(capacity_seconds=10.0, sample_rate=16000)
         self.pipeline: Optional[AudioPipeline] = None
         self.verifier: Optional[SpeakerVerifier] = None
+        self.stt: Optional[STTEngine] = None
         self.brain: Optional[GeminiBrain] = None
         self.tts: Optional[PiperTTSEngine] = None
         self.active_client: Optional[WebSocket] = None
@@ -85,7 +88,7 @@ class StreamManager:
         self._lock = asyncio.Lock()
 
     def initialize_pipeline(self):
-        logger.info("Initializing neural DSP, wake-word, speaker verification, Gemini brain, and Piper TTS...")
+        logger.info("Initializing neural DSP, wake-word, speaker verification, STT, Gemini brain, and Piper TTS...")
         self.pipeline = AudioPipeline(
             models_dir=MODELS_DIR,
             vad_threshold=0.4,
@@ -94,16 +97,27 @@ class StreamManager:
             max_command_duration_sec=10.0,
         )
         self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
+        self.stt = STTEngine()
         self.brain = GeminiBrain()
         self.tts = PiperTTSEngine(models_dir=MODELS_DIR)
 
         # Register telemetry bridge for function calling and HUD synchronization
         register_telemetry_listener(self.handle_telemetry_event)
-        logger.info("A-X-L Full Pipeline (Acoustic + Biometrics + Brain + TTS + Telemetry Bridge) Ready.")
+        logger.info("A-X-L Full Pipeline (Acoustic + Biometrics + STT + Brain + TTS + Telemetry Bridge) Ready.")
 
     async def handle_telemetry_event(self, payload: dict):
         """Processes telemetry activation, security mode changes, or mute state triggered by voice commands or slave."""
         ptype = payload.get("type")
+        if ptype == "INTENT":
+            # Forward intent to active Android Kiosk client if connected
+            if self.active_client:
+                try:
+                    await self.active_client.send_text(json.dumps(payload))
+                    logger.info(f"[INTENT DISPATCH] Dispatched intent to kiosk: {payload.get('action')}")
+                except Exception as e:
+                    logger.warning(f"[INTENT DISPATCH] Failed forwarding to kiosk: {e}")
+            return
+
         if ptype == "SECURITY_MODE":
             new_mode = payload.get("mode", "friendly")
             if self.verifier:
@@ -428,20 +442,44 @@ class StreamManager:
             "authorized": bool(is_authorized),
         })
 
-        # 3. Cognitive Brain Processing (Multimodal WAV + Function Calling)
+        # 3. Local Speech-to-Text via faster-whisper (CPU INT8 AVX2)
+        transcript = ""
+        if self.stt:
+            transcript = await self.stt.transcribe(pcm_samples)
+
         is_stranger = not is_authorized
-        if self.brain:
-            result = await self.brain.process_utterance(
-                wav_bytes=wav_bytes,
-                is_stranger=is_stranger,
-                duration_sec=duration_sec,
-                similarity_score=sim_score,
+        vocal_reply = ""
+
+        if not transcript or not transcript.strip():
+            logger.info("[STT SILENCE] No audible speech detected in utterance.")
+            transcript = "[Suono/Rumore ambientale]"
+        else:
+            logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
+
+            # 4. Tier-1 Local Fast Path Router (Timer, Sveglia, Ora, Data, Muto, Telemetria, Sicurezza)
+            # Checks for deterministic commands executed immediately on-device (<5ms, works offline)
+            fast_path_result = handle_local_fast_path(
+                transcript,
+                is_authorized=is_authorized,
                 identity=identity,
                 security_mode=sec_mode,
+                similarity_score=sim_score,
             )
-            transcript = result.get("transcript", "Unknown")
-            vocal_reply = result.get("text_response", "")
-            logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
+
+            if fast_path_result is not None:
+                vocal_reply = fast_path_result.get("reply", "")
+                logger.info(f"[LOCAL FAST PATH] Executed: {fast_path_result.get('type')} -> '{vocal_reply}'")
+            elif self.brain:
+                # 5. Tier-2 Cognitive Brain (Cloud Gemini via Text-Only Ingestion + Tool AFC)
+                result = await self.brain.process_text_query(
+                    user_text=transcript,
+                    is_stranger=is_stranger,
+                    similarity_score=sim_score,
+                    identity=identity,
+                    security_mode=sec_mode,
+                )
+                vocal_reply = result.get("text_response", "")
+
             logger.info(f">>> [A-X-L SPEAKS]: \"{vocal_reply}\" <<<")
 
             # --- Synchronous Intent Guardrails (Guarantees 100% action execution fidelity) ---

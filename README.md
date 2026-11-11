@@ -209,19 +209,25 @@ AXL_SPEAKER_THRESHOLD=0.48
 AXL_WAKEWORD_THRESHOLD=0.48
 ```
 
-#### Phase 3: Cognitive Brain & Dynamic Tools (`brain_gemini.py` & `commands.py`)
-In Phase 3, A-X-L gains its cognitive reasoning and practical actuation capabilities:
-- **Multimodal Audio Ingestion:** The in-memory WAV buffer generated after VAD End-of-Speech is dispatched directly to Gemini (`google-genai` SDK) without any disk I/O latency.
-  - **Native Automatic Function Calling (AFC) & Biometric Privilege Guardrails:** All system actions are neatly registered in `master_server/src/commands.py`:
-  - `set_timer(duration_seconds, label)`
-  - `set_alarm(time_str, label)`
-  - `get_system_status()`
-  - `media_control(action, target)`
-  - `execute_slave_command(command, target)`
-  - `set_security_mode(mode)` (switches between `friendly`, `restrict`, and `paranoid` distrust profiles)
-  - `set_mute_mode(enabled)` (silences acoustic ingestion until physically unmuted via touchscreen)
-  - `toggle_telemetry_hud(show, target)` (shows/hides live telemetry HUD)
-  Gemini automatically invokes the right function based on natural language intent. Crucially, critical tools (`set_security_mode`, `set_mute_mode`, `execute_slave_command`) enforce **Strict Biometric Privilege Verification** directly at execution time: if an unauthorized speaker tries to switch security modes or mute the system in `restrict` or `paranoid` mode, the tool deterministically rejects execution (`COMANDO RIFIUTATO: Accesso negato`). Furthermore, a synchronous intent guardrail in `main.py` and turn-level meta-prompt alert in `brain_gemini.py` ensure complete end-to-end immunity from LLM hallucinations or unauthorized voice overrides.
+#### Phase 3: Cognitive Brain, Local STT & Dynamic Tools (`stt_engine.py`, `brain_gemini.py` & `commands.py`)
+In Phase 3, A-X-L adopts a **Two-Tiered Hybrid Intent & STT Architecture** to maximize responsiveness and minimize cloud API latency:
+- **Tier 1: On-Device Speech-to-Text (`stt_engine.py`) & Local Fast-Path Router:**
+  - Utterances captured by VAD are transcribed directly on-device using **`faster-whisper`** (CTranslate2 INT8 AVX2). On CPU, inference completes in ~400–500 ms with high accuracy for conversational Italian and English technical terms.
+  - **Local Fast-Path Intent Routing:** Deterministic operational queries are intercepted instantly in Python (< 5 ms) without querying Gemini:
+    - `Timer`: e.g. *"metti un timer di 5 minuti per la pasta"* -> triggers `set_timer` and dispatches `AlarmClock.ACTION_SET_TIMER` Intent to Galaxy A33 kiosk.
+    - `Alarms`: e.g. *"sveglia alle 07:30"* -> triggers `set_alarm` and dispatches `AlarmClock.ACTION_SET_ALARM` Intent to Galaxy A33 kiosk.
+    - `Exact Clock & Date`: e.g. *"che ore sono?"*, *"che giorno è oggi?"* -> immediate local response from system clock.
+    - `Mute & Security Mode`: e.g. *"vai in muto"*, *"passa in modalità paranoica"* -> local execution with biometric privilege validation.
+    - `Telemetry HUD`: e.g. *"mostra telemetria server"*, *"chiudi telemetria"* -> direct HUD toggle.
+  - Operates completely offline with sub-second turnaround time for core daily utilities.
+- **Tier 2: Cognitive Cloud LLM (`brain_gemini.py`):**
+  - Complex conversational queries, questions, and ambiguous intents bypass the fast-path and are forwarded to **Gemini Flash-Lite** as pure text queries.
+  - **Zero Audio Latency & Quota Protection:** Sending pre-transcribed text rather than raw binary audio WAVs eliminates cloud audio tokenization delays, reduces bandwidth, and completely avoids 429 quota exhaustion.
+  - **Automatic Function Calling (AFC):** Registered tools in `master_server/src/commands.py`:
+    - `play_music(query, target)`: Extracted song/artist intent dispatched directly to Spotify on the Galaxy A33 kiosk.
+    - `add_task(text)`, `list_tasks()`, `complete_task(task_id)`: Local persistent JSON tasks and reminders.
+    - `create_calendar_event(title, date_time)`: In-memory/persistent calendar with Android CalendarContract Intent dispatch.
+    - `execute_slave_command(command, target)`: Remote system automation on slave nodes.
 - **Strict Tool Invocation Integrity & Metaphor Guardrails:** Operational commands (`set_timer`, `set_alarm`, etc.) are protected by strict cognitive rules: Gemini is explicitly instructed to invoke practical action tools **only** when the user has formulated a direct, explicit command (e.g. *"metti un timer di 5 minuti"*), and **never** for rhetorical jokes, metaphors, or conversational pauses. Conversely, the model is strictly forbidden from claiming in its vocal reply that an action was executed if the corresponding function tool was not genuinely called.
 - **Robust Transcription Parsing & Ambient Noise Fallback:** In scenarios where the wake-word is triggered by background ambient noise or casual speech without a direct command to A-X-L, `brain_gemini.py` provides resilient parsing: `TRANSCRIPT:` defaults cleanly to `"[Suono/Rumore ambientale]"` if no distinct user utterance is present, guarding against internal prompt leaks (such as `REPLY:` or alert tags) and keeping the Visore HUD subtitles and console logs clean and accurate.
 - **Wake-Word Sensitivity & False-Positive Filtering (`main.py`):** The OpenWakeWord inference threshold is loaded dynamically via `AXL_WAKEWORD_THRESHOLD` (default: `0.48`). This filters out accidental triggers caused by acoustic similarities in conversational Italian speech (e.g. phrases like *"viaggia"*, *"ti va"*, *"isole"*), ensuring clean activation only when the user intentionally speaks to A-X-L.

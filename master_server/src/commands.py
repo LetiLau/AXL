@@ -197,6 +197,25 @@ def media_control(action: str, target: str = "local") -> str:
     return f"Media command '{action}' dispatched to target '{target}'."
 
 
+def play_music(query: str, target: str = "kiosk") -> str:
+    """
+    Searches and plays music, artists, albums, or playlists on Spotify.
+    Invoke this tool whenever the user asks to play music, a song, an artist, or a playlist.
+    
+    Args:
+        query: Song name, artist, album, genre, or playlist (e.g. 'Queen Bohemian Rhapsody', 'Lazza 100 Messaggi', 'musica rilassante').
+        target: Target playback device ('kiosk' for Galaxy A33 smartphone, 'slave' for remote PC). Default is 'kiosk'.
+    """
+    logger.info(f"[COMMAND: play_music] Query: '{query}' | Target: '{target}'")
+    notify_telemetry({
+        "type": "INTENT",
+        "action": "open_spotify",
+        "query": query,
+        "target": target,
+    })
+    return f"Ho avviato la ricerca musicale di '{query}' su Spotify per {target}."
+
+
 def add_task(text: str) -> str:
     """
     Adds a new task to the user's to-do task list.
@@ -827,6 +846,327 @@ def detect_enrollment_intent(text: str) -> Optional[Dict[str, str]]:
     return None
 
 
+IT_NUMBERS = {
+    "zero": 0, "un": 1, "uno": 1, "una": 1, "due": 2, "tre": 3, "quattro": 4,
+    "cinque": 5, "sei": 6, "sette": 7, "otto": 8, "nove": 9, "dieci": 10,
+    "undici": 11, "dodici": 12, "tredici": 13, "quattordici": 14, "quindici": 15,
+    "sedici": 16, "diciassette": 17, "diciotto": 18, "diciannove": 19, "venti": 20,
+    "venticinque": 25, "trenta": 30, "quaranta": 40, "cinquanta": 50,
+    "sessanta": 60,
+}
+
+
+def _parse_it_number(token: str) -> Optional[int]:
+    if not token:
+        return None
+    token = token.strip().lower()
+    if token.isdigit():
+        return int(token)
+    return IT_NUMBERS.get(token)
+
+
+def detect_timer_intent(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Rileva se l'utente ha chiesto di impostare un timer o conto alla rovescia.
+    Esempi: 'metti un timer di 5 minuti', 'timer 10 minuti per la pasta', 'imposta timer da 30 secondi'.
+    Restituisce {'duration_seconds': int, 'label': str} oppure None.
+    """
+    if not text:
+        return None
+    lower = text.lower().strip()
+
+    if not any(k in lower for k in ["timer", "conto alla rovescia", "cronometro"]):
+        return None
+
+    # Esclude domande informative (es. 'quanto manca al timer?')
+    if any(q in lower for q in ["quanto manca", "stato timer", "a che punto"]):
+        return None
+
+    duration = 0
+
+    # 1. Ore
+    hr_match = re.search(r"(\d+|un|uno|due|tre)\s*(?:or[ae]|hour[s]?)\b", lower)
+    if hr_match:
+        val = _parse_it_number(hr_match.group(1)) or 1
+        duration += val * 3600
+
+    # 2. Minuti
+    min_match = re.search(r"(\d+|un|uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|quindici|venti|venticinque|trenta|quaranta|cinquanta)\s*(?:minut[oi]|min\b|minute[s]?)\b", lower)
+    if min_match:
+        val = _parse_it_number(min_match.group(1)) or 0
+        duration += val * 60
+    elif "mezz'ora" in lower or "mezza ora" in lower:
+        duration += 1800
+
+    # 3. Secondi
+    sec_match = re.search(r"(\d+|un|uno|due|tre|quattro|cinque|dieci|quindici|venti|trenta|quaranta|cinquanta)\s*(?:second[oi]|sec\b|second[s]?)\b", lower)
+    if sec_match:
+        val = _parse_it_number(sec_match.group(1)) or 0
+        duration += val
+
+    # 4. Forma breve: 'timer 5', 'timer di 10'
+    if duration == 0:
+        bare_match = re.search(r"\btimer\s+(?:da|di|per)?\s*(\d+)\b", lower)
+        if bare_match:
+            duration = int(bare_match.group(1)) * 60
+
+    if duration <= 0:
+        return None
+
+    # Estrazione etichetta opzionale (es. 'per la pasta', 'per le uova')
+    label = "Timer"
+    label_match = re.search(r"(?:per|di)\s+(?:la\s+|il\s+|le\s+|lo\s+)?([a-zA-Z0-9_\-]+)(?:\s+di|\s+da|$)", lower)
+    if label_match:
+        extracted = label_match.group(1).strip()
+        stop_words = ["minuti", "minuto", "secondi", "secondo", "ore", "ora", "timer", "un", "una", "due"]
+        if extracted not in stop_words:
+            label = extracted
+
+    return {"duration_seconds": duration, "label": label}
+
+
+def detect_alarm_intent(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Rileva se l'utente ha chiesto di impostare una sveglia.
+    Esempi: 'metti una sveglia alle 7', 'sveglia alle 07:30', 'sveglia per le 8 e mezza'.
+    Restituisce {'time_str': 'HH:MM', 'label': str} oppure None.
+    """
+    if not text:
+        return None
+    lower = text.lower().strip()
+
+    if not any(k in lower for k in ["sveglia", "svegliami", "alarm"]):
+        return None
+
+    # Esclude domande informative
+    if any(q in lower for q in ["a che ora", "quali sveglie", "ho sveglie", "elimina", "cancella"]):
+        return None
+
+    hour = None
+    minute = 0
+
+    # 1. Match formato HH:MM es. '07:30', '7:30', '7.30'
+    m_num = re.search(r"\b([01]?\d|2[0-3])[:\.]([0-5]\d)\b", lower)
+    if m_num:
+        hour = int(m_num.group(1))
+        minute = int(m_num.group(2))
+    else:
+        # 2. Match 'alle 7', 'per le 8', 'alle sette'
+        m_hr = re.search(
+            r"(?:alle|per\s+le|verso\s+le|ore)\s+([01]?\d|2[0-3]|un[oa]?|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici)\b",
+            lower
+        )
+        if m_hr:
+            hour = _parse_it_number(m_hr.group(1))
+            if hour is not None:
+                if "mezza" in lower or "mezzo" in lower:
+                    minute = 30
+                elif "un quarto" in lower or "quindici" in lower:
+                    minute = 15
+                elif "tre quarti" in lower or "quarantacinque" in lower:
+                    minute = 45
+                else:
+                    m_min = re.search(r"\be\s+(\d+|dieci|quindici|venti|venticinque|trenta|quaranta|cinquanta)\b", lower)
+                    if m_min:
+                        minute = _parse_it_number(m_min.group(1)) or 0
+
+    if hour is None:
+        return None
+
+    time_str = f"{hour:02d}:{minute:02d}"
+    label = "Sveglia"
+    label_match = re.search(r"(?:per|di)\s+(?:il\s+|la\s+)?([a-zA-Z0-9_\-]+)$", lower)
+    if label_match:
+        ext = label_match.group(1).strip()
+        if ext not in ["mezza", "quarto", "mattina", "sera", "sveglia", "domani", "oggi"]:
+            label = ext
+
+    return {"time_str": time_str, "label": label}
+
+
+def detect_clock_date_intent(text: str) -> Optional[str]:
+    """
+    Rileva se l'utente chiede l'ora esatta ('time') o la data/giorno corrente ('date').
+    """
+    if not text:
+        return None
+    lower = text.lower().strip()
+
+    # Rilevamento ora:
+    if any(re.search(p, lower) for p in [
+        r"\bche\s+(?:ore\s+sono|ora\s+[eè]|orario\s+[eè])\b",
+        r"\bdimmi\s+l['\s]ora\b",
+        r"\b(?:qual\s+[eè]\s+l['\s]|dammi\s+l['\s])ora\b",
+        r"^l['\s]ora(\s+esatta)?\.?$",
+    ]):
+        return "time"
+
+    # Rilevamento data:
+    if any(re.search(p, lower) for p in [
+        r"\bche\s+giorno\s+[eè](\s+oggi)?\b",
+        r"\bdata\s+di\s+oggi\b",
+        r"\bdimmi\s+la\s+data\b",
+        r"\b(?:qual\s+[eè]\s+la\s+)data(\s+di\s+oggi)?\b",
+        r"\bquanti\s+ne\s+abbiamo(\s+oggi)?\b",
+    ]):
+        return "date"
+
+    return None
+
+
+def handle_local_fast_path(
+    text: str,
+    is_authorized: bool = True,
+    identity: str = "owner",
+    security_mode: str = "friendly",
+    similarity_score: float = 1.0,
+) -> Optional[Dict[str, Any]]:
+    """
+    Tier-1 Local Fast Path / Intent Router.
+    Intercetta comandi deterministici (ora, data, timer, sveglia, muto, telemetria, sicurezza)
+    ed esegue l'azione all'istante in locale (<5ms) senza chiamare Gemini.
+    Restituisce un dizionario con 'handled': True e 'reply': str, oppure None se serve l'LLM.
+    """
+    if not text or not text.strip():
+        return None
+
+    # 1. Ora esatta e Data
+    c_type = detect_clock_date_intent(text)
+    if c_type == "time":
+        now = datetime.datetime.now()
+        return {
+            "handled": True,
+            "type": "time",
+            "reply": f"Sono le {now.strftime('%H:%M')}."
+        }
+    elif c_type == "date":
+        now = datetime.datetime.now()
+        giorni = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+        mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+        giorno_str = giorni[now.weekday()]
+        mese_str = mesi[now.month - 1]
+        return {
+            "handled": True,
+            "type": "date",
+            "reply": f"Oggi è {giorno_str} {now.day} {mese_str} {now.year}."
+        }
+
+    # 2. Timer
+    t_info = detect_timer_intent(text)
+    if t_info:
+        duration = t_info["duration_seconds"]
+        lbl = t_info["label"]
+        set_timer(duration_seconds=duration, label=lbl)
+        mins = duration // 60
+        secs = duration % 60
+        if mins and not secs:
+            dur_text = f"{mins} minuti" if mins > 1 else "un minuto"
+        elif secs and not mins:
+            dur_text = f"{secs} secondi"
+        else:
+            dur_text = f"{mins} minuti e {secs} secondi"
+        lbl_text = f" per {lbl}" if lbl and lbl != "Timer" else ""
+        return {
+            "handled": True,
+            "type": "set_timer",
+            "reply": f"*bark* Timer impostato a {dur_text}{lbl_text}."
+        }
+
+    # 3. Sveglia
+    a_info = detect_alarm_intent(text)
+    if a_info:
+        t_str = a_info["time_str"]
+        lbl = a_info["label"]
+        set_alarm(time_str=t_str, label=lbl)
+        lbl_text = f" per {lbl}" if lbl and lbl != "Sveglia" else ""
+        return {
+            "handled": True,
+            "type": "set_alarm",
+            "reply": f"*bark* Sveglia impostata per le {t_str}{lbl_text}."
+        }
+
+    # 4. Muto / Disattiva microfono
+    if is_mute_intent(text):
+        if not is_authorized and security_mode in ["restrict", "paranoid"]:
+            return {
+                "handled": True,
+                "type": "mute_rejected",
+                "reply": "*growl* Accesso negato. Solo persone autorizzate possono disattivare il microfono."
+            }
+        set_mute_mode(enabled=True)
+        return {
+            "handled": True,
+            "type": "set_mute",
+            "reply": "*bark* Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
+        }
+
+    # 5. Cambio Modalità di Sicurezza
+    req_mode = detect_security_mode_intent(text)
+    if req_mode:
+        can_switch = False
+        if security_mode == "friendly":
+            can_switch = True
+        elif security_mode == "restrict":
+            can_switch = is_authorized
+        elif security_mode == "paranoid":
+            can_switch = is_authorized and (identity.lower() == "owner")
+
+        if can_switch:
+            set_security_mode(req_mode)
+            return {
+                "handled": True,
+                "type": "security_mode",
+                "reply": f"*bark* Modalità di sicurezza impostata su {req_mode.upper()}."
+            }
+        else:
+            return {
+                "handled": True,
+                "type": "security_mode_rejected",
+                "reply": f"*growl* Accesso negato. Non sei autorizzato a modificare il livello di sicurezza in modalità {security_mode.upper()}."
+            }
+
+    # 6. Telemetria HUD
+    telem = detect_telemetry_intent(text)
+    if telem is not None:
+        show = telem.get("show", True)
+        tgt = telem.get("target", "slave")
+        toggle_telemetry_hud(show=show, target=tgt)
+        if not show:
+            return {
+                "handled": True,
+                "type": "telemetry",
+                "reply": "*bark* Schermata telemetria chiusa."
+            }
+        else:
+            node_str = "del server" if tgt == "server" else ("del kiosk" if tgt == "kiosk" else "del computer slave")
+            return {
+                "handled": True,
+                "type": "telemetry",
+                "reply": f"*bark* Telemetria {node_str} proiettata sul visore."
+            }
+
+    # 7. Voice Enrollment
+    enroll = detect_enrollment_intent(text)
+    if enroll is not None:
+        pname = enroll.get("profile_name", "owner")
+        can_enroll = is_authorized if security_mode == "friendly" else (is_authorized and identity.lower() == "owner")
+        if can_enroll:
+            enroll_voice_profile(profile_name=pname)
+            return {
+                "handled": True,
+                "type": "enrollment",
+                "reply": f"*bark* Sessione di calibrazione vocale avviata per {pname}. Guarda il visore."
+            }
+        else:
+            return {
+                "handled": True,
+                "type": "enrollment_rejected",
+                "reply": "*growl* Accesso negato. Non puoi ricalibrare i profili vocali."
+            }
+
+    return None
+
+
 # Registry of tools exposed to Gemini function calling
 REGISTERED_TOOLS: List[Callable[..., Any]] = [
     get_current_time,
@@ -837,6 +1177,7 @@ REGISTERED_TOOLS: List[Callable[..., Any]] = [
     get_slave_telemetry,
     toggle_telemetry_hud,
     media_control,
+    play_music,
     execute_slave_command,
     set_security_mode,
     set_mute_mode,

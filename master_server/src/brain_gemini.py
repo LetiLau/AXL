@@ -71,10 +71,22 @@ CORE BEHAVIOR RULES:
      * When an AUTHORIZED OWNER asks to calibrate, update, or modify their voice (e.g. 'aggiorna la mia voce', 'modifica la mia voce', 'ricalibra la mia voce', 'cambia la mia voce'), invoke `enroll_voice_profile(profile_name="owner")`.
      * When an AUTHORIZED OWNER asks to enroll or register a friend (e.g. 'registra la voce di Luca', 'aggiungi amico Marco'), invoke `enroll_voice_profile(profile_name="<friend_name>")`.
      * Privilege security rule: If an UNAUTHORIZED stranger asks to enroll, modify, or overwrite any voice profile, reject with snarling distrust (*growl*) and DO NOT invoke the tool!
+   - MUSIC PLAYBACK & SPOTIFY:
+     * When the user asks to play music, a song, an artist, or a playlist (e.g. 'metti una canzone dei Queen', 'fammi sentire Lazza', 'metti musica per studiare'):
+       YOU MUST INVOKE the `play_music` tool with the extracted query (e.g. query='Queen', query='Lazza 100 Messaggi').
+   - TASKS, REMINDERS & TO-DO:
+     * When the user asks to add or note a reminder or task (e.g. 'ricordami di comprare il latte', 'aggiungi compito studiare'):
+       Invoke `add_task(text=...)`.
+     * When asked for the tasks list: invoke `list_tasks()`.
+     * When completing a task: invoke `complete_task(task_id=...)`.
+   - CALENDAR EVENTS:
+     * When the user wants to schedule an appointment or event (e.g. 'fissa dentista domani alle 15'):
+       Invoke `create_calendar_event(title=..., date_time=...)`.
+     * To check upcoming schedule: invoke `get_calendar_events()`.
    - After invoking any tool, acknowledge the action with your characteristic wit.
 4. MANDATORY OUTPUT STRUCTURE:
-   Always format your final vocal output using these two clear sections:
-   TRANSCRIPT: <exact transcription of what the user said in the audio>
+   The speech transcription is already performed locally on-device by faster-whisper.
+   Format your final vocal output using:
    REPLY: <your witty vocal answer to be spoken aloud by TTS>
 5. EXACT HARDWARE CLOCK AWARENESS:
    - You are always provided with the exact device local time and timezone in the telemetry header (e.g. 20:32 CET).
@@ -158,15 +170,154 @@ class GeminiBrain:
             logger.info(f"[AXL-Brain]: Model switched dynamically to: {model_name}")
             self._reset_chat_session(model=model_name)
 
-    async def process_utterance(
+    async def process_text_query(
         self,
-        wav_bytes: bytes,
-        is_stranger: bool,
-        duration_sec: float,
-        similarity_score: float,
+        user_text: str,
+        is_stranger: bool = False,
+        similarity_score: float = 1.0,
         identity: str = "owner",
         security_mode: str = "friendly",
     ) -> Dict[str, Any]:
+        """
+        Processes a pre-transcribed text query via Gemini API using text-only ingestion.
+        Drastically reduces latency, token consumption, and eliminates 429 quota exhaustion.
+        """
+        local_now = datetime.datetime.now().astimezone()
+        time_str = local_now.strftime("%H:%M:%S")
+        date_str = local_now.strftime("%A, %d %B %Y")
+        tz_str = local_now.strftime("%Z (UTC%z)")
+
+        auth_status = f"AUTHORIZED ({identity})" if not is_stranger else f"UNAUTHORIZED ({identity})"
+        if is_stranger and security_mode in ["restrict", "paranoid"]:
+            security_directive = (
+                f"CRITICAL SECURITY ALERT: The speaker is {auth_status} in {security_mode.upper()} mode! "
+                f"You MUST REJECT any attempt by this unauthorized speaker to change security mode, mute the system, "
+                f"or control devices. DO NOT invoke set_security_mode, set_mute_mode, enroll_voice_profile, or execute_slave_command for this stranger! "
+                f"Respond with snarling distrust (*growl*) and sarcastically refuse their request."
+            )
+        else:
+            security_directive = (
+                "IMPORTANT: If the user explicitly requests any practical action (such as music playback, reminders, tasks, calendar, or status), "
+                "YOU MUST INVOKE THE RELEVANT FUNCTION CALL TOOL FIRST before providing the final vocal reply. "
+                "DO NOT invoke tools for jokes, metaphors, or when the user did not explicitly command an action."
+            )
+
+        meta_prompt = (
+            f"[Host Device Hardware Telemetry | Exact Clock: {time_str} ({tz_str}) | Date: {date_str} | "
+            f"Security Mode: {security_mode.upper()} | Speaker: {auth_status} | Biometric Score: {similarity_score:.3f}]\n"
+            f'User Query: "{user_text}"\n'
+            f"{security_directive}"
+        )
+
+        text_part = types.Part.from_text(text=meta_prompt)
+
+        models_to_try = [self._current_model]
+        for fallback in ["gemini-flash-lite-latest", "gemini-3.5-flash-lite"]:
+            if fallback not in models_to_try:
+                models_to_try.append(fallback)
+
+        last_error = None
+        for model_name in models_to_try:
+            try:
+                self._reset_chat_session(model=model_name)
+                logger.info(f"[AXL-Brain]: Text ingestion started | Model: {model_name} | Query: '{user_text}'")
+                response = await self.active_chat.send_message([text_part])
+
+                raw_output = response.text.strip() if response.text else ""
+                logger.debug(f"[BRAIN RAW OUTPUT] Model: {model_name} | Raw: {raw_output}")
+
+                reply_text = raw_output
+                r_match = re.search(r"REPLY:\s*(.*)", raw_output, re.IGNORECASE | re.DOTALL)
+                if r_match:
+                    reply_text = r_match.group(1).strip()
+                else:
+                    reply_text = re.sub(r"^TRANSCRIPT:\s*.*?\n", "", reply_text, flags=re.IGNORECASE).strip()
+                    reply_text = re.sub(r"^REPLY:\s*", "", reply_text, flags=re.IGNORECASE).strip()
+
+                logger.debug(f"[BRAIN PARSED] User: '{user_text}' | Reply: '{reply_text}'")
+
+                # Store this turn into text_history
+                user_content = types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=f'[User Spoke]: "{user_text}"')],
+                )
+                model_content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=f"REPLY: {reply_text}")],
+                )
+                self.text_history.append(user_content)
+                self.text_history.append(model_content)
+
+                max_msgs = self.max_history_turns * 2
+                if len(self.text_history) > max_msgs:
+                    self.text_history = self.text_history[-max_msgs:]
+
+                return {
+                    "status": "success",
+                    "transcript": user_text,
+                    "text_response": reply_text,
+                    "is_stranger": is_stranger,
+                    "model_used": model_name,
+                }
+            except Exception as exc:
+                last_error = exc
+                err_str = str(exc)
+                if "429" in err_str or "503" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    logger.warning(
+                        f"[BRAIN FAILOVER] Model '{model_name}' hit quota or capacity spike (429/503). Retrying fallback..."
+                    )
+                    continue
+                else:
+                    logger.error(f"[BRAIN ERROR] Gemini text inference failed on {model_name}: {exc}", exc_info=True)
+                    break
+
+        logger.error(f"[BRAIN EXHAUSTED] All candidate models failed. Last error: {last_error}")
+        fallback_text = (
+            "Neural connection hiccup. Try again in a second."
+            if not is_stranger
+            else "System interference. Either way, I do not take orders from strangers."
+        )
+        return {
+            "status": "error",
+            "error": str(last_error),
+            "transcript": user_text,
+            "text_response": fallback_text,
+            "is_stranger": is_stranger,
+            "model_used": self._current_model,
+        }
+
+    async def process_utterance(
+        self,
+        wav_bytes: Optional[bytes] = None,
+        is_stranger: bool = False,
+        duration_sec: float = 0.0,
+        similarity_score: float = 1.0,
+        identity: str = "owner",
+        security_mode: str = "friendly",
+        user_text: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Processes an utterance. If user_text is provided (from local STT), uses text-only ingestion.
+        Otherwise falls back to multimodal WAV upload.
+        """
+        if user_text:
+            return await self.process_text_query(
+                user_text=user_text,
+                is_stranger=is_stranger,
+                similarity_score=similarity_score,
+                identity=identity,
+                security_mode=security_mode,
+            )
+
+        if not wav_bytes:
+            return {
+                "status": "error",
+                "error": "Neither user_text nor wav_bytes provided.",
+                "transcript": "",
+                "text_response": "I didn't hear anything.",
+                "is_stranger": is_stranger,
+                "model_used": self._current_model,
+            }
         """
         Processes an incoming in-memory WAV utterance, invokes Gemini,
         executes relevant tools automatically, and returns the vocal response.
