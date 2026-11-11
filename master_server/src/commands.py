@@ -1058,50 +1058,335 @@ def detect_alarm_intent(text: str) -> Optional[Dict[str, Any]]:
     return {"time_str": time_str, "label": label}
 
 
+def _add_months(sourcedate: datetime.date, months: int) -> datetime.date:
+    """Aggiunge o sottrae un numero di mesi a una data gestendo i giorni variabili."""
+    month = sourcedate.month - 1 + months
+    year = sourcedate.year + month // 12
+    month = month % 12 + 1
+    max_days = [
+        31,
+        29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
+        31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+    ][month - 1]
+    day = min(sourcedate.day, max_days)
+    return datetime.date(year, month, day)
+
+
+def parse_relative_date(text: str, base_date: Optional[datetime.date] = None) -> Dict[str, Any]:
+    """
+    Interpreta espressioni temporali relative e assolute (Italiano e Inglese) come:
+    'domani', 'dopodomani', 'ieri', 'l'altro ieri', 'tra 3 giorni', 'tra una settimana',
+    'tra 2 mesi', 'il 25 dicembre', 'tomorrow', 'in 3 days', 'in a week', 'next month'.
+    Restituisce un dizionario con:
+    - 'target_date': datetime.date
+    - 'desc_it': str (es. 'domani', 'tra 3 giorni')
+    - 'desc_en': str (es. 'tomorrow', 'in 3 days')
+    - 'is_explicit': bool
+    """
+    if base_date is None:
+        base_date = datetime.date.today()
+    if not text:
+        return {"target_date": base_date, "desc_it": "oggi", "desc_en": "today", "is_explicit": False}
+
+    lower = text.lower().strip()
+    target_date = None
+    desc_it = ""
+    desc_en = ""
+    is_explicit = False
+
+    # 1. Dopodomani / The day after tomorrow
+    if re.search(r"\b(dopodomani|dopo\s+domani|l['\s]altro\s+domani)\b", lower) or "day after tomorrow" in lower:
+        target_date = base_date + datetime.timedelta(days=2)
+        desc_it = "dopodomani"
+        desc_en = "the day after tomorrow"
+
+    # 2. Domani / Tomorrow
+    elif re.search(r"\bdomani\b", lower) or re.search(r"\btomorrow\b", lower):
+        target_date = base_date + datetime.timedelta(days=1)
+        desc_it = "domani"
+        desc_en = "tomorrow"
+
+    # 3. L'altro ieri / The day before yesterday
+    elif re.search(r"\b(l['\s]altro\s+ieri|ieri\s+l['\s]altro|altro\s+ieri)\b", lower) or "day before yesterday" in lower:
+        target_date = base_date - datetime.timedelta(days=2)
+        desc_it = "l'altro ieri"
+        desc_en = "the day before yesterday"
+
+    # 4. Ieri / Yesterday
+    elif re.search(r"\bieri\b", lower) or re.search(r"\byesterday\b", lower):
+        target_date = base_date - datetime.timedelta(days=1)
+        desc_it = "ieri"
+        desc_en = "yesterday"
+
+    # 5. Oggi / Today
+    elif re.search(r"\boggi\b", lower) or re.search(r"\btoday\b", lower):
+        target_date = base_date
+        desc_it = "oggi"
+        desc_en = "today"
+
+    # 6. Offset Giorni (Days)
+    elif m := re.search(r"\b(?:tra|fra)\s+(\d+|[a-zA-Z]+)\s+giorn[io]\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = base_date + datetime.timedelta(days=n)
+        desc_it = f"tra {n} giorni" if n > 1 else "tra un giorno"
+        desc_en = f"in {n} days" if n > 1 else "in 1 day"
+    elif m := re.search(r"\b(\d+|[a-zA-Z]+)\s+giorn[io]\s+fa\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = base_date - datetime.timedelta(days=n)
+        desc_it = f"{n} giorni fa" if n > 1 else "un giorno fa"
+        desc_en = f"{n} days ago" if n > 1 else "1 day ago"
+    elif m := re.search(r"\bin\s+(\d+|[a-zA-Z]+)\s+days?\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = base_date + datetime.timedelta(days=n)
+        desc_it = f"tra {n} giorni" if n > 1 else "tra un giorno"
+        desc_en = f"in {n} days" if n > 1 else "in 1 day"
+    elif m := re.search(r"\b(\d+|[a-zA-Z]+)\s+days?\s+ago\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = base_date - datetime.timedelta(days=n)
+        desc_it = f"{n} giorni fa" if n > 1 else "un giorno fa"
+        desc_en = f"{n} days ago" if n > 1 else "1 day ago"
+
+    # 7. Offset Settimane (Weeks)
+    elif m := re.search(r"\b(?:tra|fra)\s+(\d+|[a-zA-Z]+)\s+settiman[ae]\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = base_date + datetime.timedelta(days=n * 7)
+        desc_it = f"tra {n} settimane" if n > 1 else "tra una settimana"
+        desc_en = f"in {n} weeks" if n > 1 else "in a week"
+    elif re.search(r"\b(la\s+prossima\s+settimana|settimana\s+prossima|next\s+week)\b", lower):
+        target_date = base_date + datetime.timedelta(days=7)
+        desc_it = "la prossima settimana"
+        desc_en = "next week"
+    elif m := re.search(r"\bin\s+(\d+|[a-zA-Z]+)\s+weeks?\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = base_date + datetime.timedelta(days=n * 7)
+        desc_it = f"tra {n} settimane" if n > 1 else "tra una settimana"
+        desc_en = f"in {n} weeks" if n > 1 else "in a week"
+    elif m := re.search(r"\b(\d+|[a-zA-Z]+)\s+settiman[ae]\s+fa\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = base_date - datetime.timedelta(days=n * 7)
+        desc_it = f"{n} settimane fa" if n > 1 else "una settimana fa"
+        desc_en = f"{n} weeks ago" if n > 1 else "1 week ago"
+    elif m := re.search(r"\b(\d+|[a-zA-Z]+)\s+weeks?\s+ago\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = base_date - datetime.timedelta(days=n * 7)
+        desc_it = f"{n} settimane fa" if n > 1 else "una settimana fa"
+        desc_en = f"{n} weeks ago" if n > 1 else "1 week ago"
+
+    # 8. Offset Mesi (Months)
+    elif m := re.search(r"\b(?:tra|fra)\s+(\d+|[a-zA-Z]+)\s+mes[ie]\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = _add_months(base_date, n)
+        desc_it = f"tra {n} mesi" if n > 1 else "tra un mese"
+        desc_en = f"in {n} months" if n > 1 else "in a month"
+    elif m := re.search(r"\bin\s+(\d+|[a-zA-Z]+)\s+months?\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = _add_months(base_date, n)
+        desc_it = f"tra {n} mesi" if n > 1 else "tra un mese"
+        desc_en = f"in {n} months" if n > 1 else "in a month"
+    elif re.search(r"\b(il\s+prossimo\s+mese|mese\s+prossimo|next\s+month)\b", lower):
+        target_date = _add_months(base_date, 1)
+        desc_it = "il mese prossimo"
+        desc_en = "next month"
+    elif m := re.search(r"\b(\d+|[a-zA-Z]+)\s+mes[ie]\s+fa\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = _add_months(base_date, -n)
+        desc_it = f"{n} mesi fa" if n > 1 else "un mese fa"
+        desc_en = f"{n} months ago" if n > 1 else "1 month ago"
+    elif m := re.search(r"\b(\d+|[a-zA-Z]+)\s+months?\s+ago\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = _add_months(base_date, -n)
+        desc_it = f"{n} mesi fa" if n > 1 else "un mese fa"
+        desc_en = f"{n} months ago" if n > 1 else "1 month ago"
+
+    # 9. Offset Anni (Years)
+    elif m := re.search(r"\b(?:tra|fra)\s+(\d+|[a-zA-Z]+)\s+ann[oi]\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = _add_months(base_date, n * 12)
+        desc_it = f"tra {n} anni" if n > 1 else "tra un anno"
+        desc_en = f"in {n} years" if n > 1 else "in a year"
+    elif m := re.search(r"\bin\s+(\d+|[a-zA-Z]+)\s+years?\b", lower):
+        n = _parse_it_number(m.group(1)) or 1
+        target_date = _add_months(base_date, n * 12)
+        desc_it = f"tra {n} anni" if n > 1 else "tra un anno"
+        desc_en = f"in {n} years" if n > 1 else "in a year"
+
+    # 10. Data di calendario esplicita (es. 25 dicembre, December 25th)
+    if target_date is None:
+        it_months = {
+            "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4, "maggio": 5, "giugno": 6,
+            "luglio": 7, "agosto": 8, "settembre": 9, "ottobre": 10, "novembre": 11, "dicembre": 12
+        }
+        for m_name, m_num in it_months.items():
+            if m_name in lower:
+                m_exp = re.search(r"\b(\d{1,2})\s+" + m_name + r"\b", lower) or re.search(r"\b" + m_name + r"\s+(\d{1,2})\b", lower)
+                if m_exp:
+                    day = int(m_exp.group(1))
+                    year = base_date.year
+                    try:
+                        target_date = datetime.date(year, m_num, day)
+                        desc_it = f"il {day} {m_name}"
+                        desc_en = f"{m_name.capitalize()} {day}"
+                        is_explicit = True
+                        break
+                    except ValueError:
+                        pass
+
+        if target_date is None:
+            en_months = {
+                "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+                "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12
+            }
+            for m_name, m_num in en_months.items():
+                if m_name in lower:
+                    m_exp = re.search(r"\b" + m_name + r"\s+(\d{1,2})(?:st|nd|rd|th)?\b", lower) or re.search(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?" + m_name + r"\b", lower)
+                    if m_exp:
+                        day = int(m_exp.group(1))
+                        year = base_date.year
+                        try:
+                            target_date = datetime.date(year, m_num, day)
+                            desc_it = f"il {day} {m_name}"
+                            desc_en = f"{m_name.capitalize()} {day}"
+                            is_explicit = True
+                            break
+                        except ValueError:
+                            pass
+
+    # Default su oggi se nessuna specifica temporale è fornita
+    if target_date is None:
+        target_date = base_date
+        desc_it = "oggi"
+        desc_en = "today"
+
+    return {
+        "target_date": target_date,
+        "desc_it": desc_it,
+        "desc_en": desc_en,
+        "is_explicit": is_explicit,
+    }
+
+
 def detect_clock_date_intent(text: str) -> Optional[str]:
     """
-    Rileva se l'utente chiede l'ora esatta ('time') o la data/giorno corrente ('date') in Italiano o Inglese.
+    Rileva se l'utente chiede l'ora esatta ('time'), la data/giorno corrente o relativo ('date'),
+    oppure entrambi combinati ('both') in Italiano o Inglese.
     """
     if not text:
         return None
     lower = text.lower().strip()
 
-    # Rilevamento ora (Italiano & Inglese):
-    if any(re.search(p, lower) for p in [
+    time_patterns = [
         # Italian
         r"\bche\s+(?:ore\s+sono|ora\s+[eè]|orario\s+[eè])\b",
         r"\bdimmi\s+l['\s]ora\b",
         r"\b(?:qual\s+[eè]\s+l['\s]|dammi\s+l['\s])ora\b",
         r"^l['\s]ora(\s+esatta)?\.?$",
+        r"\borario\b",
         # English
         r"\bwhat\s+(?:time\s+is\s+it|is\s+the\s+time)\b",
         r"\bwhat['\s]s\s+the\s+time\b",
         r"\btell\s+me\s+the\s+time\b",
         r"\bcurrent\s+time\b",
+        r"\bwhat\s+time\b",
         r"^time\.?$",
-    ]):
-        return "time"
+    ]
 
-    # Rilevamento data (Italiano & Inglese):
-    if any(re.search(p, lower) for p in [
+    date_patterns = [
         # Italian
-        r"\bche\s+giorno\s+[eè](\s+oggi)?\b",
+        r"\bche\s+(?:giorno|data)\b",
+        r"\bqual\s+[eè]\s+(?:il\s+giorno|la\s+data)\b",
+        r"\bquale\s+giorno\b",
         r"\bdata\s+di\s+oggi\b",
         r"\bdimmi\s+la\s+data\b",
-        r"\b(?:qual\s+[eè]\s+la\s+)data(\s+di\s+oggi)?\b",
-        r"\bquanti\s+ne\s+abbiamo(\s+oggi)?\b",
+        r"\bquanti\s+ne\s+abbiamo\b",
+        r"\ba\s+che\s+giorno\s+siamo\b",
+        r"\bquando\s+viene\b",
+        r"\bquando\s+[eè]\b",
+        r"\bdomani\s+che\s+giorno\b",
+        r"\bdopodomani\s+che\s+giorno\b",
+        r"\bieri\s+che\s+giorno\b",
         # English
-        r"\bwhat\s+(?:day|date)\s+is\s+(?:it\s+)?today\b",
+        r"\bwhat\s+(?:day|date)\b",
+        r"\bwhich\s+(?:day|date)\b",
         r"\bwhat['\s]s\s+today['\s]s\s+date\b",
         r"\bwhat\s+is\s+today['\s]s\s+date\b",
-        r"\bwhat\s+date\s+is\s+it\b",
         r"\btell\s+me\s+the\s+date\b",
+        r"\btell\s+me\s+the\s+day\b",
         r"\btoday['\s]s\s+date\b",
+        r"\btomorrow\s+what\s+day\b",
+        r"\byesterday\s+what\s+day\b",
         r"^date\.?$",
-    ]):
+    ]
+
+    has_time = any(re.search(p, lower) for p in time_patterns)
+    has_date = any(re.search(p, lower) for p in date_patterns)
+
+    if has_time and has_date:
+        return "both"
+    elif has_time:
+        return "time"
+    elif has_date:
         return "date"
 
     return None
+
+
+def is_compound_ai_query(text: str) -> bool:
+    """
+    Rileva se una richiesta dell'utente è un comando composto multi-azione
+    o combina azioni locali con capacità avanzate dell'AI (musica, calendario, meteo, PC slave),
+    richiedendo l'orchestrazione cognitiva di Gemini invece del Fast Path locale.
+    """
+    if not text:
+        return False
+    lower = text.lower().strip()
+
+    # Presenza di congiunzioni coordinative di azioni
+    conjunction_patterns = [
+        r"\b(e\s+poi|e\s+anche|poi|inoltre)\b",
+        r"\b(and\s+then|and\s+also|after\s+that)\b",
+        r"\b(and|e|ed)\b",
+    ]
+    has_conjunction = any(re.search(p, lower) for p in conjunction_patterns)
+    if not has_conjunction:
+        return False
+
+    # Presenza di domini esterni gestiti dall'AI
+    external_domains = [
+        # Musica / Spotify
+        r"\b(play|music|song|spotify|canzone|musica|suona|riproduci|traccia)\b",
+        # Calendario & Task
+        r"\b(calendar|calendario|eventi|appuntament[oi]|promemoria|task[s]?|compit[oi]|to-?do|impegn[oi])\b",
+        # Meteo & Notizie
+        r"\b(weather|meteo|previsioni|piove|sole|temperatura|notizie|news)\b",
+        # Domande generali & Conoscenza
+        r"\b(chi [eè]|who is|perch[eé]|why|come mai|spiegami|explain|cerca|search|raccontami|tell me about|cos['\s][eè]|what is)\b",
+        # Comandi Slave PC
+        r"\b(slave|computer|pc|spegni il pc|apri youtube|open youtube)\b",
+    ]
+    if any(re.search(p, lower) for p in external_domains):
+        return True
+
+    # Se sono concatenati più intenti fast-path distinti (es. Timer + Sveglia, Timer + Muto)
+    intents_count = 0
+    if detect_timer_intent(lower):
+        intents_count += 1
+    if detect_alarm_intent(lower):
+        intents_count += 1
+    if is_mute_intent(lower) or is_unmute_intent(lower):
+        intents_count += 1
+    if detect_security_mode_intent(lower):
+        intents_count += 1
+    if detect_telemetry_intent(lower):
+        intents_count += 1
+
+    if intents_count > 1:
+        return True
+
+    cd_intent = detect_clock_date_intent(lower)
+    if cd_intent in ["time", "date"] and intents_count >= 1:
+        return True
+
+    return False
 
 
 def handle_local_fast_path(
@@ -1114,19 +1399,58 @@ def handle_local_fast_path(
 ) -> Optional[Dict[str, Any]]:
     """
     Tier-1 Local Fast Path / Intent Router (Bilingual Italian / English).
-    Intercetta comandi deterministici (ora, data, timer, sveglia, muto, smuto, telemetria, sicurezza)
+    Intercetta comandi deterministici (ora, data, ora+data, timer, sveglia, muto, smuto, telemetria, sicurezza)
     ed esegue l'azione all'istante in locale (<5ms) senza chiamare Gemini.
-    Risponde rigorosamente nella lingua del comando (Italiano o Inglese).
+    Se rileva comandi composti complessi o multi-azione, cede il passo all'AI di Gemini.
     """
     if not text or not text.strip():
+        return None
+
+    # Guardrail: se il comando è composto e richiede l'orchestrazione di più azioni o capacità AI,
+    # delega direttamente a Gemini Cognitive Brain
+    if is_compound_ai_query(text):
+        logger.info(f"[LOCAL FAST PATH] Compound multi-action query detected ('{text}'). Delegating to Gemini AI Brain.")
         return None
 
     if lang is None:
         lang = detect_language(text)
 
-    # 1. Ora esatta e Data
+    # 1. Ora esatta e Data (supporta ora, data corrente, date relative come domani/tra n giorni/settimane, ed entrambe combinate)
     c_type = detect_clock_date_intent(text)
-    if c_type == "time":
+    if c_type == "both":
+        now = datetime.datetime.now()
+        time_str = now.strftime('%H:%M')
+        base_d = now.date()
+        date_info = parse_relative_date(text, base_date=base_d)
+        tgt_date = date_info["target_date"]
+        desc_it = date_info["desc_it"]
+        desc_en = date_info["desc_en"]
+        if lang == "en":
+            f_en = tgt_date.strftime('%A, %B %d, %Y')
+            if tgt_date == base_d:
+                reply = f"It's {time_str} and today is {f_en}."
+            elif tgt_date < base_d:
+                reply = f"It's {time_str} and {desc_en} was {f_en}."
+            else:
+                reply = f"It's {time_str} and {desc_en} will be {f_en}."
+        else:
+            giorni = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+            mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+            g_str = giorni[tgt_date.weekday()]
+            m_str = mesi[tgt_date.month - 1]
+            f_it = f"{g_str} {tgt_date.day} {m_str} {tgt_date.year}"
+            if tgt_date == base_d:
+                reply = f"Sono le {time_str} e oggi è {f_it}."
+            elif tgt_date < base_d:
+                reply = f"Sono le {time_str} e {desc_it} era {f_it}."
+            else:
+                reply = f"Sono le {time_str} e {desc_it} sarà {f_it}."
+        return {
+            "handled": True,
+            "type": "time_and_date",
+            "reply": reply
+        }
+    elif c_type == "time":
         now = datetime.datetime.now()
         time_str = now.strftime('%H:%M')
         reply = f"It's {time_str}." if lang == "en" else f"Sono le {time_str}."
@@ -1137,14 +1461,48 @@ def handle_local_fast_path(
         }
     elif c_type == "date":
         now = datetime.datetime.now()
+        base_d = now.date()
+        date_info = parse_relative_date(text, base_date=base_d)
+        tgt_date = date_info["target_date"]
+        desc_it = date_info["desc_it"]
+        desc_en = date_info["desc_en"]
+        is_exp = date_info.get("is_explicit", False)
+
         if lang == "en":
-            reply = f"Today is {now.strftime('%A, %B %d, %Y')}."
+            f_en = tgt_date.strftime('%A, %B %d, %Y')
+            if is_exp:
+                weekday_en = tgt_date.strftime('%A')
+                reply = f"{desc_en}, {tgt_date.year} will be {weekday_en}."
+            elif tgt_date == base_d:
+                reply = f"Today is {f_en}."
+            elif tgt_date < base_d:
+                cap = desc_en.capitalize()
+                reply = f"{cap} was {f_en}."
+            else:
+                cap = desc_en.capitalize()
+                if desc_en.startswith("in "):
+                    reply = f"{cap} it will be {f_en}."
+                else:
+                    reply = f"{cap} will be {f_en}."
         else:
             giorni = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
             mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
-            giorno_str = giorni[now.weekday()]
-            mese_str = mesi[now.month - 1]
-            reply = f"Oggi è {giorno_str} {now.day} {mese_str} {now.year}."
+            g_str = giorni[tgt_date.weekday()]
+            m_str = mesi[tgt_date.month - 1]
+            f_it = f"{g_str} {tgt_date.day} {m_str} {tgt_date.year}"
+
+            if is_exp:
+                cap = desc_it[0].upper() + desc_it[1:]
+                reply = f"{cap} {tgt_date.year} sarà {g_str}."
+            elif tgt_date == base_d:
+                reply = f"Oggi è {f_it}."
+            elif tgt_date < base_d:
+                cap = desc_it[0].upper() + desc_it[1:]
+                reply = f"{cap} era {f_it}."
+            else:
+                cap = desc_it[0].upper() + desc_it[1:]
+                reply = f"{cap} sarà {f_it}."
+
         return {
             "handled": True,
             "type": "date",
