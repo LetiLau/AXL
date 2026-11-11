@@ -28,6 +28,72 @@ except ImportError:
 logger = logging.getLogger("AXL-TTS")
 
 
+EN_EXCLUSIVE_TOKENS = {
+    "the", "be", "to", "of", "and", "that", "have", "i", "it", "for", "not", "on", "with", "he",
+    "as", "you", "do", "at", "this", "but", "his", "by", "from", "they", "we", "say", "her", "she", "or",
+    "an", "will", "my", "one", "all", "would", "there", "their", "what", "up", "out", "if", "about",
+    "who", "get", "which", "go", "when", "make", "can", "like", "time", "just", "him", "know",
+    "take", "people", "into", "year", "your", "good", "some", "could", "them", "see", "other", "than", "then",
+    "now", "look", "only", "its", "over", "think", "also", "back", "after", "use", "two", "how", "our",
+    "work", "first", "well", "way", "even", "new", "want", "because", "any", "these", "give", "day", "most", "us",
+    "remove", "cancel", "delete", "stop", "start", "pause", "resume", "play", "turn", "switch", "mute", "unmute",
+    "set", "reset", "tell", "show", "open", "close", "hide", "check", "status", "timer", "alarm", "volume", "loud",
+    "quiet", "increase", "decrease", "please", "help", "search", "find", "listen", "hear", "minutes", "seconds",
+    "hours", "hour", "minute", "second", "today", "tomorrow", "yesterday", "weather", "music", "song", "joke",
+    "hello", "hi", "hey", "sir", "boss", "why", "where", "off", "down", "is", "are", "am", "was", "were",
+    "has", "had", "been", "being", "did", "does", "doing", "system", "mode", "screen"
+}
+
+IT_EXCLUSIVE_TOKENS = {
+    "il", "lo", "la", "i", "gli", "le", "un", "uno", "una", "di", "da", "con", "su", "per", "tra", "fra",
+    "e", "ed", "o", "oppure", "ma", "però", "se", "che", "chi", "cui", "non", "più", "molto", "poco", "tutto",
+    "tutti", "tutte", "questo", "questa", "questi", "queste", "quello", "quella", "quelli", "quelle", "mio", "mia",
+    "miei", "mie", "tuo", "tua", "tuoi", "tue", "suo", "sua", "suoi", "sue", "nostro", "nostra", "nostri", "nostre",
+    "vostro", "vostra", "vostri", "vostre", "loro", "mi", "ti", "si", "ci", "vi", "ne", "te", "noi",
+    "voi", "lui", "lei", "esso", "essa", "essi", "esse", "è", "ho", "hai", "ha", "abbiamo", "avete", "hanno",
+    "sono", "sei", "siamo", "siete", "eri", "eravamo", "eravate", "erano", "stato", "stata", "stati",
+    "state", "sto", "stai", "sta", "stiamo", "stanno", "stavo", "stavi", "stava",
+    "faccio", "fai", "fa", "facciamo", "fate", "fanno", "fatto", "posso", "puoi", "può", "possiamo",
+    "potete", "possono", "potuto", "voglio", "vuoi", "vuole", "vogliamo", "volete", "vogliono", "voluto", "devo",
+    "devi", "deve", "dobbiamo", "dovete", "devono", "dovuto", "so", "sai", "sa", "sappiamo", "sapete", "sanno",
+    "saputo", "va", "vai", "andiamo", "andate", "vanno", "andato", "andata", "viene", "vieni", "veniamo", "venite",
+    "vengono", "venuto", "venuta", "dimmi", "dimmelo", "spiegami", "mostrami", "dammi", "metti", "imposta",
+    "attiva", "disattiva", "togli", "rimuovi", "mutati", "muto", "smuta", "smutati", "parla", "taci", "ascolta",
+    "cosa", "dove", "quando", "perché", "perche", "quale", "quali", "quanto", "quanta", "quanti", "quante",
+    "ore", "ora", "giorno", "oggi", "domani", "ieri", "tempo", "musica", "canzone", "sveglia", "minuti", "secondi",
+    "ciao", "buongiorno", "buonasera", "grazie", "favore", "aiuto", "chiudi", "apri", "schermo", "visore", "modalità",
+    "modalita"
+}
+
+
+def detect_language(text: str) -> str:
+    """Determines if the utterance is in English ('en') or Italian ('it')."""
+    if not text:
+        return "it"
+    cleaned = text.lower()
+    cleaned = re.sub(r"\b(hey\s+)?(jarvis|axl)\b", "", cleaned).strip()
+
+    en_contractions = len(re.findall(r"\b(what's|it's|don't|can't|i'm|you're|they're|we're|won't|didn't|doesn't|isn't|aren't|let's|how's|that's)\b", cleaned))
+    it_apostrophes = len(re.findall(r"\b(l'|un'|d'|c'|dov'|com'|quant'|qual'è|qual'e)\b", cleaned))
+
+    words = re.findall(r"\b\w+\b", cleaned)
+    it_bonus = 0
+    en_bonus = 0
+    if re.search(r"\bcome\s+(stai|va|funziona|si\s+fa|stanno)\b", cleaned):
+        it_bonus += 2
+    elif re.search(r"\bcome\s+(here|on|back|in)\b", cleaned):
+        en_bonus += 2
+
+    en_count = sum(1 for w in words if w in EN_EXCLUSIVE_TOKENS) + (en_contractions * 2) + en_bonus
+    it_count = sum(1 for w in words if w in IT_EXCLUSIVE_TOKENS) + (it_apostrophes * 2) + it_bonus
+
+    if en_count > it_count:
+        return "en"
+    elif it_count > en_count:
+        return "it"
+    return "en" if any(w in EN_EXCLUSIVE_TOKENS for w in words) else "it"
+
+
 class PiperTTSEngine:
     """
     Hybrid neural TTS engine delivering natural human speech:
@@ -188,21 +254,7 @@ class PiperTTSEngine:
     @staticmethod
     def _detect_language(text: str) -> str:
         """Determines if the utterance should be synthesized in English or Italian."""
-        text_lower = text.lower()
-        it_tokens = {
-            "il", "lo", "la", "i", "gli", "le", "è", "e", "un", "una",
-            "di", "a", "da", "in", "con", "su", "per", "tra", "fra",
-            "ho", "sono", "sistemi", "fatto", "non", "che", "cosa", "chi", "come", "ora"
-        }
-        en_tokens = {
-            "the", "is", "are", "a", "an", "of", "to", "in", "for", "with",
-            "on", "at", "from", "by", "have", "all", "systems", "done", "not",
-            "what", "who", "how", "ready", "sir", "boss"
-        }
-        words = set(re.findall(r"\b\w+\b", text_lower))
-        it_matches = len(words.intersection(it_tokens))
-        en_matches = len(words.intersection(en_tokens))
-        return "en" if en_matches > it_matches else "it"
+        return detect_language(text)
 
     @staticmethod
     def _normalize_text(text: str) -> str:

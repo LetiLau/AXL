@@ -27,7 +27,7 @@ from audio_utils import pcm_to_wav_bytes
 from brain_gemini import GeminiBrain
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
-from tts_engine import PiperTTSEngine
+from tts_engine import PiperTTSEngine, detect_language
 from stt_engine import STTEngine
 from telemetry_utils import collect_system_telemetry
 from console_manager import ConsoleManager
@@ -39,6 +39,7 @@ from commands import (
     handle_local_fast_path,
     is_mute_in_reply,
     is_mute_intent,
+    is_unmute_intent,
     register_telemetry_listener,
     set_command_auth_context,
 )
@@ -472,16 +473,20 @@ class StreamManager:
         is_authorized: bool = True,
         sec_mode: Optional[str] = None,
         sim_score: float = 1.0,
+        lang: Optional[str] = None,
     ) -> str:
         """
         Executes a user command string through the complete two-tiered cognitive pipeline:
         1. Tier-1 Local Fast Path (Timer, Alarm, Clock, Date, Mute, Telemetry, Security Mode) -> <5ms offline
         2. Tier-2 Cognitive Brain (Cloud Gemini via Text-Only Ingestion + Tool AFC)
         3. Synchronous Guardrails & UI Broadcast
-        4. Vocal delivery via TTS
+        4. Vocal delivery via TTS in the exact language of the command (Italian / English)
         """
         if not transcript or not transcript.strip():
             return ""
+
+        if lang is None:
+            lang = detect_language(transcript)
 
         if sec_mode is None:
             sec_mode = self.verifier.security_mode if self.verifier else "friendly"
@@ -512,11 +517,12 @@ class StreamManager:
             identity=identity,
             security_mode=sec_mode,
             similarity_score=sim_score,
+            lang=lang,
         )
 
         if fast_path_result is not None:
             vocal_reply = fast_path_result.get("reply", "")
-            logger.info(f"[LOCAL FAST PATH] Executed: {fast_path_result.get('type')} -> '{vocal_reply}'")
+            logger.info(f"[LOCAL FAST PATH] Executed: {fast_path_result.get('type')} ({lang.upper()}) -> '{vocal_reply}'")
         elif self.brain:
             # 2. Tier-2 Cognitive Brain (Cloud Gemini via Text-Only Ingestion + Tool AFC)
             result = await self.brain.process_text_query(
@@ -525,14 +531,28 @@ class StreamManager:
                 similarity_score=sim_score,
                 identity=identity,
                 security_mode=sec_mode,
+                lang=lang,
             )
             vocal_reply = result.get("text_response", "")
 
-        logger.info(f">>> [A-X-L SPEAKS]: \"{vocal_reply}\" <<<")
+        logger.info(f">>> [A-X-L SPEAKS ({lang.upper()})]: \"{vocal_reply}\" <<<")
 
         # 3. Synchronous Intent Guardrails
-        mute_triggered = is_mute_intent(transcript) or is_mute_in_reply(vocal_reply)
         can_mute = is_authorized or (sec_mode == "friendly")
+
+        # 3a. Guardrail Unmute / Smuta
+        unmute_triggered = is_unmute_intent(transcript)
+        if self.is_muted and unmute_triggered:
+            if can_mute:
+                logger.info(f"[COMMAND GUARDRAIL] Disengaging mute mode (transcript: '{transcript}').")
+                await self.handle_telemetry_event({"type": "SET_MUTE", "muted": False})
+            else:
+                logger.warning(
+                    f"[COMMAND GUARDRAIL] Blocked unauthorized unmute attempt from speaker '{identity}' in '{sec_mode}' mode."
+                )
+
+        # 3b. Guardrail Muto
+        mute_triggered = is_mute_intent(transcript) or is_mute_in_reply(vocal_reply)
         if not self.is_muted and mute_triggered:
             if can_mute:
                 logger.info(f"[COMMAND GUARDRAIL] Engaging mute mode (transcript: '{transcript}' | reply: '{vocal_reply[:60]}...').")
@@ -602,8 +622,8 @@ class StreamManager:
 
         # 5. Neural Text-To-Speech Synthesis & Streaming via WebSocket
         if vocal_reply and self.tts and self.active_client:
-            logger.info("[TTS STREAM] Synthesizing and streaming response to client...")
-            await self.speak_text(vocal_reply)
+            logger.info(f"[TTS STREAM] Synthesizing and streaming response to client [{lang.upper()}]...")
+            await self.speak_text(vocal_reply, lang=lang)
             if not self.stop_speech_requested:
                 logger.info("[TTS STREAM] Vocal response fully delivered.")
 

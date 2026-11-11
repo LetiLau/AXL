@@ -16,6 +16,7 @@ from google import genai
 from google.genai import types
 
 from commands import REGISTERED_TOOLS
+from tts_engine import detect_language
 
 logger = logging.getLogger("AXL-Brain")
 
@@ -30,11 +31,12 @@ SYSTEM_PROMPT_TEMPLATE = """\
 You are A-X-L (Adaptive eXecution Logistic), an advanced AI assistant with the personality of a loyal, high-tech cybernetic guard dog combined with the sarcastic efficiency of Tony Stark's JARVIS.
 
 CORE BEHAVIOR RULES:
-1. LANGUAGE RULES (ITALIAN FIRST):
-   - The default conversation language is ITALIAN.
-   - The wake-word ('Hey Jarvis' or 'AXL') is in English, but it DOES NOT count as the user speaking English.
-   - You MUST respond in ITALIAN whenever the user speaks Italian or combines the wake-word with an Italian query (e.g. 'Hey Jarvis che ore sono?', 'Hey Jarvis metti un timer').
-   - You may respond in English ONLY IF the user's actual query or command is spoken entirely in English (e.g. 'Hey Jarvis, what time is it?', 'Hey Jarvis, who are you?').
+1. STRICT BILINGUAL LANGUAGE RULES (ITALIAN / ENGLISH):
+   - A-X-L is strictly bilingual in Italian and English.
+   - You MUST ALWAYS respond in the exact same language as the user's command or query:
+     * If the user speaks or types in English, you MUST reply entirely in English.
+     * If the user speaks or types in Italian, you MUST reply entirely in Italian.
+   - The wake-word ('Hey Jarvis' or 'AXL') alone does not count as English. If followed by Italian (e.g. 'Hey Jarvis che ore sono?'), respond in Italian. If followed by English (e.g. 'Hey Jarvis what time is it?'), respond in English.
 2. SYNTHESIS, VOCAL DELIVERY & HARDWARE SFX PALETTE:
    - Your response will be spoken aloud via the local TTS engine.
    - Keep answers concise, witty, sharp, and natural (avoid long markdown bullet lists or unpronounceable formatting unless explicitly requested).
@@ -177,11 +179,16 @@ class GeminiBrain:
         similarity_score: float = 1.0,
         identity: str = "owner",
         security_mode: str = "friendly",
+        lang: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Processes a pre-transcribed text query via Gemini API using text-only ingestion.
         Drastically reduces latency, token consumption, and eliminates 429 quota exhaustion.
+        Guarantees strict bilingual response matching (Italian or English).
         """
+        if lang is None:
+            lang = detect_language(user_text)
+
         local_now = datetime.datetime.now().astimezone()
         time_str = local_now.strftime("%H:%M:%S")
         date_str = local_now.strftime("%A, %d %B %Y")
@@ -202,10 +209,18 @@ class GeminiBrain:
                 "DO NOT invoke tools for jokes, metaphors, or when the user did not explicitly command an action."
             )
 
+        target_lang_str = "ENGLISH" if lang == "en" else "ITALIAN"
+        lang_mandate = (
+            f"[CRITICAL LANGUAGE MANDATE: User query is in {target_lang_str}]. "
+            f"You MUST formulate your final reply text strictly and entirely in {target_lang_str}. "
+            f"Do NOT respond in {'Italian' if lang == 'en' else 'English'}."
+        )
+
         meta_prompt = (
             f"[Host Device Hardware Telemetry | Exact Clock: {time_str} ({tz_str}) | Date: {date_str} | "
             f"Security Mode: {security_mode.upper()} | Speaker: {auth_status} | Biometric Score: {similarity_score:.3f}]\n"
             f'User Query: "{user_text}"\n'
+            f"{lang_mandate}\n"
             f"{security_directive}"
         )
 
@@ -272,11 +287,18 @@ class GeminiBrain:
                     break
 
         logger.error(f"[BRAIN EXHAUSTED] All candidate models failed. Last error: {last_error}")
-        fallback_text = (
-            "Neural connection hiccup. Try again in a second."
-            if not is_stranger
-            else "System interference. Either way, I do not take orders from strangers."
-        )
+        if lang == "en":
+            fallback_text = (
+                "Neural connection hiccup. Try again in a second."
+                if not is_stranger
+                else "System interference. Either way, I do not take orders from strangers."
+            )
+        else:
+            fallback_text = (
+                "Piccolo problema di connessione neurale. Riprova tra un secondo."
+                if not is_stranger
+                else "Interferenza di sistema. In ogni caso, non prendo ordini da sconosciuti."
+            )
         return {
             "status": "error",
             "error": str(last_error),
@@ -456,11 +478,18 @@ class GeminiBrain:
                     break
 
         logger.error(f"[BRAIN EXHAUSTED] All candidate models failed. Last error: {last_error}")
-        fallback_text = (
-            "Neural connection hiccup. Try again in a second."
-            if not is_stranger
-            else "System interference. Either way, I do not take orders from strangers."
-        )
+        if lang == "en":
+            fallback_text = (
+                "Neural connection hiccup. Try again in a second."
+                if not is_stranger
+                else "System interference. Either way, I do not take orders from strangers."
+            )
+        else:
+            fallback_text = (
+                "Piccolo problema di connessione neurale. Riprova tra un secondo."
+                if not is_stranger
+                else "Interferenza di sistema. In ogni caso, non prendo ordini da sconosciuti."
+            )
         return {
             "status": "error",
             "error": str(last_error),

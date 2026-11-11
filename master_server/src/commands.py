@@ -15,6 +15,7 @@ import psutil
 import requests
 from telemetry_utils import collect_system_telemetry
 from task_manager import task_manager
+from tts_engine import detect_language
 
 logger = logging.getLogger("AXL-Commands")
 
@@ -647,19 +648,59 @@ def enroll_voice_profile(profile_name: str = "owner") -> str:
 # a textual acknowledgment without emitting an explicit function call.
 # ==============================================================================
 
+def is_unmute_intent(text: str) -> bool:
+    """Detects if user utterance expressed intent to unmute / turn on mic / resume listening."""
+    if not text:
+        return False
+    lower = text.lower().strip()
+    patterns = [
+        # Italian
+        r"\b(togli|rimuovi|disattiva|cancella|annulla|spegni|leva|levami|esci\s+dal?)\s+(il\s+)?muto\b",
+        r"\b(smuta|smutati|smutare)\b",
+        r"\b(riattiva|riattivare|attiva|accendi|apri|sblocca)\s+(il\s+|l['\s])?(microfon[oi]|mic|ascolto|audio)\b",
+        r"\b(microfon[oi]|mic|ascolto)\s+(attivat[oi]|acces[oi]|abilitat[oi]|on|apert[oi])\b",
+        r"\bnon\s+(essere\s+|stare\s+|andare\s+in\s+|metterti\s+in\s+)?muto\b",
+        r"\bnon\s+mutarti\b",
+        r"\btorna\s+ad\s+ascoltare\b",
+        r"\bricomincia\s+ad\s+ascoltare\b",
+        # English
+        r"\b(remove|cancel|disable|turn\s+off|switch\s+off|stop|clear|take\s+off|exit)\s+(the\s+)?mute\b",
+        r"\bun-?mute\b",
+        r"\b(turn|switch)\s+on\s+(the\s+|your\s+)?(mic|microphone|listening)\b",
+        r"\b(enable|activate|reactivate|resume)\s+(the\s+|your\s+)?(mic|microphone|listening)\b",
+        r"\b(mic|microphone)\s+(on|enabled|activated|active)\b",
+        r"\b(start|resume)\s+listening\b",
+        r"\bdon'?t\s+mute\b",
+        r"\bdo\s+not\s+mute\b",
+    ]
+    return any(re.search(p, lower) for p in patterns)
+
+
 def is_mute_intent(text: str) -> bool:
     """Detects if user utterance expressed intent to mute / silence A-X-L."""
     if not text:
         return False
     lower = text.lower().strip()
+
+    # 1. Critical guardrail: Never mute if user intent is to unmute or remove mute!
+    if is_unmute_intent(lower):
+        return False
+
+    # 2. Exclude queries about current mute status
     if any(q in lower for q in [
         "sei in muto", "sei muto", "perché sei muto", "stato muto", "stato del muto",
         "are you muted", "are you on mute", "why are you muted",
     ]):
         return False
+
+    cleaned = re.sub(r"[,:;!?]", " ", lower)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
     patterns = [
         # Italian
-        r"\b(vai\s+in\s+|mettiti\s+in\s+|metti\s+in\s+|modalit[aà]\s+)?muto\b",
+        r"^(axl\s+|jarvis\s+|hey\s+jarvis\s+)?muto$",
+        r"\b(vai\s+in|mettiti\s+in|metti\s+in|imposta(\s+in)?|attiva(\s+la)?\s+modalit[aà])\s+muto\b",
+        r"\bmodalit[aà]\s+muto\b",
         r"\b(disattiva|disattivare|disabilita|spegni|spegnere|chiudi|blocca)\s+(il\s+|l['\s])?(microfon[oi]|mic|ascolto|audio)\b",
         r"\b(microfon[oi]|mic|ascolto)\s+(disattivat[oi]|spent[oi]|disabilitat[oi]|off|chius[oi])\b",
         r"\bsilenzio\b",
@@ -668,15 +709,15 @@ def is_mute_intent(text: str) -> bool:
         r"\bnon\s+ascoltare\b",
         r"\bsmetti\s+di\s+ascoltare\b",
         # English
-        r"\bmute\b",
-        r"\bgo\s+(on\s+)?mute\b",
+        r"^(axl\s+|jarvis\s+|hey\s+jarvis\s+)?mute$",
+        r"\b(go\s+(on\s+)?mute|put\s+(on\s+)?mute|mute\s+(yourself|the\s+mic|your\s+mic|system))\b",
         r"\b(turn|switch|shut)\s+off\s+(the\s+|your\s+)?(mic|microphone|listening)\b",
         r"\b(disable|deactivate|silence)\s+(the\s+|your\s+)?(mic|microphone|listening)\b",
         r"\b(mic|microphone)\s+(off|disabled|deactivated|muted)\b",
         r"\b(be\s+quiet|shut\s+up|stay\s+silent|keep\s+quiet)\b",
         r"\bstop\s+listening\b",
     ]
-    return any(re.search(p, lower) for p in patterns)
+    return any(re.search(p, cleaned) for p in patterns)
 
 
 def is_mute_in_reply(reply: str) -> bool:
@@ -843,13 +884,19 @@ def detect_enrollment_intent(text: str) -> Optional[Dict[str, str]]:
     return None
 
 
-IT_NUMBERS = {
+WORD_NUMBERS = {
+    # Italian
     "zero": 0, "un": 1, "uno": 1, "una": 1, "due": 2, "tre": 3, "quattro": 4,
     "cinque": 5, "sei": 6, "sette": 7, "otto": 8, "nove": 9, "dieci": 10,
     "undici": 11, "dodici": 12, "tredici": 13, "quattordici": 14, "quindici": 15,
     "sedici": 16, "diciassette": 17, "diciotto": 18, "diciannove": 19, "venti": 20,
-    "venticinque": 25, "trenta": 30, "quaranta": 40, "cinquanta": 50,
-    "sessanta": 60,
+    "venticinque": 25, "trenta": 30, "quaranta": 40, "cinquanta": 50, "sessanta": 60,
+    # English
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19, "twenty": 20, "twenty-five": 25, "thirty": 30, "forty": 40,
+    "fifty": 50, "sixty": 60,
 }
 
 
@@ -859,13 +906,13 @@ def _parse_it_number(token: str) -> Optional[int]:
     token = token.strip().lower()
     if token.isdigit():
         return int(token)
-    return IT_NUMBERS.get(token)
+    return WORD_NUMBERS.get(token)
 
 
 def detect_timer_intent(text: str) -> Optional[Dict[str, Any]]:
     """
-    Rileva se l'utente ha chiesto di impostare un timer o conto alla rovescia.
-    Esempi: 'metti un timer di 5 minuti', 'timer 10 minuti per la pasta', 'imposta timer da 30 secondi'.
+    Rileva se l'utente ha chiesto di impostare un timer o conto alla rovescia (Italiano o Inglese).
+    Esempi: 'metti un timer di 5 minuti', 'timer 10 minuti per la pasta', 'set a timer for 5 minutes'.
     Resiliente anche ad errori fonetici STT (es. 'time-dix in 5 secondi').
     Restituisce {'duration_seconds': int, 'label': str} oppure None.
     """
@@ -876,49 +923,56 @@ def detect_timer_intent(text: str) -> Optional[Dict[str, Any]]:
     if not any(k in lower for k in ["timer", "conto alla rovescia", "cronometro", "time"]):
         return None
 
-    # Esclude domande informative (es. 'quanto manca al timer?')
-    if any(q in lower for q in ["quanto manca", "stato timer", "a che punto"]):
+    # Esclude domande informative (es. 'quanto manca al timer?', 'how much time is left?')
+    if any(q in lower for q in ["quanto manca", "stato timer", "a che punto", "how much time", "timer status"]):
         return None
 
     duration = 0
 
     # 1. Ore
-    hr_match = re.search(r"(\d+|un|uno|due|tre)\s*(?:or[ae]|hour[s]?)\b", lower)
+    hr_match = re.search(r"(\d+|un|uno|due|tre|one|two|three)\s*(?:or[ae]|hour[s]?)\b", lower)
     if hr_match:
         val = _parse_it_number(hr_match.group(1)) or 1
         duration += val * 3600
 
     # 2. Minuti
-    min_match = re.search(r"(\d+|un|uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|quindici|venti|venticinque|trenta|quaranta|cinquanta)\s*(?:minut[oi]|min\b|minute[s]?)\b", lower)
+    min_match = re.search(
+        r"(\d+|un|uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|quindici|venti|venticinque|trenta|quaranta|cinquanta|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|fifty)\s*(?:minut[oi]|min\b|minute[s]?)\b",
+        lower
+    )
     if min_match:
         val = _parse_it_number(min_match.group(1)) or 0
         duration += val * 60
-    elif "mezz'ora" in lower or "mezza ora" in lower:
+    elif "mezz'ora" in lower or "mezza ora" in lower or "half an hour" in lower:
         duration += 1800
 
     # 3. Secondi
-    sec_match = re.search(r"(\d+|un|uno|due|tre|quattro|cinque|dieci|quindici|venti|trenta|quaranta|cinquanta)\s*(?:second[oi]|sec\b|second[s]?)\b", lower)
+    sec_match = re.search(
+        r"(\d+|un|uno|due|tre|quattro|cinque|dieci|quindici|venti|trenta|quaranta|cinquanta|one|two|three|four|five|ten|fifteen|twenty|thirty|forty|fifty)\s*(?:second[oi]|sec\b|second[s]?)\b",
+        lower
+    )
     if sec_match:
         val = _parse_it_number(sec_match.group(1)) or 0
         duration += val
 
-    # 4. Forma breve: 'timer 5', 'timer di 10', 'timer in 5'
+    # 4. Forma breve: 'timer 5', 'timer di 10', 'timer in 5', 'timer for 10'
     if duration == 0:
-        bare_match = re.search(r"\btime(?:r)?\s+(?:da|di|per|in)?\s*(\d+)\b", lower)
+        bare_match = re.search(r"\btime(?:r)?\s+(?:da|di|per|in|for)?\s*(\d+)\b", lower)
         if bare_match:
             duration = int(bare_match.group(1)) * 60
 
     if duration <= 0:
         return None
 
-    # Estrazione etichetta opzionale (es. 'per la pasta', 'per le uova')
+    # Estrazione etichetta opzionale (es. 'per la pasta', 'for the pasta')
     label = "Timer"
-    label_match = re.search(r"(?:per|di)\s+(?:la\s+|il\s+|le\s+|lo\s+)?([a-zA-Z0-9_\-]+)(?:\s+di|\s+da|$)", lower)
+    label_match = re.search(r"(?:per|di|for)\s+(?:la\s+|il\s+|le\s+|lo\s+|the\s+)?([a-zA-Z0-9_\-]+)(?:\s+di|\s+da|\s+for|$)", lower)
     if label_match:
         extracted = label_match.group(1).strip()
         stop_words = [
             "minuti", "minuto", "secondi", "secondo", "ore", "ora", "timer", "time", "dix",
-            "in", "da", "di", "per", "un", "una", "due", "second", "seconds", "minute", "minutes"
+            "in", "da", "di", "per", "un", "una", "due", "second", "seconds", "minute", "minutes",
+            "for", "the", "one", "two"
         ]
         if extracted not in stop_words:
             label = extracted
@@ -928,31 +982,36 @@ def detect_timer_intent(text: str) -> Optional[Dict[str, Any]]:
 
 def detect_alarm_intent(text: str) -> Optional[Dict[str, Any]]:
     """
-    Rileva se l'utente ha chiesto di impostare una sveglia.
-    Esempi: 'metti una sveglia alle 7', 'sveglia alle 07:30', 'sveglia per le 8 e mezza'.
+    Rileva se l'utente ha chiesto di impostare una sveglia (Italiano o Inglese).
+    Esempi: 'metti una sveglia alle 7', 'sveglia alle 07:30', 'set an alarm for 7 AM'.
     Restituisce {'time_str': 'HH:MM', 'label': str} oppure None.
     """
     if not text:
         return None
     lower = text.lower().strip()
 
-    if not any(k in lower for k in ["sveglia", "svegliami", "alarm"]):
+    if not any(k in lower for k in ["sveglia", "svegliami", "alarm", "wake me up"]):
         return None
 
     # Esclude domande informative
-    if any(q in lower for q in ["a che ora", "quali sveglie", "ho sveglie", "elimina", "cancella"]):
+    if any(q in lower for q in ["a che ora", "quali sveglie", "ho sveglie", "elimina", "cancella", "what time is the alarm", "delete alarm"]):
         return None
 
     hour = None
     minute = 0
 
-    # 1. Match formato HH:MM es. '07:30', '7:30', '7.30'
-    m_num = re.search(r"\b([01]?\d|2[0-3])[:\.]([0-5]\d)\b", lower)
+    # 1. Match formato HH:MM es. '07:30', '7:30', '7.30', '7:30 AM'
+    m_num = re.search(r"\b([01]?\d|2[0-3])[:\.]([0-5]\d)(?:\s*(am|pm))?\b", lower)
     if m_num:
         hour = int(m_num.group(1))
         minute = int(m_num.group(2))
+        meridiem = m_num.group(3)
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        elif meridiem == "am" and hour == 12:
+            hour = 0
     else:
-        # 2. Match 'alle 7', 'per le 8', 'alle sette'
+        # 2. Match Italiano: 'alle 7', 'per le 8', 'alle sette'
         m_hr = re.search(
             r"(?:alle|per\s+le|verso\s+le|ore)\s+([01]?\d|2[0-3]|un[oa]?|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici)\b",
             lower
@@ -970,16 +1029,30 @@ def detect_alarm_intent(text: str) -> Optional[Dict[str, Any]]:
                     m_min = re.search(r"\be\s+(\d+|dieci|quindici|venti|venticinque|trenta|quaranta|cinquanta)\b", lower)
                     if m_min:
                         minute = _parse_it_number(m_min.group(1)) or 0
+        else:
+            # 3. Match Inglese: 'at 7', 'for 7 am', 'at 8 pm', 'wake me up at 7'
+            m_en = re.search(
+                r"(?:at|for)\s+([01]?\d|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm)?\b",
+                lower
+            )
+            if m_en:
+                hour = _parse_it_number(m_en.group(1))
+                meridiem = m_en.group(2)
+                if hour is not None:
+                    if meridiem == "pm" and hour < 12:
+                        hour += 12
+                    elif meridiem == "am" and hour == 12:
+                        hour = 0
 
     if hour is None:
         return None
 
     time_str = f"{hour:02d}:{minute:02d}"
-    label = "Sveglia"
-    label_match = re.search(r"(?:per|di)\s+(?:il\s+|la\s+)?([a-zA-Z0-9_\-]+)$", lower)
+    label = "Alarm" if detect_language(text) == "en" else "Sveglia"
+    label_match = re.search(r"(?:per|di|for)\s+(?:il\s+|la\s+|the\s+)?([a-zA-Z0-9_\-]+)$", lower)
     if label_match:
         ext = label_match.group(1).strip()
-        if ext not in ["mezza", "quarto", "mattina", "sera", "sveglia", "domani", "oggi"]:
+        if ext not in ["mezza", "quarto", "mattina", "sera", "sveglia", "domani", "oggi", "alarm", "morning"]:
             label = ext
 
     return {"time_str": time_str, "label": label}
@@ -987,28 +1060,44 @@ def detect_alarm_intent(text: str) -> Optional[Dict[str, Any]]:
 
 def detect_clock_date_intent(text: str) -> Optional[str]:
     """
-    Rileva se l'utente chiede l'ora esatta ('time') o la data/giorno corrente ('date').
+    Rileva se l'utente chiede l'ora esatta ('time') o la data/giorno corrente ('date') in Italiano o Inglese.
     """
     if not text:
         return None
     lower = text.lower().strip()
 
-    # Rilevamento ora:
+    # Rilevamento ora (Italiano & Inglese):
     if any(re.search(p, lower) for p in [
+        # Italian
         r"\bche\s+(?:ore\s+sono|ora\s+[eè]|orario\s+[eè])\b",
         r"\bdimmi\s+l['\s]ora\b",
         r"\b(?:qual\s+[eè]\s+l['\s]|dammi\s+l['\s])ora\b",
         r"^l['\s]ora(\s+esatta)?\.?$",
+        # English
+        r"\bwhat\s+(?:time\s+is\s+it|is\s+the\s+time)\b",
+        r"\bwhat['\s]s\s+the\s+time\b",
+        r"\btell\s+me\s+the\s+time\b",
+        r"\bcurrent\s+time\b",
+        r"^time\.?$",
     ]):
         return "time"
 
-    # Rilevamento data:
+    # Rilevamento data (Italiano & Inglese):
     if any(re.search(p, lower) for p in [
+        # Italian
         r"\bche\s+giorno\s+[eè](\s+oggi)?\b",
         r"\bdata\s+di\s+oggi\b",
         r"\bdimmi\s+la\s+data\b",
         r"\b(?:qual\s+[eè]\s+la\s+)data(\s+di\s+oggi)?\b",
         r"\bquanti\s+ne\s+abbiamo(\s+oggi)?\b",
+        # English
+        r"\bwhat\s+(?:day|date)\s+is\s+(?:it\s+)?today\b",
+        r"\bwhat['\s]s\s+today['\s]s\s+date\b",
+        r"\bwhat\s+is\s+today['\s]s\s+date\b",
+        r"\bwhat\s+date\s+is\s+it\b",
+        r"\btell\s+me\s+the\s+date\b",
+        r"\btoday['\s]s\s+date\b",
+        r"^date\.?$",
     ]):
         return "date"
 
@@ -1021,35 +1110,45 @@ def handle_local_fast_path(
     identity: str = "owner",
     security_mode: str = "friendly",
     similarity_score: float = 1.0,
+    lang: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
-    Tier-1 Local Fast Path / Intent Router.
-    Intercetta comandi deterministici (ora, data, timer, sveglia, muto, telemetria, sicurezza)
+    Tier-1 Local Fast Path / Intent Router (Bilingual Italian / English).
+    Intercetta comandi deterministici (ora, data, timer, sveglia, muto, smuto, telemetria, sicurezza)
     ed esegue l'azione all'istante in locale (<5ms) senza chiamare Gemini.
-    Restituisce un dizionario con 'handled': True e 'reply': str, oppure None se serve l'LLM.
+    Risponde rigorosamente nella lingua del comando (Italiano o Inglese).
     """
     if not text or not text.strip():
         return None
+
+    if lang is None:
+        lang = detect_language(text)
 
     # 1. Ora esatta e Data
     c_type = detect_clock_date_intent(text)
     if c_type == "time":
         now = datetime.datetime.now()
+        time_str = now.strftime('%H:%M')
+        reply = f"It's {time_str}." if lang == "en" else f"Sono le {time_str}."
         return {
             "handled": True,
             "type": "time",
-            "reply": f"Sono le {now.strftime('%H:%M')}."
+            "reply": reply
         }
     elif c_type == "date":
         now = datetime.datetime.now()
-        giorni = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
-        mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
-        giorno_str = giorni[now.weekday()]
-        mese_str = mesi[now.month - 1]
+        if lang == "en":
+            reply = f"Today is {now.strftime('%A, %B %d, %Y')}."
+        else:
+            giorni = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+            mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+            giorno_str = giorni[now.weekday()]
+            mese_str = mesi[now.month - 1]
+            reply = f"Oggi è {giorno_str} {now.day} {mese_str} {now.year}."
         return {
             "handled": True,
             "type": "date",
-            "reply": f"Oggi è {giorno_str} {now.day} {mese_str} {now.year}."
+            "reply": reply
         }
 
     # 2. Timer
@@ -1060,17 +1159,28 @@ def handle_local_fast_path(
         set_timer(duration_seconds=duration, label=lbl)
         mins = duration // 60
         secs = duration % 60
-        if mins and not secs:
-            dur_text = f"{mins} minuti" if mins > 1 else "un minuto"
-        elif secs and not mins:
-            dur_text = f"{secs} secondi"
+        if lang == "en":
+            parts = []
+            if mins:
+                parts.append(f"{mins} minutes" if mins > 1 else "one minute")
+            if secs:
+                parts.append(f"{secs} seconds" if secs > 1 else "one second")
+            dur_text = " and ".join(parts) if parts else f"{duration} seconds"
+            lbl_text = f" for {lbl}" if lbl and lbl.lower() != "timer" else ""
+            reply = f"*bark* Timer set for {dur_text}{lbl_text}."
         else:
-            dur_text = f"{mins} minuti e {secs} secondi"
-        lbl_text = f" per {lbl}" if lbl and lbl != "Timer" else ""
+            if mins and not secs:
+                dur_text = f"{mins} minuti" if mins > 1 else "un minuto"
+            elif secs and not mins:
+                dur_text = f"{secs} secondi"
+            else:
+                dur_text = f"{mins} minuti e {secs} secondi"
+            lbl_text = f" per {lbl}" if lbl and lbl != "Timer" else ""
+            reply = f"*bark* Timer impostato a {dur_text}{lbl_text}."
         return {
             "handled": True,
             "type": "set_timer",
-            "reply": f"*bark* Timer impostato a {dur_text}{lbl_text}."
+            "reply": reply
         }
 
     # 3. Sveglia
@@ -1079,29 +1189,49 @@ def handle_local_fast_path(
         t_str = a_info["time_str"]
         lbl = a_info["label"]
         set_alarm(time_str=t_str, label=lbl)
-        lbl_text = f" per {lbl}" if lbl and lbl != "Sveglia" else ""
+        if lang == "en":
+            lbl_text = f" for {lbl}" if lbl and lbl.lower() not in ["alarm", "sveglia"] else ""
+            reply = f"*bark* Alarm set for {t_str}{lbl_text}."
+        else:
+            lbl_text = f" per {lbl}" if lbl and lbl != "Sveglia" else ""
+            reply = f"*bark* Sveglia impostata per le {t_str}{lbl_text}."
         return {
             "handled": True,
             "type": "set_alarm",
-            "reply": f"*bark* Sveglia impostata per le {t_str}{lbl_text}."
+            "reply": reply
         }
 
-    # 4. Muto / Disattiva microfono
+    # 4. Smuto / Riattivazione microfono (Priorità su muto per evitare fraintendimenti)
+    if is_unmute_intent(text):
+        if not is_authorized and security_mode in ["restrict", "paranoid"]:
+            return {
+                "handled": True,
+                "type": "unmute_rejected",
+                "reply": "*growl* Access denied. Only authorized users can unmute the microphone." if lang == "en" else "*growl* Accesso negato. Solo persone autorizzate possono riattivare il microfono."
+            }
+        set_mute_mode(enabled=False)
+        return {
+            "handled": True,
+            "type": "set_unmute",
+            "reply": "*bark* Microphones reactivated. I am listening again." if lang == "en" else "*bark* Ricevuto, microfoni riattivati. Sono di nuovo in ascolto."
+        }
+
+    # 5. Muto / Disattiva microfono
     if is_mute_intent(text):
         if not is_authorized and security_mode in ["restrict", "paranoid"]:
             return {
                 "handled": True,
                 "type": "mute_rejected",
-                "reply": "*growl* Accesso negato. Solo persone autorizzate possono disattivare il microfono."
+                "reply": "*growl* Access denied. Only authorized users can mute the microphone." if lang == "en" else "*growl* Accesso negato. Solo persone autorizzate possono disattivare il microfono."
             }
         set_mute_mode(enabled=True)
         return {
             "handled": True,
             "type": "set_mute",
-            "reply": "*bark* Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
+            "reply": "*bark* Understood, going on mute. Remember you can only unmute me by tapping the button on the visor." if lang == "en" else "*bark* Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
         }
 
-    # 5. Cambio Modalità di Sicurezza
+    # 6. Cambio Modalità di Sicurezza
     req_mode = detect_security_mode_intent(text)
     if req_mode:
         can_switch = False
@@ -1114,55 +1244,65 @@ def handle_local_fast_path(
 
         if can_switch:
             set_security_mode(req_mode)
+            reply = f"*bark* Security mode switched to {req_mode.upper()}." if lang == "en" else f"*bark* Modalità di sicurezza impostata su {req_mode.upper()}."
             return {
                 "handled": True,
                 "type": "security_mode",
-                "reply": f"*bark* Modalità di sicurezza impostata su {req_mode.upper()}."
+                "reply": reply
             }
         else:
+            reply = f"*growl* Access denied. You are not authorized to modify security level in {security_mode.upper()} mode." if lang == "en" else f"*growl* Accesso negato. Non sei autorizzato a modificare il livello di sicurezza in modalità {security_mode.upper()}."
             return {
                 "handled": True,
                 "type": "security_mode_rejected",
-                "reply": f"*growl* Accesso negato. Non sei autorizzato a modificare il livello di sicurezza in modalità {security_mode.upper()}."
+                "reply": reply
             }
 
-    # 6. Telemetria HUD
+    # 7. Telemetria HUD
     telem = detect_telemetry_intent(text)
     if telem is not None:
         show = telem.get("show", True)
         tgt = telem.get("target", "slave")
         toggle_telemetry_hud(show=show, target=tgt)
         if not show:
+            reply = "*bark* Telemetry HUD closed." if lang == "en" else "*bark* Schermata telemetria chiusa."
             return {
                 "handled": True,
                 "type": "telemetry",
-                "reply": "*bark* Schermata telemetria chiusa."
+                "reply": reply
             }
         else:
-            node_str = "del server" if tgt == "server" else ("del kiosk" if tgt == "kiosk" else "del computer slave")
+            if lang == "en":
+                node_str = "server" if tgt == "server" else ("kiosk" if tgt == "kiosk" else "slave computer")
+                reply = f"*bark* {node_str.capitalize()} telemetry projected on visor."
+            else:
+                node_str = "del server" if tgt == "server" else ("del kiosk" if tgt == "kiosk" else "del computer slave")
+                reply = f"*bark* Telemetria {node_str} proiettata sul visore."
             return {
                 "handled": True,
                 "type": "telemetry",
-                "reply": f"*bark* Telemetria {node_str} proiettata sul visore."
+                "reply": reply
             }
 
-    # 7. Voice Enrollment
+    # 8. Voice Enrollment
     enroll = detect_enrollment_intent(text)
     if enroll is not None:
         pname = enroll.get("profile_name", "owner")
         can_enroll = is_authorized if security_mode == "friendly" else (is_authorized and identity.lower() in ["owner", "admin_terminal"])
         if can_enroll:
             enroll_voice_profile(profile_name=pname)
+            reply = f"*bark* Voice calibration session started for {pname}. Look at the visor." if lang == "en" else f"*bark* Sessione di calibrazione vocale avviata per {pname}. Guarda il visore."
             return {
                 "handled": True,
                 "type": "enrollment",
-                "reply": f"*bark* Sessione di calibrazione vocale avviata per {pname}. Guarda il visore."
+                "reply": reply
             }
         else:
+            reply = "*growl* Access denied. You cannot recalibrate voice profiles." if lang == "en" else "*growl* Accesso negato. Non puoi ricalibrare i profili vocali."
             return {
                 "handled": True,
                 "type": "enrollment_rejected",
-                "reply": "*growl* Accesso negato. Non puoi ricalibrare i profili vocali."
+                "reply": reply
             }
 
     return None

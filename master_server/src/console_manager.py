@@ -13,6 +13,7 @@ import threading
 from typing import Any, Optional
 
 from task_manager import task_manager
+from tts_engine import detect_language
 
 logger = logging.getLogger("AXL-Console")
 
@@ -107,12 +108,14 @@ class ConsoleManager:
                     return
                 print(f"[Console -> A-X-L]: \"{args_str}\"")
                 sec_mode = self.stream_manager.verifier.security_mode if self.stream_manager.verifier else "friendly"
+                cmd_lang = detect_language(args_str)
                 reply = await self.stream_manager.process_text_command(
                     transcript=args_str,
                     identity="ADMIN_TERMINAL",
                     is_authorized=True,
                     sec_mode=sec_mode,
                     sim_score=1.0,
+                    lang=cmd_lang,
                 )
                 print(f"[A-X-L Reply]: {reply}")
 
@@ -137,20 +140,29 @@ class ConsoleManager:
 
             # 5. MUTE / UNMUTE
             elif cmd_name in ["/mute", "/muto"]:
-                reply = await self.stream_manager.process_text_command("vai in muto", identity="ADMIN_TERMINAL", is_authorized=True, sim_score=1.0)
+                is_en = (cmd_name == "/mute")
+                req_text = "go on mute" if is_en else "vai in muto"
+                reply = await self.stream_manager.process_text_command(
+                    req_text,
+                    identity="ADMIN_TERMINAL",
+                    is_authorized=True,
+                    sim_score=1.0,
+                    lang="en" if is_en else "it",
+                )
                 print(f"[Console] {reply}")
 
             elif cmd_name in ["/unmute", "/smuta"]:
                 self.stream_manager.is_muted = False
                 await self.stream_manager.broadcast_ui({"type": "MUTE_STATE", "muted": False})
-                reply = "*bark* Microfono riattivato. Sono di nuovo in ascolto."
+                is_en = (cmd_name == "/unmute")
+                reply = "*bark* Microphones reactivated. I am listening again." if is_en else "*bark* Microfono riattivato. Sono di nuovo in ascolto."
                 await self.stream_manager.broadcast_ui({
                     "type": "TRANSCRIPT",
-                    "user_text": "[/unmute da console]",
+                    "user_text": f"[{cmd_name} from console]" if is_en else f"[{cmd_name} da console]",
                     "axl_text": reply,
                 })
                 if self.stream_manager.tts and self.stream_manager.active_client:
-                    await self.stream_manager.speak_text(reply)
+                    await self.stream_manager.speak_text(reply, lang="en" if is_en else "it")
                 print(f"[Console] {reply}")
 
             # 6. TELEMETRY HUD
