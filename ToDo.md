@@ -181,7 +181,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 ---
 
 #### PROSSIMO STEP OPERATIVO: Revisione Strutturale Gestione Audio (Master Audio Engine Overhaul)
-- [ ] **Riorganizzazione Architetturale del Flusso Audio:**
+- [x] **Riorganizzazione Architetturale del Flusso Audio:**
   Utilizzo di faster-whisper per speach-to-text locale
 
 ---
@@ -213,6 +213,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
       - Collegamento e gestione casse esterne Bluetooth o via jack AUX / auricolari (configurazione audio sink, prevenzione loopback acustico tra casse e microfono A33).
     * Integrazione Spotify & Smart Apps:
       - Supporto comandi vocali A-X-L per avvio playlist/brani Spotify (via Spotify Connect, Web API, o local daemon).
+16. [ ] **Gestione A33**: volume, sveglie?, timer e relative ui se necessarie
 17. [ ] **Integrazione Cloud APIs Nativi su Master Server (Completamente Esterni all'A33):**
     * **Google Calendar API Ufficiale (Cloud)**:
       - Modulo di autenticazione OAuth 2.0 (`credentials.json` / `token.json`) sul Master Server ThinkPad.
