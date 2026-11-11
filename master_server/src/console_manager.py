@@ -83,6 +83,15 @@ class ConsoleManager:
         args_str = parts[1].strip() if len(parts) > 1 else ""
 
         try:
+            # For actionable admin commands, broadcast terminal admin identity to Visor HUD
+            if cmd_name not in ["/help", "/h", "/?", "/aiuto", "/clear", "/cls", "/status", "/info", "/stato"]:
+                await self.stream_manager.broadcast_ui({
+                    "type": "AUTH_EVENT",
+                    "identity": "ADMIN_TERMINAL",
+                    "score": 1.0,
+                    "authorized": True,
+                })
+
             # 1. HELP
             if cmd_name in ["/help", "/h", "/?", "/aiuto"]:
                 self._print_help()
@@ -100,7 +109,7 @@ class ConsoleManager:
                 sec_mode = self.stream_manager.verifier.security_mode if self.stream_manager.verifier else "friendly"
                 reply = await self.stream_manager.process_text_command(
                     transcript=args_str,
-                    identity="owner",
+                    identity="ADMIN_TERMINAL",
                     is_authorized=True,
                     sec_mode=sec_mode,
                     sim_score=1.0,
@@ -128,7 +137,7 @@ class ConsoleManager:
 
             # 5. MUTE / UNMUTE
             elif cmd_name in ["/mute", "/muto"]:
-                reply = await self.stream_manager.process_text_command("vai in muto", identity="owner", is_authorized=True)
+                reply = await self.stream_manager.process_text_command("vai in muto", identity="ADMIN_TERMINAL", is_authorized=True, sim_score=1.0)
                 print(f"[Console] {reply}")
 
             elif cmd_name in ["/unmute", "/smuta"]:

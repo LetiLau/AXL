@@ -1456,6 +1456,10 @@ html.client-desktop body .telem-gpu-vram {
 .auth-friend { color: var(--cyan-glow); text-shadow: 0 0 6px var(--cyan-glow); }
 .auth-stranger { color: var(--red-alert); text-shadow: 0 0 8px var(--red-alert); }
 
+.bio-id-admin { color: var(--green-emerald) !important; text-shadow: 0 0 8px var(--green-emerald) !important; }
+.bio-id-owner { color: var(--cyan-glow) !important; text-shadow: 0 0 6px var(--cyan-glow) !important; }
+.bio-id-stranger { color: var(--red-alert) !important; text-shadow: 0 0 6px var(--red-alert) !important; }
+
 /* ==========================================================================
    FOOTER LAYOUT (ADAPTIVE: DESKTOP vs KIOSK / MOBILE)
    ========================================================================== */

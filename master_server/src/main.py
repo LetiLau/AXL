@@ -489,6 +489,22 @@ class StreamManager:
         is_stranger = not is_authorized
         vocal_reply = ""
 
+        # Set biometric / admin authorization context for tool invocation (AFC)
+        set_command_auth_context(
+            is_authorized=is_authorized,
+            identity=identity,
+            security_mode=sec_mode,
+            similarity_score=sim_score,
+        )
+
+        # Broadcast caller identity & authorization status to HUD dashboard
+        await self.broadcast_ui({
+            "type": "AUTH_EVENT",
+            "identity": identity,
+            "score": float(sim_score),
+            "authorized": bool(is_authorized),
+        })
+
         # 1. Tier-1 Local Fast Path Router (Timer, Sveglia, Ora, Data, Muto, Telemetria, Sicurezza)
         fast_path_result = handle_local_fast_path(
             transcript,
@@ -534,7 +550,7 @@ class StreamManager:
             elif sec_mode == "restrict":
                 can_switch = is_authorized
             elif sec_mode == "paranoid":
-                can_switch = is_authorized and (identity.lower() == "owner")
+                can_switch = is_authorized and (identity.lower() in ["owner", "admin_terminal"])
 
             if can_switch:
                 logger.info(f"[COMMAND GUARDRAIL] Switching security mode to '{req_mode}' (speaker: {identity}).")
@@ -559,12 +575,12 @@ class StreamManager:
             can_enroll = False
             if target_profile == "owner":
                 if sec_mode in ["restrict", "paranoid"]:
-                    can_enroll = is_authorized and (identity.lower() == "owner")
+                    can_enroll = is_authorized and (identity.lower() in ["owner", "admin_terminal"])
                 else:
-                    can_enroll = is_authorized and (identity.lower() == "owner" or "owner" not in self.verifier.enrolled_profiles)
+                    can_enroll = is_authorized and (identity.lower() in ["owner", "admin_terminal"] or "owner" not in self.verifier.enrolled_profiles)
             else:
                 if sec_mode in ["restrict", "paranoid"]:
-                    can_enroll = is_authorized and (identity.lower() == "owner")
+                    can_enroll = is_authorized and (identity.lower() in ["owner", "admin_terminal"])
                 else:
                     can_enroll = is_authorized
 

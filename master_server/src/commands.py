@@ -498,7 +498,7 @@ def set_security_mode(mode: str) -> str:
     elif sec_mode == "restrict":
         is_privilege_granted = is_auth
     elif sec_mode == "paranoid":
-        is_privilege_granted = is_auth and (identity.lower() == "owner")
+        is_privilege_granted = is_auth and (identity.lower() in ["owner", "admin_terminal"])
 
     clean_mode = str(mode).lower().strip()
     mapping = {
@@ -608,7 +608,7 @@ def enroll_voice_profile(profile_name: str = "owner") -> str:
     # 1. Modifica del profilo Owner:
     # L'Owner può essere modificato solo da un utente già riconosciuto come 'owner'
     if clean_name == "owner":
-        if identity.lower() != "owner":
+        if identity.lower() not in ["owner", "admin_terminal"]:
             logger.warning(
                 f"[ENROLL SECURITY REJECTED] Caller '{identity}' cannot modify 'owner' profile in mode '{sec_mode}'."
             )
@@ -618,7 +618,7 @@ def enroll_voice_profile(profile_name: str = "owner") -> str:
             )
     else:
         # 2. Registrazione di un amico:
-        if sec_mode in ["restrict", "paranoid"] and identity.lower() != "owner":
+        if sec_mode in ["restrict", "paranoid"] and identity.lower() not in ["owner", "admin_terminal"]:
             logger.warning(
                 f"[ENROLL SECURITY REJECTED] Caller '{identity}' cannot enroll friend '{clean_name}' in mode '{sec_mode}'."
             )
@@ -734,27 +734,24 @@ def detect_security_mode_intent(text: str) -> Optional[str]:
         return None
 
     friendly_patterns = [
-        r"\b(modalit[aà]|passa in|passa a|imposta|metti|attiva)\s+(friendly|amichevole|aperta|libera)\b",
+        r"\b(modalit[aà]|passa|imposta|metti|attiva)\b.*?\b(friendly|amichevole|aperta|libera)\b",
         r"\b(friendly|amichevole)\s+mode\b",
-        r"\bmodalit[aà]\s+friendly\b",
         r"^(hey\s+jarvis\s+|axl\s+)?(modalit[aà]\s+)?(friendly|amichevole)\.?$",
     ]
     if any(re.search(p, lower) for p in friendly_patterns):
         return "friendly"
 
     restrict_patterns = [
-        r"\b(modalit[aà]|passa in|passa a|imposta|metti|attiva)\s+(restrict|restrittiva|ristretta|limitata|sicura)\b",
+        r"\b(modalit[aà]|passa|imposta|metti|attiva)\b.*?\b(restrict|restrittiva|ristretta|limitata|sicura)\b",
         r"\b(restrict|restrittiva)\s+mode\b",
-        r"\bmodalit[aà]\s+restrict\b",
         r"^(hey\s+jarvis\s+|axl\s+)?(modalit[aà]\s+)?(restrict|restrittiva)\.?$",
     ]
     if any(re.search(p, lower) for p in restrict_patterns):
         return "restrict"
 
     paranoid_patterns = [
-        r"\b(modalit[aà]|passa in|passa a|imposta|metti|attiva)\s+(paranoid|paranoica|paranoico|massima\s+sicurezza)\b",
+        r"\b(modalit[aà]|passa|imposta|metti|attiva)\b.*?\b(paranoid|paranoica|paranoico|massima\s+sicurezza)\b",
         r"\b(paranoid|paranoica)\s+mode\b",
-        r"\bmodalit[aà]\s+paranoica\b",
         r"^(hey\s+jarvis\s+|axl\s+)?(modalit[aà]\s+)?(paranoid|paranoica)\.?$",
     ]
     if any(re.search(p, lower) for p in paranoid_patterns):
@@ -1113,7 +1110,7 @@ def handle_local_fast_path(
         elif security_mode == "restrict":
             can_switch = is_authorized
         elif security_mode == "paranoid":
-            can_switch = is_authorized and (identity.lower() == "owner")
+            can_switch = is_authorized and (identity.lower() in ["owner", "admin_terminal"])
 
         if can_switch:
             set_security_mode(req_mode)
@@ -1153,7 +1150,7 @@ def handle_local_fast_path(
     enroll = detect_enrollment_intent(text)
     if enroll is not None:
         pname = enroll.get("profile_name", "owner")
-        can_enroll = is_authorized if security_mode == "friendly" else (is_authorized and identity.lower() == "owner")
+        can_enroll = is_authorized if security_mode == "friendly" else (is_authorized and identity.lower() in ["owner", "admin_terminal"])
         if can_enroll:
             enroll_voice_profile(profile_name=pname)
             return {

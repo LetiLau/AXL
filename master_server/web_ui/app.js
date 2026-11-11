@@ -1740,14 +1740,27 @@
         const score = typeof data.score === "number" ? data.score : 0.0;
         const auth = !!data.authorized;
 
-        if (bioIdentity) bioIdentity.textContent = id;
+        if (bioIdentity) {
+            bioIdentity.textContent = id;
+            bioIdentity.classList.remove("bio-id-admin", "bio-id-owner", "bio-id-stranger");
+            if (id === "ADMIN_TERMINAL") {
+                bioIdentity.classList.add("bio-id-admin");
+            } else if (id === "OWNER") {
+                bioIdentity.classList.add("bio-id-owner");
+            } else if (!auth) {
+                bioIdentity.classList.add("bio-id-stranger");
+            }
+        }
         if (bioScoreText) bioScoreText.textContent = score.toFixed(3);
         const percent = Math.min(100, Math.max(0, Math.round(score * 100)));
         if (bioScoreBar) bioScoreBar.style.width = `${percent}%`;
 
         if (bioAuthStatus) {
             bioAuthStatus.className = "bio-value";
-            if (id === "OWNER") {
+            if (id === "ADMIN_TERMINAL") {
+                bioAuthStatus.classList.add("auth-owner");
+                bioAuthStatus.textContent = "ADMIN / AUTH";
+            } else if (id === "OWNER") {
                 bioAuthStatus.classList.add("auth-owner");
                 bioAuthStatus.textContent = "ADMIN";
             } else if (auth) {
