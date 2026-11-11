@@ -27,7 +27,8 @@ from audio_utils import pcm_to_wav_bytes
 from brain_gemini import GeminiBrain
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
-from tts_engine import PiperTTSEngine
+from tts_engine import PiperTTSEngine, detect_language
+from stt_engine import STTEngine
 from telemetry_utils import collect_system_telemetry
 from console_manager import ConsoleManager
 from commands import (
@@ -35,8 +36,12 @@ from commands import (
     detect_security_mode_in_reply,
     detect_security_mode_intent,
     detect_telemetry_intent,
+    ensure_dog_sound,
+    get_random_dog_sound,
+    handle_local_fast_path,
     is_mute_in_reply,
     is_mute_intent,
+    is_unmute_intent,
     register_telemetry_listener,
     set_command_auth_context,
 )
@@ -64,6 +69,7 @@ class StreamManager:
         self.audio_buffer = AudioRingBuffer(capacity_seconds=10.0, sample_rate=16000)
         self.pipeline: Optional[AudioPipeline] = None
         self.verifier: Optional[SpeakerVerifier] = None
+        self.stt: Optional[STTEngine] = None
         self.brain: Optional[GeminiBrain] = None
         self.tts: Optional[PiperTTSEngine] = None
         self.active_client: Optional[WebSocket] = None
@@ -85,7 +91,7 @@ class StreamManager:
         self._lock = asyncio.Lock()
 
     def initialize_pipeline(self):
-        logger.info("Initializing neural DSP, wake-word, speaker verification, Gemini brain, and Piper TTS...")
+        logger.info("Initializing neural DSP, wake-word, speaker verification, STT, Gemini brain, and Piper TTS...")
         self.pipeline = AudioPipeline(
             models_dir=MODELS_DIR,
             vad_threshold=0.4,
@@ -94,16 +100,27 @@ class StreamManager:
             max_command_duration_sec=10.0,
         )
         self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
+        self.stt = STTEngine()
         self.brain = GeminiBrain()
         self.tts = PiperTTSEngine(models_dir=MODELS_DIR)
 
         # Register telemetry bridge for function calling and HUD synchronization
         register_telemetry_listener(self.handle_telemetry_event)
-        logger.info("A-X-L Full Pipeline (Acoustic + Biometrics + Brain + TTS + Telemetry Bridge) Ready.")
+        logger.info("A-X-L Full Pipeline (Acoustic + Biometrics + STT + Brain + TTS + Telemetry Bridge) Ready.")
 
     async def handle_telemetry_event(self, payload: dict):
         """Processes telemetry activation, security mode changes, or mute state triggered by voice commands or slave."""
         ptype = payload.get("type")
+        if ptype == "INTENT":
+            # Forward intent to active Android Kiosk client if connected
+            if self.active_client:
+                try:
+                    await self.active_client.send_text(json.dumps(payload))
+                    logger.info(f"[INTENT DISPATCH] Dispatched intent to kiosk: {payload.get('action')}")
+                except Exception as e:
+                    logger.warning(f"[INTENT DISPATCH] Failed forwarding to kiosk: {e}")
+            return
+
         if ptype == "SECURITY_MODE":
             new_mode = payload.get("mode", "friendly")
             if self.verifier:
@@ -428,102 +445,191 @@ class StreamManager:
             "authorized": bool(is_authorized),
         })
 
-        # 3. Cognitive Brain Processing (Multimodal WAV + Function Calling)
-        is_stranger = not is_authorized
-        if self.brain:
-            result = await self.brain.process_utterance(
-                wav_bytes=wav_bytes,
-                is_stranger=is_stranger,
-                duration_sec=duration_sec,
-                similarity_score=sim_score,
-                identity=identity,
-                security_mode=sec_mode,
-            )
-            transcript = result.get("transcript", "Unknown")
-            vocal_reply = result.get("text_response", "")
-            logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
-            logger.info(f">>> [A-X-L SPEAKS]: \"{vocal_reply}\" <<<")
+        # 3. Local Speech-to-Text via faster-whisper (CPU INT8 AVX2)
+        transcript = ""
+        if self.stt:
+            transcript = await self.stt.transcribe(pcm_samples)
 
-            # --- Synchronous Intent Guardrails (Guarantees 100% action execution fidelity) ---
-            # Guardrail 1: Mute Command (checks both user transcript and spoken confirmation)
-            mute_triggered = is_mute_intent(transcript) or is_mute_in_reply(vocal_reply)
-            can_mute = is_authorized or (sec_mode == "friendly")
-            if not self.is_muted and mute_triggered:
-                if can_mute:
-                    logger.info(f"[COMMAND GUARDRAIL] Engaging mute mode (transcript: '{transcript}' | reply: '{vocal_reply[:60]}...').")
-                    await self.handle_telemetry_event({"type": "SET_MUTE", "muted": True})
-                else:
-                    logger.warning(
-                        f"[COMMAND GUARDRAIL] Blocked unauthorized mute attempt from speaker '{identity}' in '{sec_mode}' mode."
-                    )
-
-            # Guardrail 2: Security Mode Command (checks both user transcript and spoken confirmation)
-            req_mode = detect_security_mode_intent(transcript) or detect_security_mode_in_reply(vocal_reply)
-            if req_mode and self.verifier and req_mode != self.verifier.security_mode:
-                can_switch = False
-                if sec_mode == "friendly":
-                    can_switch = True
-                elif sec_mode == "restrict":
-                    can_switch = is_authorized
-                elif sec_mode == "paranoid":
-                    can_switch = is_authorized and (identity.lower() == "owner")
-
-                if can_switch:
-                    logger.info(f"[COMMAND GUARDRAIL] Switching security mode to '{req_mode}' (speaker: {identity}).")
-                    await self.handle_telemetry_event({"type": "SECURITY_MODE", "mode": req_mode})
-                else:
-                    logger.warning(
-                        f"[COMMAND GUARDRAIL] Blocked unauthorized security mode switch to '{req_mode}' "
-                        f"from speaker '{identity}' (score: {sim_score:.3f}, mode: '{sec_mode}')."
-                    )
-
-            # Guardrail 3: Telemetry HUD Command
-            telem_intent = detect_telemetry_intent(transcript)
-            if telem_intent is not None:
-                req_show = telem_intent.get("show", True)
-                req_tgt = telem_intent.get("target", self.telemetry_target)
-                if req_show != self.telemetry_active or (req_show and req_tgt != self.telemetry_target):
-                    logger.info(f"[COMMAND GUARDRAIL] Toggling telemetry HUD: show={req_show}, target={req_tgt}")
-                    await self.set_telemetry_mode(req_show, target=req_tgt)
-
-            # Guardrail 4: Voice Enrollment Intent
-            enroll_intent = detect_enrollment_intent(transcript)
-            if enroll_intent is not None and not self.is_enrolling:
-                target_profile = enroll_intent.get("profile_name", "owner")
-                can_enroll = False
-                if target_profile == "owner":
-                    if sec_mode in ["restrict", "paranoid"]:
-                        can_enroll = is_authorized and (identity.lower() == "owner")
-                    else:
-                        can_enroll = is_authorized and (identity.lower() == "owner" or "owner" not in self.verifier.enrolled_profiles)
-                else:
-                    if sec_mode in ["restrict", "paranoid"]:
-                        can_enroll = is_authorized and (identity.lower() == "owner")
-                    else:
-                        can_enroll = is_authorized
-
-                if can_enroll:
-                    logger.info(f"[COMMAND GUARDRAIL] Initiating voice calibration session for '{target_profile}'")
-                    self.start_voice_enrollment(target_profile)
-                else:
-                    logger.warning(
-                        f"[COMMAND GUARDRAIL] Blocked unauthorized voice enrollment attempt for '{target_profile}' "
-                        f"from speaker '{identity}' in '{sec_mode}' mode."
-                    )
-
-            # Broadcast dialogue subtitles to connected HUD visors
+        if not transcript or not transcript.strip():
+            logger.info("[STT SILENCE] No audible speech detected in utterance.")
+            transcript = "[Suono/Rumore ambientale]"
             await self.broadcast_ui({
                 "type": "TRANSCRIPT",
                 "user_text": transcript,
-                "axl_text": vocal_reply,
+                "axl_text": "",
             })
+        else:
+            logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
+            await self.process_text_command(
+                transcript=transcript,
+                identity=identity,
+                is_authorized=is_authorized,
+                sec_mode=sec_mode,
+                sim_score=sim_score,
+            )
 
-            # 4. Neural Text-To-Speech Synthesis & Streaming via WebSocket
-            if vocal_reply and self.tts and self.active_client:
-                logger.info("[TTS STREAM] Synthesizing and streaming response to client...")
-                await self.speak_text(vocal_reply)
-                if not self.stop_speech_requested:
-                    logger.info("[TTS STREAM] Vocal response fully delivered.")
+    async def process_text_command(
+        self,
+        transcript: str,
+        identity: str = "owner",
+        is_authorized: bool = True,
+        sec_mode: Optional[str] = None,
+        sim_score: float = 1.0,
+        lang: Optional[str] = None,
+    ) -> str:
+        """
+        Executes a user command string through the complete two-tiered cognitive pipeline:
+        1. Tier-1 Local Fast Path (Timer, Alarm, Clock, Date, Mute, Telemetry, Security Mode) -> <5ms offline
+        2. Tier-2 Cognitive Brain (Cloud Gemini via Text-Only Ingestion + Tool AFC)
+        3. Synchronous Guardrails & UI Broadcast
+        4. Vocal delivery via TTS in the exact language of the command (Italian / English)
+        """
+        if not transcript or not transcript.strip():
+            return ""
+
+        if lang is None:
+            lang = detect_language(transcript)
+
+        if sec_mode is None:
+            sec_mode = self.verifier.security_mode if self.verifier else "friendly"
+
+        is_stranger = not is_authorized
+        vocal_reply = ""
+
+        # Set biometric / admin authorization context for tool invocation (AFC)
+        set_command_auth_context(
+            is_authorized=is_authorized,
+            identity=identity,
+            security_mode=sec_mode,
+            similarity_score=sim_score,
+        )
+
+        # Broadcast caller identity & authorization status to HUD dashboard
+        await self.broadcast_ui({
+            "type": "AUTH_EVENT",
+            "identity": identity,
+            "score": float(sim_score),
+            "authorized": bool(is_authorized),
+        })
+
+        # 1. Tier-1 Local Fast Path Router (Timer, Sveglia, Ora, Data, Muto, Telemetria, Sicurezza)
+        fast_path_result = handle_local_fast_path(
+            transcript,
+            is_authorized=is_authorized,
+            identity=identity,
+            security_mode=sec_mode,
+            similarity_score=sim_score,
+            lang=lang,
+        )
+
+        if fast_path_result is not None:
+            vocal_reply = fast_path_result.get("reply", "")
+            logger.info(f"[LOCAL FAST PATH] Executed: {fast_path_result.get('type')} ({lang.upper()}) -> '{vocal_reply}'")
+        elif self.brain:
+            # 2. Tier-2 Cognitive Brain (Cloud Gemini via Text-Only Ingestion + Tool AFC)
+            result = await self.brain.process_text_query(
+                user_text=transcript,
+                is_stranger=is_stranger,
+                similarity_score=sim_score,
+                identity=identity,
+                security_mode=sec_mode,
+                lang=lang,
+            )
+            vocal_reply = ensure_dog_sound(result.get("text_response", ""))
+
+        logger.info(f">>> [A-X-L SPEAKS ({lang.upper()})]: \"{vocal_reply}\" <<<")
+
+        # 3. Synchronous Intent Guardrails
+        can_mute = is_authorized or (sec_mode == "friendly")
+
+        # 3a. Guardrail Unmute / Smuta
+        unmute_triggered = is_unmute_intent(transcript)
+        if self.is_muted and unmute_triggered:
+            if can_mute:
+                logger.info(f"[COMMAND GUARDRAIL] Disengaging mute mode (transcript: '{transcript}').")
+                await self.handle_telemetry_event({"type": "SET_MUTE", "muted": False})
+            else:
+                logger.warning(
+                    f"[COMMAND GUARDRAIL] Blocked unauthorized unmute attempt from speaker '{identity}' in '{sec_mode}' mode."
+                )
+
+        # 3b. Guardrail Muto
+        mute_triggered = is_mute_intent(transcript) or is_mute_in_reply(vocal_reply)
+        if not self.is_muted and mute_triggered:
+            if can_mute:
+                logger.info(f"[COMMAND GUARDRAIL] Engaging mute mode (transcript: '{transcript}' | reply: '{vocal_reply[:60]}...').")
+                await self.handle_telemetry_event({"type": "SET_MUTE", "muted": True})
+            else:
+                logger.warning(
+                    f"[COMMAND GUARDRAIL] Blocked unauthorized mute attempt from speaker '{identity}' in '{sec_mode}' mode."
+                )
+
+        req_mode = detect_security_mode_intent(transcript) or detect_security_mode_in_reply(vocal_reply)
+        if req_mode and self.verifier and req_mode != self.verifier.security_mode:
+            can_switch = False
+            if sec_mode == "friendly":
+                can_switch = True
+            elif sec_mode == "restrict":
+                can_switch = is_authorized
+            elif sec_mode == "paranoid":
+                can_switch = is_authorized and (identity.lower() in ["owner", "admin_terminal"])
+
+            if can_switch:
+                logger.info(f"[COMMAND GUARDRAIL] Switching security mode to '{req_mode}' (speaker: {identity}).")
+                await self.handle_telemetry_event({"type": "SECURITY_MODE", "mode": req_mode})
+            else:
+                logger.warning(
+                    f"[COMMAND GUARDRAIL] Blocked unauthorized security mode switch to '{req_mode}' "
+                    f"from speaker '{identity}' (score: {sim_score:.3f}, mode: '{sec_mode}')."
+                )
+
+        telem_intent = detect_telemetry_intent(transcript)
+        if telem_intent is not None:
+            req_show = telem_intent.get("show", True)
+            req_tgt = telem_intent.get("target", self.telemetry_target)
+            if req_show != self.telemetry_active or (req_show and req_tgt != self.telemetry_target):
+                logger.info(f"[COMMAND GUARDRAIL] Toggling telemetry HUD: show={req_show}, target={req_tgt}")
+                await self.set_telemetry_mode(req_show, target=req_tgt)
+
+        enroll_intent = detect_enrollment_intent(transcript)
+        if enroll_intent is not None and not self.is_enrolling:
+            target_profile = enroll_intent.get("profile_name", "owner")
+            can_enroll = False
+            if target_profile == "owner":
+                if sec_mode in ["restrict", "paranoid"]:
+                    can_enroll = is_authorized and (identity.lower() in ["owner", "admin_terminal"])
+                else:
+                    can_enroll = is_authorized and (identity.lower() in ["owner", "admin_terminal"] or "owner" not in self.verifier.enrolled_profiles)
+            else:
+                if sec_mode in ["restrict", "paranoid"]:
+                    can_enroll = is_authorized and (identity.lower() in ["owner", "admin_terminal"])
+                else:
+                    can_enroll = is_authorized
+
+            if can_enroll:
+                logger.info(f"[COMMAND GUARDRAIL] Initiating voice calibration session for '{target_profile}'")
+                self.start_voice_enrollment(target_profile)
+            else:
+                logger.warning(
+                    f"[COMMAND GUARDRAIL] Blocked unauthorized voice enrollment attempt for '{target_profile}' "
+                    f"from speaker '{identity}' in '{sec_mode}' mode."
+                )
+
+        # 4. Broadcast dialogue subtitles to connected HUD visors
+        await self.broadcast_ui({
+            "type": "TRANSCRIPT",
+            "user_text": transcript,
+            "axl_text": vocal_reply,
+        })
+
+        # 5. Neural Text-To-Speech Synthesis & Streaming via WebSocket
+        if vocal_reply and self.tts and self.active_client:
+            logger.info(f"[TTS STREAM] Synthesizing and streaming response to client [{lang.upper()}]...")
+            await self.speak_text(vocal_reply, lang=lang)
+            if not self.stop_speech_requested:
+                logger.info("[TTS STREAM] Vocal response fully delivered.")
+
+        return vocal_reply
 
     async def speak_text(self, text: str, lang: Optional[str] = None) -> bool:
         """
@@ -756,7 +862,7 @@ class StreamManager:
                     logger.info(f">>> [VOICE ENROLLMENT SUCCESS] Profile '{profile_name}' enrolled and loaded in RAM! <<<")
 
                     await self.speak_text(
-                        f"*bark* Calibrazione completata, capo! Il profilo vocale di {profile_name} è registrato e attivo nel sistema."
+                        f"{get_random_dog_sound()} Calibrazione completata, capo! Il profilo vocale di {profile_name} è registrato e attivo nel sistema."
                     )
                 else:
                     logger.error("[VOICE ENROLLMENT ERROR] Failed extracting embeddings.")
@@ -969,6 +1075,22 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         stream_manager.audio_buffer.clear()
                     logger.info(f"[MUTE CONTROLLER] Mute state updated via UI: {stream_manager.is_muted}")
                     await stream_manager.broadcast_ui({"type": "MUTE_STATE", "muted": stream_manager.is_muted})
+
+                    # Vocal confirmation for UI button click (consistent with voice & terminal commands)
+                    if stream_manager.is_muted:
+                        mute_reply = f"{get_random_dog_sound()} Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
+                        user_label = "[Pulsante Muto premuto]"
+                    else:
+                        mute_reply = f"{get_random_dog_sound()} Microfono riattivato. Sono di nuovo in ascolto."
+                        user_label = "[Pulsante Muto rilasciato]"
+
+                    await stream_manager.broadcast_ui({
+                        "type": "TRANSCRIPT",
+                        "user_text": user_label,
+                        "axl_text": mute_reply,
+                    })
+                    if stream_manager.tts and stream_manager.active_client:
+                        asyncio.create_task(stream_manager.speak_text(mute_reply))
                 elif mtype == "STOP_SPEECH":
                     logger.info("[STOP BUTTON] User requested immediate vocal/enrollment abort.")
                     stream_manager.stop_speech_requested = True

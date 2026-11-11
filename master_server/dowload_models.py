@@ -91,6 +91,20 @@ def sync_openwakeword_models() -> None:
         print(f"[ERROR] Failed to sync openwakeword models: {exc}")
 
 
+def sync_faster_whisper_model() -> None:
+    """Pre-cache faster-whisper base checkpoint to prevent cold-start delays on startup."""
+    print("\n[SYNC] Pre-caching faster-whisper 'base' model...")
+    try:
+        from faster_whisper import WhisperModel
+
+        WhisperModel("base", device="cpu", compute_type="int8")
+        print("[OK] faster-whisper 'base' model verified and cached.")
+    except ImportError:
+        print("[WARN] faster-whisper package not installed in environment.")
+    except Exception as exc:
+        print(f"[ERROR] Failed to pre-cache faster-whisper model: {exc}")
+
+
 def main() -> None:
     """Execution entrypoint."""
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -102,7 +116,8 @@ def main() -> None:
         download_file(url, destination)
 
     sync_openwakeword_models()
-    print("\n[COMPLETE] Phase 1 Model Provisioning finished successfully.")
+    sync_faster_whisper_model()
+    print("\n[COMPLETE] Model Provisioning finished successfully.")
 
 
 if __name__ == "__main__":
