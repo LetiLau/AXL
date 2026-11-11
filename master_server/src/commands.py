@@ -869,13 +869,14 @@ def detect_timer_intent(text: str) -> Optional[Dict[str, Any]]:
     """
     Rileva se l'utente ha chiesto di impostare un timer o conto alla rovescia.
     Esempi: 'metti un timer di 5 minuti', 'timer 10 minuti per la pasta', 'imposta timer da 30 secondi'.
+    Resiliente anche ad errori fonetici STT (es. 'time-dix in 5 secondi').
     Restituisce {'duration_seconds': int, 'label': str} oppure None.
     """
     if not text:
         return None
-    lower = text.lower().strip()
+    lower = text.lower().replace("-", " ").strip()
 
-    if not any(k in lower for k in ["timer", "conto alla rovescia", "cronometro"]):
+    if not any(k in lower for k in ["timer", "conto alla rovescia", "cronometro", "time"]):
         return None
 
     # Esclude domande informative (es. 'quanto manca al timer?')
@@ -904,9 +905,9 @@ def detect_timer_intent(text: str) -> Optional[Dict[str, Any]]:
         val = _parse_it_number(sec_match.group(1)) or 0
         duration += val
 
-    # 4. Forma breve: 'timer 5', 'timer di 10'
+    # 4. Forma breve: 'timer 5', 'timer di 10', 'timer in 5'
     if duration == 0:
-        bare_match = re.search(r"\btimer\s+(?:da|di|per)?\s*(\d+)\b", lower)
+        bare_match = re.search(r"\btime(?:r)?\s+(?:da|di|per|in)?\s*(\d+)\b", lower)
         if bare_match:
             duration = int(bare_match.group(1)) * 60
 
@@ -918,7 +919,10 @@ def detect_timer_intent(text: str) -> Optional[Dict[str, Any]]:
     label_match = re.search(r"(?:per|di)\s+(?:la\s+|il\s+|le\s+|lo\s+)?([a-zA-Z0-9_\-]+)(?:\s+di|\s+da|$)", lower)
     if label_match:
         extracted = label_match.group(1).strip()
-        stop_words = ["minuti", "minuto", "secondi", "secondo", "ore", "ora", "timer", "un", "una", "due"]
+        stop_words = [
+            "minuti", "minuto", "secondi", "secondo", "ore", "ora", "timer", "time", "dix",
+            "in", "da", "di", "per", "un", "una", "due", "second", "seconds", "minute", "minutes"
+        ]
         if extracted not in stop_words:
             label = extracted
 

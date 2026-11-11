@@ -91,30 +91,21 @@ class ConsoleManager:
             elif cmd_name in ["/speak", "/say", "/answer", "/parla", "/rispondi"]:
                 await self._handle_speak_command(args_str)
 
-            # 3. ASK GEMINI (Direct Admin AI Query)
+            # 3. ASK A-X-L (Unified Two-Tier Processing: Fast Path -> Gemini Fallback)
             elif cmd_name in ["/ask", "/query", "/q", "/chiedi", "/domanda"]:
                 if not args_str:
                     print("[Console] Usage: /ask <query for A-X-L>")
                     return
-                print(f"[Console -> Gemini Brain]: \"{args_str}\"")
-                brain = self.stream_manager.brain
-                if not brain:
-                    print("[Console] Error: Gemini Brain is not yet initialized.")
-                    return
-
-                reply, _ = await brain.generate_response(
-                    user_text=args_str,
-                    is_owner=True,
-                    speaker_identity="owner",
-                    security_mode="friendly",
+                print(f"[Console -> A-X-L]: \"{args_str}\"")
+                sec_mode = self.stream_manager.verifier.security_mode if self.stream_manager.verifier else "friendly"
+                reply = await self.stream_manager.process_text_command(
+                    transcript=args_str,
+                    identity="owner",
+                    is_authorized=True,
+                    sec_mode=sec_mode,
+                    sim_score=1.0,
                 )
                 print(f"[A-X-L Reply]: {reply}")
-                await self.stream_manager.broadcast_ui({
-                    "type": "TRANSCRIPT",
-                    "user_text": args_str,
-                    "axl_text": reply,
-                })
-                await self.stream_manager.speak_text(reply)
 
             # 4. SECURITY MODE
             elif cmd_name in ["/mode", "/security", "/modalita", "/sicurezza"]:

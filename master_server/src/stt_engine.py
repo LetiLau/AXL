@@ -19,7 +19,10 @@ DEFAULT_DEVICE = os.getenv("AXL_STT_DEVICE", "cpu")
 DEFAULT_COMPUTE_TYPE = os.getenv("AXL_STT_COMPUTE_TYPE", "int8")
 DEFAULT_LANGUAGE = os.getenv("AXL_STT_LANGUAGE", "it")
 DEFAULT_CPU_THREADS = int(os.getenv("AXL_STT_CPU_THREADS", "4"))
-INITIAL_PROMPT = "A-X-L, Jarvis, timer, sveglia, Spotify, telemetria, volume, muto, stop."
+INITIAL_PROMPT = (
+    "A-X-L, Hey Jarvis, timer, sveglia, metti un timer di 5 minuti, "
+    "imposta una sveglia alle 7, che ore sono, che giorno è, Spotify, musica, volume, muto, stop, telemetria."
+)
 
 
 class STTEngine:

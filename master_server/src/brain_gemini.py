@@ -9,7 +9,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 from google import genai
@@ -285,6 +285,24 @@ class GeminiBrain:
             "is_stranger": is_stranger,
             "model_used": self._current_model,
         }
+
+    async def generate_response(
+        self,
+        user_text: str,
+        is_owner: bool = True,
+        speaker_identity: str = "owner",
+        security_mode: str = "friendly",
+        similarity_score: float = 1.0,
+    ) -> Tuple[str, str]:
+        """Backward-compatibility wrapper for legacy console or external callers."""
+        res = await self.process_text_query(
+            user_text=user_text,
+            is_stranger=not is_owner,
+            similarity_score=similarity_score,
+            identity=speaker_identity,
+            security_mode=security_mode,
+        )
+        return res.get("text_response", ""), res.get("transcript", user_text)
 
     async def process_utterance(
         self,
