@@ -80,9 +80,15 @@ The user can easly download them by running `dowload_models.py` in the specific 
 
 List of the models for `master_server`
 - Silero VAD v5 (`silero_vad.onnx`): Gatekeeper and energy profiling
-- openWakeWord (`*.onnx`): _Keyword Spotting_ (KWS) text-dependent
+- openWakeWord (`axl.onnx`): Custom-trained _Keyword Spotting_ (KWS) model tracked directly in the repo
 - CAM++ Speaker Verification (`wespeaker_en_voxceleb_CAM++_LM.onnx`): _Speaker Verification_ (Distrust)
 - Piper TTS (`it_IT-riccardo-x_low.onnx` and `en_GB-alan-low.onnx`): Local neural Acoustic & Waveform Synthesis
+
+> [!TIP]
+> **Wake-word Sensitivity Tuning:**
+> In `master_server/src/main.py`, the default activation threshold is set to `wakeword_threshold=0.35`:
+> - If you notice false triggers from background chatter or words that sound similar, increase the threshold to `0.45` – `0.55`.
+> - If you have to enunciate too loudly or forcefully to trigger it, keep it at `0.35` or lower it to `0.30`.
 
 #### OS system libraries
 I made the entire project in Fedora Linux.

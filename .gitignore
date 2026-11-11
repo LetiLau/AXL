@@ -32,6 +32,7 @@ master_server/models/*.tflite
 master_server/models/*.bin
 *.npy
 !master_server/models/.gitkeep
+!master_server/models/axl.onnx
 
 # Android Build artifacts & Gradle caches
 android_kiosk/.gradle/
