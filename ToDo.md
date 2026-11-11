@@ -204,6 +204,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 ---
 
 #### FASE 7: Gestione Audio Avanzata, Riproduzione Musicale & Integrazioni Cloud (Post-Kiosk)
+16. [ ] **Notifica cliccabile**: cliccare sulla notifica nel kiosk che AXL è attivo riapre AXL
 
 16. [ ] **Routing Audio e Riproduzione Musicale Dinamica (Slave vs Galaxy A33):**
     * Selezione del target di riproduzione vocale e musicale ("suona su PC" vs "suona sul visore A33"):
