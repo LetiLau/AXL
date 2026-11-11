@@ -214,13 +214,38 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
     * Integrazione Spotify & Smart Apps:
       - Supporto comandi vocali A-X-L per avvio playlist/brani Spotify (via Spotify Connect, Web API, o local daemon).
 16. [ ] **Gestione A33**: volume, sveglie?, timer e relative ui se necessarie
-17. [ ] **Integrazione Cloud APIs Nativi su Master Server (Completamente Esterni all'A33):**
+
+-------------------
+17. [ ] **Musica**: altoparlanti wifi. usa spotify e si connette ad altoparlanti presenti sulla sua stessa rete wifi o disponibili col bluetooth (oppure gestisce la musica su altri dispositivi. semrpe grazie a spotify)
+
+### Tramite Wi-Fi con **Spotify Connect (Spotify Web API)** — *Soluzione ideale*
+Spotify integra nativamente il protocollo **Spotify Connect**, accessibile via software (ad esempio tramite la libreria Python `spotipy` sul Master Server):
+
+* **Come funziona**: 
+  * Il Master può interrogare l'API di Spotify per ottenere l'elenco di tutti i dispositivi attivi e visibili sulla rete Wi-Fi (altoparlanti smart come Sonos, Bose, Amazon Echo, Smart TV, PC, tablet o altri smartphone).
+  * Ricevendo un comando come *"metti del jazz in salotto"* o *"passa la musica al computer"*, il server recupera l'ID del dispositivo desiderato (`device_id`) e trasferisce la riproduzione lì, avviando tracce, playlist o regolando il volume da remoto.
+* **Vantaggi**: Non richiede cavi né accoppiamenti Bluetooth; la musica viene trasmessa via Wi-Fi direttamente dai server di Spotify all'altoparlante con massima qualità e senza impegnare la banda audio di AXL.
+* **Requisito**: L'API di Spotify richiede un account **Spotify Premium** per poter controllare e deviare la riproduzione tra dispositivi.
+
+### Tramite **Bluetooth**
+* **Come funziona**: 
+  * L'altoparlante Bluetooth viene accoppiato a livello di sistema operativo al dispositivo desiderato (sul PC Master Linux tramite `bluetoothctl`/BlueZ oppure direttamente sullo smartphone Samsung A33).
+  * Una volta connesso, l'altoparlante funge da normale uscita audio (sink audio A2DP). Qualsiasi flusso riprodotto da Spotify (o la stessa voce di AXL) uscirà automaticamente dalla cassa Bluetooth.
+* **Vantaggi**: Funziona con qualsiasi cassa portatile standard, anche offline o senza supporto a Spotify Connect.
+
+### Sintesi
+* Per **altoparlanti Wi-Fi e gestione multi-dispositivo**: si sfrutta **Spotify Connect** sul Master Server (tramite API Web di Spotify), che permette di comandare la riproduzione ovunque nella casa.
+* Per **casse Bluetooth**: basta il pairing Bluetooth sul Master o sull'A33, usandole come periferica di output audio.
+
+----------
+
+18. [ ] **Integrazione Cloud APIs Nativi su Master Server (Completamente Esterni all'A33):**
     * **Google Calendar API Ufficiale (Cloud)**:
       - Modulo di autenticazione OAuth 2.0 (`credentials.json` / `token.json`) sul Master Server ThinkPad.
       - Lettura e scrittura in tempo reale degli eventi direttamente dai server Google Cloud, indipendente dal telefono.
     * **Microsoft To Do API / Samsung Reminders Sync**:
       - Integrazione Microsoft Graph API per la sincronizzazione diretta dei promemoria dell'ecosistema Samsung / Microsoft To Do con A-X-L.
-18. [ ] **Comando Vocale Biometric Enrollment & Calibrazione Dual-Mode (Online & Offline):**
+19. [ ] **Comando Vocale Biometric Enrollment & Calibrazione Dual-Mode (Online & Offline):**
   sistemare precisione e aggiungere persone via comando
     * **Architettura Duale (Online Conversazionale vs Offline CLI):**
       - **Modalità Online (In-System Live Voice Enrollment - Opzione A):**
