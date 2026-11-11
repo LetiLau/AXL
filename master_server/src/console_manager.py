@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from task_manager import task_manager
 from tts_engine import detect_language
+from commands import get_random_dog_sound
 
 logger = logging.getLogger("AXL-Console")
 
@@ -85,7 +86,10 @@ class ConsoleManager:
 
         try:
             # For actionable admin commands, broadcast terminal admin identity to Visor HUD
-            if cmd_name not in ["/help", "/h", "/?", "/aiuto", "/clear", "/cls", "/status", "/info", "/stato"]:
+            if cmd_name not in [
+                "/help", "/h", "/?", "/aiuto", "/clear", "/cls", "/status", "/info", "/stato",
+                "/stranger_test", "/stranger", "/test_stranger",
+            ]:
                 await self.stream_manager.broadcast_ui({
                     "type": "AUTH_EVENT",
                     "identity": "ADMIN_TERMINAL",
@@ -118,6 +122,10 @@ class ConsoleManager:
                     lang=cmd_lang,
                 )
                 print(f"[A-X-L Reply]: {reply}")
+
+            # 3b. STRANGER TEST SIMULATION (Simulate unauthorized speaker in RESTRICT/PARANOID mode)
+            elif cmd_name in ["/stranger_test", "/stranger", "/test_stranger"]:
+                await self._handle_stranger_test_command(args_str)
 
             # 4. SECURITY MODE
             elif cmd_name in ["/mode", "/security", "/modalita", "/sicurezza"]:
@@ -155,7 +163,8 @@ class ConsoleManager:
                 self.stream_manager.is_muted = False
                 await self.stream_manager.broadcast_ui({"type": "MUTE_STATE", "muted": False})
                 is_en = (cmd_name == "/unmute")
-                reply = "*bark* Microphones reactivated. I am listening again." if is_en else "*bark* Microfono riattivato. Sono di nuovo in ascolto."
+                sfx = get_random_dog_sound()
+                reply = f"{sfx} Microphones reactivated. I am listening again." if is_en else f"{sfx} Microfono riattivato. Sono di nuovo in ascolto."
                 await self.stream_manager.broadcast_ui({
                     "type": "TRANSCRIPT",
                     "user_text": f"[{cmd_name} from console]" if is_en else f"[{cmd_name} da console]",
@@ -254,6 +263,66 @@ class ConsoleManager:
             print("[Console] Audio streamed successfully to client.")
         else:
             print("[Console] Notice: No audio client connected or synthesis failed.")
+
+    async def _handle_stranger_test_command(self, args_str: str):
+        """
+        Simulates an unauthorized stranger turn to test biometric distrust, security breach alert HUD,
+        and canine hostility response.
+        Temporarily assumes RESTRICT or PARANOID mode without modifying global server settings.
+        """
+        # Determine effective test security mode (temporary for this turn)
+        current_mode = self.stream_manager.verifier.security_mode if self.stream_manager.verifier else "friendly"
+        test_mode = current_mode if current_mode in ["restrict", "paranoid"] else "restrict"
+
+        raw_query = args_str.strip()
+        # Support optional mode flags: e.g. /stranger_test --paranoid metti in muto
+        if raw_query.startswith("--paranoid ") or raw_query == "--paranoid":
+            test_mode = "paranoid"
+            raw_query = raw_query[10:].strip()
+        elif raw_query.startswith("--restrict ") or raw_query == "--restrict":
+            test_mode = "restrict"
+            raw_query = raw_query[10:].strip()
+        elif raw_query.startswith("-p ") or raw_query == "-p":
+            test_mode = "paranoid"
+            raw_query = raw_query[2:].strip()
+        elif raw_query.startswith("-r ") or raw_query == "-r":
+            test_mode = "restrict"
+            raw_query = raw_query[2:].strip()
+
+        # Default query if empty
+        query = raw_query if raw_query else "Chi sei?"
+
+        print(f"\n[Console -> Stranger Simulation ({test_mode.upper()} mode)]: \"{query}\"")
+        print(" [!] Simulating biometric unauthorized access: STRANGER_TERMINAL (score: 0.200)")
+
+        # 1. Broadcast biometric failure event to Visor HUD
+        await self.stream_manager.broadcast_ui({
+            "type": "AUTH_EVENT",
+            "identity": "STRANGER_TERMINAL",
+            "score": 0.20,
+            "authorized": False,
+            "alert": True,
+        })
+
+        # 2. Trigger perimeter security breach strobe alert on Visor HUD
+        await self.stream_manager.broadcast_ui({
+            "type": "STATE_CHANGE",
+            "state": "ALERT",
+            "label": "SECURITY BREACH",
+            "sub": "UNAUTHORIZED SPEAKER ACCESS",
+        })
+
+        # 3. Process query through cognitive pipeline with unauthorized credentials
+        cmd_lang = detect_language(query)
+        reply = await self.stream_manager.process_text_command(
+            transcript=query,
+            identity="STRANGER_TERMINAL",
+            is_authorized=False,
+            sec_mode=test_mode,
+            sim_score=0.20,
+            lang=cmd_lang,
+        )
+        print(f"[A-X-L Stranger Response]: {reply}\n")
 
     async def _handle_tasks_command(self, args_str: str):
         subparts = args_str.split(maxsplit=1)
@@ -388,6 +457,7 @@ class ConsoleManager:
         print(" /speak <text>            : Synthesizes TTS and plays on audio client (/say, /answer, /parla)")
         print("                            (Auto-detects Italian or English; use --en or --it to force)")
         print(" /ask <query>             : Queries Gemini Brain as Admin and speaks the answer (/q, /chiedi)")
+        print(" /stranger_test [query]   : Simulates unauthorized stranger input in RESTRICT/PARANOID mode (/stranger)")
         print(" /tasks [add|list|done|rm]: Manages to-do task list (/tasks add buy milk, /tasks done 1)")
         print(" /calendar [add|list|rm]  : Manages events & dispatches Intent to Android/Google Calendar")
         print(" /mode <mode>             : Sets security mode (friendly | restrict | paranoid)")

@@ -36,6 +36,8 @@ from commands import (
     detect_security_mode_in_reply,
     detect_security_mode_intent,
     detect_telemetry_intent,
+    ensure_dog_sound,
+    get_random_dog_sound,
     handle_local_fast_path,
     is_mute_in_reply,
     is_mute_intent,
@@ -533,7 +535,7 @@ class StreamManager:
                 security_mode=sec_mode,
                 lang=lang,
             )
-            vocal_reply = result.get("text_response", "")
+            vocal_reply = ensure_dog_sound(result.get("text_response", ""))
 
         logger.info(f">>> [A-X-L SPEAKS ({lang.upper()})]: \"{vocal_reply}\" <<<")
 
@@ -860,7 +862,7 @@ class StreamManager:
                     logger.info(f">>> [VOICE ENROLLMENT SUCCESS] Profile '{profile_name}' enrolled and loaded in RAM! <<<")
 
                     await self.speak_text(
-                        f"*bark* Calibrazione completata, capo! Il profilo vocale di {profile_name} è registrato e attivo nel sistema."
+                        f"{get_random_dog_sound()} Calibrazione completata, capo! Il profilo vocale di {profile_name} è registrato e attivo nel sistema."
                     )
                 else:
                     logger.error("[VOICE ENROLLMENT ERROR] Failed extracting embeddings.")
@@ -1076,10 +1078,10 @@ async def ui_websocket_endpoint(websocket: WebSocket):
 
                     # Vocal confirmation for UI button click (consistent with voice & terminal commands)
                     if stream_manager.is_muted:
-                        mute_reply = "*bark* Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
+                        mute_reply = f"{get_random_dog_sound()} Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
                         user_label = "[Pulsante Muto premuto]"
                     else:
-                        mute_reply = "*bark* Microfono riattivato. Sono di nuovo in ascolto."
+                        mute_reply = f"{get_random_dog_sound()} Microfono riattivato. Sono di nuovo in ascolto."
                         user_label = "[Pulsante Muto rilasciato]"
 
                     await stream_manager.broadcast_ui({

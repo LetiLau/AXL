@@ -8,6 +8,7 @@ import asyncio
 import datetime
 import logging
 import os
+import random
 import re
 from typing import Any, Callable, Dict, List, Optional
 
@@ -18,6 +19,26 @@ from task_manager import task_manager
 from tts_engine import detect_language
 
 logger = logging.getLogger("AXL-Commands")
+
+
+def get_random_dog_sound() -> str:
+    """
+    Returns randomly '*bark*' or '*pant*' to give A-X-L a lively, natural canine persona
+    for local fast-path commands and terminal console responses.
+    """
+    return random.choice(["*bark*", "*pant*"])
+
+
+def ensure_dog_sound(reply: str) -> str:
+    """
+    Ensures that a vocal reply starts with or contains an authentic canine acoustic cue (*bark*, *pant*, or *growl*).
+    If no tag is present, prepends a random dog sound (*bark* or *pant*).
+    """
+    if not reply:
+        return reply
+    if any(tag in reply for tag in ["*bark*", "*pant*", "*growl*", "*woof*", "*whirr*"]):
+        return reply
+    return f"{get_random_dog_sound()} {reply}"
 
 # In-memory mock/active timer tasks store for local tracking
 _ACTIVE_TIMERS: List[asyncio.Task] = []
@@ -1425,14 +1446,15 @@ def handle_local_fast_path(
         tgt_date = date_info["target_date"]
         desc_it = date_info["desc_it"]
         desc_en = date_info["desc_en"]
+        sound = get_random_dog_sound()
         if lang == "en":
             f_en = tgt_date.strftime('%A, %B %d, %Y')
             if tgt_date == base_d:
-                reply = f"It's {time_str} and today is {f_en}."
+                reply = f"{sound} It's {time_str} and today is {f_en}."
             elif tgt_date < base_d:
-                reply = f"It's {time_str} and {desc_en} was {f_en}."
+                reply = f"{sound} It's {time_str} and {desc_en} was {f_en}."
             else:
-                reply = f"It's {time_str} and {desc_en} will be {f_en}."
+                reply = f"{sound} It's {time_str} and {desc_en} will be {f_en}."
         else:
             giorni = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
             mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
@@ -1440,11 +1462,11 @@ def handle_local_fast_path(
             m_str = mesi[tgt_date.month - 1]
             f_it = f"{g_str} {tgt_date.day} {m_str} {tgt_date.year}"
             if tgt_date == base_d:
-                reply = f"Sono le {time_str} e oggi è {f_it}."
+                reply = f"{sound} Sono le {time_str} e oggi è {f_it}."
             elif tgt_date < base_d:
-                reply = f"Sono le {time_str} e {desc_it} era {f_it}."
+                reply = f"{sound} Sono le {time_str} e {desc_it} era {f_it}."
             else:
-                reply = f"Sono le {time_str} e {desc_it} sarà {f_it}."
+                reply = f"{sound} Sono le {time_str} e {desc_it} sarà {f_it}."
         return {
             "handled": True,
             "type": "time_and_date",
@@ -1453,7 +1475,8 @@ def handle_local_fast_path(
     elif c_type == "time":
         now = datetime.datetime.now()
         time_str = now.strftime('%H:%M')
-        reply = f"It's {time_str}." if lang == "en" else f"Sono le {time_str}."
+        sound = get_random_dog_sound()
+        reply = f"{sound} It's {time_str}." if lang == "en" else f"{sound} Sono le {time_str}."
         return {
             "handled": True,
             "type": "time",
@@ -1467,23 +1490,24 @@ def handle_local_fast_path(
         desc_it = date_info["desc_it"]
         desc_en = date_info["desc_en"]
         is_exp = date_info.get("is_explicit", False)
+        sound = get_random_dog_sound()
 
         if lang == "en":
             f_en = tgt_date.strftime('%A, %B %d, %Y')
             if is_exp:
                 weekday_en = tgt_date.strftime('%A')
-                reply = f"{desc_en}, {tgt_date.year} will be {weekday_en}."
+                reply = f"{sound} {desc_en}, {tgt_date.year} will be {weekday_en}."
             elif tgt_date == base_d:
-                reply = f"Today is {f_en}."
+                reply = f"{sound} Today is {f_en}."
             elif tgt_date < base_d:
                 cap = desc_en.capitalize()
-                reply = f"{cap} was {f_en}."
+                reply = f"{sound} {cap} was {f_en}."
             else:
                 cap = desc_en.capitalize()
                 if desc_en.startswith("in "):
-                    reply = f"{cap} it will be {f_en}."
+                    reply = f"{sound} {cap} it will be {f_en}."
                 else:
-                    reply = f"{cap} will be {f_en}."
+                    reply = f"{sound} {cap} will be {f_en}."
         else:
             giorni = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
             mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
@@ -1493,15 +1517,15 @@ def handle_local_fast_path(
 
             if is_exp:
                 cap = desc_it[0].upper() + desc_it[1:]
-                reply = f"{cap} {tgt_date.year} sarà {g_str}."
+                reply = f"{sound} {cap} {tgt_date.year} sarà {g_str}."
             elif tgt_date == base_d:
-                reply = f"Oggi è {f_it}."
+                reply = f"{sound} Oggi è {f_it}."
             elif tgt_date < base_d:
                 cap = desc_it[0].upper() + desc_it[1:]
-                reply = f"{cap} era {f_it}."
+                reply = f"{sound} {cap} era {f_it}."
             else:
                 cap = desc_it[0].upper() + desc_it[1:]
-                reply = f"{cap} sarà {f_it}."
+                reply = f"{sound} {cap} sarà {f_it}."
 
         return {
             "handled": True,
@@ -1517,6 +1541,7 @@ def handle_local_fast_path(
         set_timer(duration_seconds=duration, label=lbl)
         mins = duration // 60
         secs = duration % 60
+        sound = get_random_dog_sound()
         if lang == "en":
             parts = []
             if mins:
@@ -1525,7 +1550,7 @@ def handle_local_fast_path(
                 parts.append(f"{secs} seconds" if secs > 1 else "one second")
             dur_text = " and ".join(parts) if parts else f"{duration} seconds"
             lbl_text = f" for {lbl}" if lbl and lbl.lower() != "timer" else ""
-            reply = f"*bark* Timer set for {dur_text}{lbl_text}."
+            reply = f"{sound} Timer set for {dur_text}{lbl_text}."
         else:
             if mins and not secs:
                 dur_text = f"{mins} minuti" if mins > 1 else "un minuto"
@@ -1534,7 +1559,7 @@ def handle_local_fast_path(
             else:
                 dur_text = f"{mins} minuti e {secs} secondi"
             lbl_text = f" per {lbl}" if lbl and lbl != "Timer" else ""
-            reply = f"*bark* Timer impostato a {dur_text}{lbl_text}."
+            reply = f"{sound} Timer impostato a {dur_text}{lbl_text}."
         return {
             "handled": True,
             "type": "set_timer",
@@ -1547,12 +1572,13 @@ def handle_local_fast_path(
         t_str = a_info["time_str"]
         lbl = a_info["label"]
         set_alarm(time_str=t_str, label=lbl)
+        sound = get_random_dog_sound()
         if lang == "en":
             lbl_text = f" for {lbl}" if lbl and lbl.lower() not in ["alarm", "sveglia"] else ""
-            reply = f"*bark* Alarm set for {t_str}{lbl_text}."
+            reply = f"{sound} Alarm set for {t_str}{lbl_text}."
         else:
             lbl_text = f" per {lbl}" if lbl and lbl != "Sveglia" else ""
-            reply = f"*bark* Sveglia impostata per le {t_str}{lbl_text}."
+            reply = f"{sound} Sveglia impostata per le {t_str}{lbl_text}."
         return {
             "handled": True,
             "type": "set_alarm",
@@ -1568,10 +1594,11 @@ def handle_local_fast_path(
                 "reply": "*growl* Access denied. Only authorized users can unmute the microphone." if lang == "en" else "*growl* Accesso negato. Solo persone autorizzate possono riattivare il microfono."
             }
         set_mute_mode(enabled=False)
+        sound = get_random_dog_sound()
         return {
             "handled": True,
             "type": "set_unmute",
-            "reply": "*bark* Microphones reactivated. I am listening again." if lang == "en" else "*bark* Ricevuto, microfoni riattivati. Sono di nuovo in ascolto."
+            "reply": f"{sound} Microphones reactivated. I am listening again." if lang == "en" else f"{sound} Ricevuto, microfoni riattivati. Sono di nuovo in ascolto."
         }
 
     # 5. Muto / Disattiva microfono
@@ -1583,10 +1610,11 @@ def handle_local_fast_path(
                 "reply": "*growl* Access denied. Only authorized users can mute the microphone." if lang == "en" else "*growl* Accesso negato. Solo persone autorizzate possono disattivare il microfono."
             }
         set_mute_mode(enabled=True)
+        sound = get_random_dog_sound()
         return {
             "handled": True,
             "type": "set_mute",
-            "reply": "*bark* Understood, going on mute. Remember you can only unmute me by tapping the button on the visor." if lang == "en" else "*bark* Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
+            "reply": f"{sound} Understood, going on mute. Remember you can only unmute me by tapping the button on the visor." if lang == "en" else f"{sound} Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
         }
 
     # 6. Cambio Modalità di Sicurezza
@@ -1602,7 +1630,8 @@ def handle_local_fast_path(
 
         if can_switch:
             set_security_mode(req_mode)
-            reply = f"*bark* Security mode switched to {req_mode.upper()}." if lang == "en" else f"*bark* Modalità di sicurezza impostata su {req_mode.upper()}."
+            sound = get_random_dog_sound()
+            reply = f"{sound} Security mode switched to {req_mode.upper()}." if lang == "en" else f"{sound} Modalità di sicurezza impostata su {req_mode.upper()}."
             return {
                 "handled": True,
                 "type": "security_mode",
@@ -1622,8 +1651,9 @@ def handle_local_fast_path(
         show = telem.get("show", True)
         tgt = telem.get("target", "slave")
         toggle_telemetry_hud(show=show, target=tgt)
+        sound = get_random_dog_sound()
         if not show:
-            reply = "*bark* Telemetry HUD closed." if lang == "en" else "*bark* Schermata telemetria chiusa."
+            reply = f"{sound} Telemetry HUD closed." if lang == "en" else f"{sound} Schermata telemetria chiusa."
             return {
                 "handled": True,
                 "type": "telemetry",
@@ -1632,10 +1662,10 @@ def handle_local_fast_path(
         else:
             if lang == "en":
                 node_str = "server" if tgt == "server" else ("kiosk" if tgt == "kiosk" else "slave computer")
-                reply = f"*bark* {node_str.capitalize()} telemetry projected on visor."
+                reply = f"{sound} {node_str.capitalize()} telemetry projected on visor."
             else:
                 node_str = "del server" if tgt == "server" else ("del kiosk" if tgt == "kiosk" else "del computer slave")
-                reply = f"*bark* Telemetria {node_str} proiettata sul visore."
+                reply = f"{sound} Telemetria {node_str} proiettata sul visore."
             return {
                 "handled": True,
                 "type": "telemetry",
@@ -1649,7 +1679,8 @@ def handle_local_fast_path(
         can_enroll = is_authorized if security_mode == "friendly" else (is_authorized and identity.lower() in ["owner", "admin_terminal"])
         if can_enroll:
             enroll_voice_profile(profile_name=pname)
-            reply = f"*bark* Voice calibration session started for {pname}. Look at the visor." if lang == "en" else f"*bark* Sessione di calibrazione vocale avviata per {pname}. Guarda il visore."
+            sound = get_random_dog_sound()
+            reply = f"{sound} Voice calibration session started for {pname}. Look at the visor." if lang == "en" else f"{sound} Sessione di calibrazione vocale avviata per {pname}. Guarda il visore."
             return {
                 "handled": True,
                 "type": "enrollment",

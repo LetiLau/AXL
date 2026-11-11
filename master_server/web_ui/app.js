@@ -1769,7 +1769,7 @@
             } else {
                 bioAuthStatus.classList.add("auth-stranger");
                 bioAuthStatus.textContent = "STRANGER";
-                if (securityMode !== "friendly") {
+                if (securityMode !== "friendly" || data.alert || id === "STRANGER_TERMINAL") {
                     setVisorState("ALERT", "SECURITY BREACH", "UNAUTHORIZED SPEAKER ACCESS");
                     setTimeout(() => {
                         if (currentState === "ALERT") setVisorState("IDLE");
