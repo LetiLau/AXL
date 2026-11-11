@@ -182,7 +182,7 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 
 #### PROSSIMO STEP OPERATIVO: Revisione Strutturale Gestione Audio (Master Audio Engine Overhaul)
 - [ ] **Riorganizzazione Architetturale del Flusso Audio:**
-  - Modifica strutturale e pulizia della pipeline audio sul Master Server (ingestione, buffering, VAD e transizioni di stato audio) prima di procedere con la fase 7 e post-produzione.
+  Utilizzo di faster-whisper per speach-to-text locale
 
 ---
 
