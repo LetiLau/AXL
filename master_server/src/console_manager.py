@@ -128,12 +128,21 @@ class ConsoleManager:
 
             # 5. MUTE / UNMUTE
             elif cmd_name in ["/mute", "/muto"]:
-                await self.stream_manager.handle_telemetry_event({"type": "SET_MUTE", "muted": True})
-                print("[Console] Microphones muted (MUTE engaged).")
+                reply = await self.stream_manager.process_text_command("vai in muto", identity="owner", is_authorized=True)
+                print(f"[Console] {reply}")
 
             elif cmd_name in ["/unmute", "/smuta"]:
-                await self.stream_manager.handle_telemetry_event({"type": "SET_MUTE", "muted": False})
-                print("[Console] Microphones unmuted (LISTENING active).")
+                self.stream_manager.is_muted = False
+                await self.stream_manager.broadcast_ui({"type": "MUTE_STATE", "muted": False})
+                reply = "*bark* Microfono riattivato. Sono di nuovo in ascolto."
+                await self.stream_manager.broadcast_ui({
+                    "type": "TRANSCRIPT",
+                    "user_text": "[/unmute da console]",
+                    "axl_text": reply,
+                })
+                if self.stream_manager.tts and self.stream_manager.active_client:
+                    await self.stream_manager.speak_text(reply)
+                print(f"[Console] {reply}")
 
             # 6. TELEMETRY HUD
             elif cmd_name in ["/telem", "/telemetry", "/telemetria"]:

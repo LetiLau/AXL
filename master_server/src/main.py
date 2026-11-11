@@ -1037,6 +1037,22 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         stream_manager.audio_buffer.clear()
                     logger.info(f"[MUTE CONTROLLER] Mute state updated via UI: {stream_manager.is_muted}")
                     await stream_manager.broadcast_ui({"type": "MUTE_STATE", "muted": stream_manager.is_muted})
+
+                    # Vocal confirmation for UI button click (consistent with voice & terminal commands)
+                    if stream_manager.is_muted:
+                        mute_reply = "*bark* Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
+                        user_label = "[Pulsante Muto premuto]"
+                    else:
+                        mute_reply = "*bark* Microfono riattivato. Sono di nuovo in ascolto."
+                        user_label = "[Pulsante Muto rilasciato]"
+
+                    await stream_manager.broadcast_ui({
+                        "type": "TRANSCRIPT",
+                        "user_text": user_label,
+                        "axl_text": mute_reply,
+                    })
+                    if stream_manager.tts and stream_manager.active_client:
+                        asyncio.create_task(stream_manager.speak_text(mute_reply))
                 elif mtype == "STOP_SPEECH":
                     logger.info("[STOP BUTTON] User requested immediate vocal/enrollment abort.")
                     stream_manager.stop_speech_requested = True
