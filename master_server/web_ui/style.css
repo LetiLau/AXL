@@ -1868,6 +1868,45 @@ html.client-mobile body .hud-action-bar .badge-ask-btn {
 }
 
 /* ==========================================================================
+   SERVER DISCONNECTED (OFFLINE) HUD ACTIONS (Grigio/Rossi)
+   Applied to MIC and ASK ME buttons when the Master Server WebSocket is down.
+   ========================================================================== */
+body.server-offline .badge-mute-btn,
+body.server-offline .badge-ask-btn,
+.badge-mute-btn.server-offline,
+.badge-ask-btn.server-offline {
+    background: linear-gradient(135deg, rgba(46, 26, 32, 0.75) 0%, rgba(26, 16, 22, 0.88) 100%) !important;
+    border: 1px solid rgba(255, 45, 85, 0.45) !important;
+    color: #ff6b81 !important;
+    box-shadow: 0 0 8px rgba(255, 0, 59, 0.18), inset 0 0 10px rgba(0, 0, 0, 0.55) !important;
+    filter: grayscale(0.25) brightness(0.9) !important;
+    opacity: 0.72 !important;
+    animation: none !important;
+    text-shadow: 0 0 5px rgba(255, 45, 85, 0.35) !important;
+    cursor: pointer !important;
+    transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease, opacity 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+body.server-offline .badge-mute-btn .mute-icon,
+body.server-offline .badge-ask-btn .mute-icon,
+.badge-mute-btn.server-offline .mute-icon,
+.badge-ask-btn.server-offline .mute-icon {
+    filter: grayscale(0.3) drop-shadow(0 0 3px rgba(255, 45, 85, 0.4));
+}
+
+body.server-offline .badge-mute-btn:hover,
+body.server-offline .badge-ask-btn:hover,
+.badge-mute-btn.server-offline:hover,
+.badge-ask-btn.server-offline:hover {
+    background: linear-gradient(135deg, rgba(58, 32, 38, 0.85) 0%, rgba(36, 20, 26, 0.95) 100%) !important;
+    border-color: rgba(255, 60, 95, 0.7) !important;
+    box-shadow: 0 0 12px rgba(255, 0, 59, 0.35) !important;
+    opacity: 0.92 !important;
+    color: #ff8598 !important;
+    transform: none !important;
+}
+
+/* ==========================================================================
    DYNAMIC STATE THEMES & AUDIO-REACTIVE NEON AURAS
    Clean single luminous aura around status capsule driven by keyframes + --mic-level.
    Zero drop-shadow or border on the robotic dog video (no bounding box).

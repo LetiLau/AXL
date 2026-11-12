@@ -104,6 +104,7 @@
     let currentState = "IDLE";
     let securityMode = "friendly";
     let isMuted = false;
+    let isServerConnected = false;
     let isTelemetryActive = false;
     let telemetryTarget = "slave";
     let telemetrySimInterval = null;
@@ -527,6 +528,11 @@
 
     function updateConnectionStatus(state) {
         if (!connStatus) return;
+        isServerConnected = (state === "online");
+        body.classList.toggle("server-offline", !isServerConnected);
+        if (muteBtn) muteBtn.classList.toggle("server-offline", !isServerConnected);
+        if (askBtn) askBtn.classList.toggle("server-offline", !isServerConnected);
+
         if (state === "online") {
             connStatus.className = "brand-conn-line conn-online";
             if (connStatusText) connStatusText.textContent = "WS: ONLINE";
@@ -545,6 +551,8 @@
                 renderOfflineTelemetry(telemetryTarget);
             }
         }
+
+        updateMuteUI(isMuted);
     }
 
     function scheduleReconnect() {
@@ -1505,6 +1513,19 @@
         if (!askBtn) return;
         askBtn.classList.remove("ask-friendly", "ask-restrict", "ask-paranoid", "ask-stop");
 
+        // When Master Server is disconnected, button turns gray/red and disabled
+        if (!isServerConnected) {
+            askBtn.disabled = true;
+            askBtn.classList.remove("listening", "ask-stop");
+            askBtn.classList.add("server-offline");
+            if (askBtnIcon) askBtnIcon.textContent = "💬";
+            if (askBtnLabel) askBtnLabel.textContent = "ASK: OFFLINE";
+            askBtn.title = "Master Server disconnesso (WS Offline): clicca per riconnettere.";
+            return;
+        }
+
+        askBtn.classList.remove("server-offline");
+
         // When A-X-L is speaking, dynamically transform ASK button into an interactive red STOP button!
         if (currentState === "SPEAKING") {
             askBtn.disabled = false;
@@ -1544,6 +1565,12 @@
         askBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
+
+            // If disconnected, clicking attempts immediate WebSocket reconnect
+            if (!isServerConnected) {
+                connectWebSocket();
+                return;
+            }
 
             // If clicked while A-X-L is speaking, immediately abort vocal delivery!
             if (currentState === "SPEAKING") {
@@ -1722,6 +1749,16 @@
         updateAskButton();
         if (!muteBtn) return;
 
+        if (!isServerConnected) {
+            muteBtn.classList.add("server-offline");
+            muteBtn.classList.remove("muted");
+            if (muteBtnIcon) muteBtnIcon.textContent = isMuted ? "🔇" : "🎙️";
+            if (muteBtnLabel) muteBtnLabel.textContent = isMuted ? "MIC: MUTO" : "MIC: OFFLINE";
+            muteBtn.title = "Master Server disconnesso (WS Offline): clicca per riconnettere.";
+            return;
+        }
+
+        muteBtn.classList.remove("server-offline");
         muteBtn.classList.toggle("muted", isMuted);
         if (isMuted) {
             if (muteBtnIcon) muteBtnIcon.textContent = "🔇";
@@ -1741,6 +1778,10 @@
         muteBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
+            if (!isServerConnected) {
+                connectWebSocket();
+                return;
+            }
             const newMuted = !isMuted;
             updateMuteUI(newMuted);
             if (ws && ws.readyState === WebSocket.OPEN) {

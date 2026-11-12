@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import os
+import random
 import time
 import wave
 from contextlib import asynccontextmanager
@@ -60,6 +61,29 @@ logging.getLogger("google_genai").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("websockets").setLevel(logging.WARNING)
+
+THINKING_PHRASES_IT = [
+    "*pant* Sto elaborando, dammi un secondo...",
+    "*pant* Aspetta un attimo, ci sto pensando...",
+    "*bark* Calma, sto analizzando i dati neurali...",
+    "*pant* Fammi riflettere un momento...",
+    "*bark* Un secondo, consulto i miei circuiti...",
+]
+
+THINKING_PHRASES_EN = [
+    "*pant* Hold on, crunching the neural data...",
+    "*pant* Give me a second, I'm thinking...",
+    "*bark* Processing, hold your horses...",
+    "*pant* Thinking, give me a moment...",
+    "*bark* Stand by, querying cognitive core...",
+]
+
+
+def get_random_thinking_phrase(lang: str = "it") -> str:
+    """Returns a witty canine thinking filler phrase in Italian or English."""
+    if lang == "en":
+        return random.choice(THINKING_PHRASES_EN)
+    return random.choice(THINKING_PHRASES_IT)
 
 
 class StreamManager:
@@ -527,14 +551,49 @@ class StreamManager:
             logger.info(f"[LOCAL FAST PATH] Executed: {fast_path_result.get('type')} ({lang.upper()}) -> '{vocal_reply}'")
         elif self.brain:
             # 2. Tier-2 Cognitive Brain (Cloud Gemini via Text-Only Ingestion + Tool AFC)
-            result = await self.brain.process_text_query(
-                user_text=transcript,
-                is_stranger=is_stranger,
-                similarity_score=sim_score,
-                identity=identity,
-                security_mode=sec_mode,
-                lang=lang,
+            brain_task = asyncio.create_task(
+                self.brain.process_text_query(
+                    user_text=transcript,
+                    is_stranger=is_stranger,
+                    similarity_score=sim_score,
+                    identity=identity,
+                    security_mode=sec_mode,
+                    lang=lang,
+                )
             )
+
+            # Wait for Gemini response, emitting filler feedback if processing exceeds timeout (default 2.0s)
+            thinking_timeout = float(os.getenv("AXL_THINKING_TIMEOUT", "2.0"))
+            done, _ = await asyncio.wait([brain_task], timeout=thinking_timeout)
+
+            if not done:
+                # Processing exceeds timeout: emit witty canine thinking phrase in subtitles & voice
+                thinking_phrase = get_random_thinking_phrase(lang=lang)
+                logger.info(
+                    f"[THINKING FEEDBACK] Query processing exceeded {thinking_timeout}s. Emitting filler ({lang.upper()}): '{thinking_phrase}'"
+                )
+                print(f"[A-X-L Thinking]: {thinking_phrase}")
+
+                # Broadcast subtitle update to Visor HUD
+                await self.broadcast_ui({
+                    "type": "TRANSCRIPT",
+                    "user_text": transcript,
+                    "axl_text": thinking_phrase,
+                })
+
+                # Speak the thinking phrase aloud if active client is listening
+                if self.tts and self.active_client and not self.stop_speech_requested:
+                    await self.speak_text(thinking_phrase, lang=lang)
+
+                # If brain is still working after thinking phrase was spoken, maintain THINKING state on Visor
+                if not brain_task.done():
+                    await self.broadcast_ui({
+                        "type": "STATE_CHANGE",
+                        "state": "THINKING",
+                        "label": "ELABORAZIONE COGNITIVA...",
+                    })
+
+            result = await brain_task
             vocal_reply = ensure_dog_sound(result.get("text_response", ""))
 
         logger.info(f">>> [A-X-L SPEAKS ({lang.upper()})]: \"{vocal_reply}\" <<<")
