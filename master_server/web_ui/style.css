@@ -697,17 +697,21 @@ html.client-kiosk body #fullscreen-btn {
    Positioned under header border line on the right, below settings & fullscreen.
    ========================================================================== */
 .server-mini-telem {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 5px);
     display: flex;
     justify-content: flex-end;
     align-items: center;
     gap: 8px;
-    padding: 0 6px 0 0;
-    margin-top: 5px;
-    margin-bottom: 2px;
-    width: 100%;
+    padding: 0;
+    margin: 0;
+    width: max-content;
+    max-width: 100%;
     z-index: 95;
     flex-shrink: 0;
     user-select: none;
+    pointer-events: auto;
     transition: opacity 0.25s ease;
 }
 
@@ -728,6 +732,12 @@ html.client-kiosk body #fullscreen-btn {
     font-weight: 700;
     color: var(--cyan-glow);
     letter-spacing: 0.05rem;
+    transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+
+.mini-telem-label.crit {
+    color: var(--red-alert) !important;
+    text-shadow: 0 0 6px rgba(255, 23, 68, 0.7) !important;
 }
 
 .mini-telem-temp {
@@ -735,6 +745,12 @@ html.client-kiosk body #fullscreen-btn {
     font-size: 0.58rem;
     color: #e2e8f0;
     font-weight: 600;
+    transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+
+.mini-telem-temp.crit {
+    color: var(--red-alert) !important;
+    text-shadow: 0 0 6px rgba(255, 23, 68, 0.7) !important;
 }
 
 .mini-track {
@@ -2040,7 +2056,7 @@ body.state-alert .alert-overlay {
 }
 
 /* Mobile Landscape & Low-Height Screens (Galaxy A33 Landscape: ~800x380px) */
-@media (max-height: 520px) and (orientation: landscape), (max-height: 500px) {
+@media (max-height: 560px) and (orientation: landscape), (max-height: 500px) {
     #pixel-shift-container {
         padding: 6px 14px;
     }
@@ -2059,10 +2075,11 @@ body.state-alert .alert-overlay {
         font-size: 0.52rem;
     }
     .server-mini-telem {
-        margin-top: 4px;
-        margin-bottom: 0;
-        padding-top: 0;
+        top: calc(100% + 4px);
+        margin: 0;
+        padding: 0;
         gap: 5px;
+        width: max-content;
     }
     .server-mini-telem .mini-track {
         width: 32px;
@@ -2088,41 +2105,41 @@ body.state-alert .alert-overlay {
         min-height: 30px;
     }
     .visor-stage {
-        padding: 4px 0;
-        gap: 16px;
+        padding: 2px 0;
+        gap: 12px;
     }
     .visor-core-box {
-        width: min(34vw, calc(100vh - 165px), 180px);
-        height: min(34vw, calc(100vh - 165px), 180px);
+        width: min(28vw, calc(100vh - 215px), 140px);
+        height: min(28vw, calc(100vh - 215px), 140px);
     }
     body.telemetry-active .visor-core-box {
-        width: min(28vw, calc(100vh - 170px), 155px);
-        height: min(28vw, calc(100vh - 170px), 155px);
+        width: min(24vw, calc(100vh - 215px), 125px);
+        height: min(24vw, calc(100vh - 215px), 125px);
     }
 
     /* Status Banner under dog avatar: compact text, wraps PASSIVE SURVEILLANCE underneath, small capsule */
     .visor-status-box {
-        margin-top: 3px;
-        gap: 3px;
+        margin-top: 2px;
+        gap: 2px;
     }
     .state-label {
-        font-size: 0.68rem;
-        letter-spacing: 0.08rem;
-        line-height: 1.2;
-        max-width: 175px;
+        font-size: 0.64rem;
+        letter-spacing: 0.06rem;
+        line-height: 1.15;
+        max-width: 165px;
         text-align: center;
         text-wrap: balance;
     }
     .state-sub {
-        font-size: 0.52rem;
-        letter-spacing: 0.04rem;
-        padding: 2px 8px;
+        font-size: 0.48rem;
+        letter-spacing: 0.03rem;
+        padding: 1px 7px;
         border-radius: 999px;
-        max-width: 210px;
+        max-width: 200px;
         white-space: nowrap;
         text-overflow: ellipsis;
         overflow: hidden;
-        margin-top: 1px;
+        margin-top: 0;
     }
 
     body.telemetry-active .visor-stage {
@@ -2447,11 +2464,14 @@ body.state-alert .alert-overlay {
         text-align: center;
     }
     .server-mini-telem {
-        justify-content: center;
-        gap: 6px;
-        margin-top: 5px;
-        margin-bottom: 3px;
-        padding-right: 0;
+        position: static !important;
+        order: 4 !important;
+        width: 100% !important;
+        justify-content: center !important;
+        gap: 6px !important;
+        margin-top: 4px !important;
+        margin-bottom: 2px !important;
+        padding: 0 !important;
     }
     #clock-time {
         font-size: 1.35rem;
@@ -2468,8 +2488,8 @@ body.state-alert .alert-overlay {
         font-size: 1.25rem;
     }
     .visor-core-box {
-        width: min(64vw, 240px);
-        height: min(64vw, 240px);
+        width: min(58vw, calc(100vh - 340px), 210px);
+        height: min(58vw, calc(100vh - 340px), 210px);
     }
     body.telemetry-active .visor-stage {
         flex-direction: column;
@@ -2487,8 +2507,8 @@ body.state-alert .alert-overlay {
         display: none !important;
     }
     body.telemetry-active .visor-core-box {
-        width: 160px;
-        height: 160px;
+        width: min(44vw, calc(100vh - 420px), 150px);
+        height: min(44vw, calc(100vh - 420px), 150px);
     }
 
     /* Status Banner under dog avatar */

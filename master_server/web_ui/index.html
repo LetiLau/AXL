@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css?v=8.9">
+    <link rel="stylesheet" href="style.css?v=9.2">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -162,30 +162,30 @@
                     </svg>
                 </button>
             </div>
-        </header>
 
-        <!-- Master Server Mini Sparklines (Live Status under header line, right-aligned) -->
-        <div id="server-mini-telem" class="server-mini-telem" title="Master Server: Live Status (CPU, GPU, MEM)">
-            <div class="mini-telem-group" id="mini-cpu-group" title="CPU Load &amp; Temperature">
-                <span class="mini-telem-label">CPU</span>
-                <span id="mini-cpu-temp" class="mini-telem-temp">--°C</span>
-                <div class="mini-track">
-                    <div id="mini-cpu-fill" class="mini-fill" style="width: 0%;"></div>
+            <!-- Master Server Mini Sparklines (Anchored top-right under header line, zero layout-shift) -->
+            <div id="server-mini-telem" class="server-mini-telem" title="Master Server: Live Status (CPU, GPU, MEM)">
+                <div class="mini-telem-group" id="mini-cpu-group" title="CPU Load &amp; Temperature">
+                    <span id="mini-cpu-label" class="mini-telem-label">CPU</span>
+                    <span id="mini-cpu-temp" class="mini-telem-temp">--°C</span>
+                    <div class="mini-track">
+                        <div id="mini-cpu-fill" class="mini-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+                <div class="mini-telem-group" id="mini-gpu-group" title="GPU Load">
+                    <span class="mini-telem-label">GPU</span>
+                    <div class="mini-track">
+                        <div id="mini-gpu-fill" class="mini-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+                <div class="mini-telem-group" id="mini-mem-group" title="Memory (RAM) Usage">
+                    <span class="mini-telem-label">MEM</span>
+                    <div class="mini-track">
+                        <div id="mini-mem-fill" class="mini-fill" style="width: 0%;"></div>
+                    </div>
                 </div>
             </div>
-            <div class="mini-telem-group" id="mini-gpu-group" title="GPU Load">
-                <span class="mini-telem-label">GPU</span>
-                <div class="mini-track">
-                    <div id="mini-gpu-fill" class="mini-fill" style="width: 0%;"></div>
-                </div>
-            </div>
-            <div class="mini-telem-group" id="mini-mem-group" title="Memory (RAM) Usage">
-                <span class="mini-telem-label">MEM</span>
-                <div class="mini-track">
-                    <div id="mini-mem-fill" class="mini-fill" style="width: 0%;"></div>
-                </div>
-            </div>
-        </div>
+        </header>
 
         <!-- Main Visor Stage (Centered in normal mode, Split Layout in Telemetry Mode) -->
         <main id="visor-stage" class="visor-stage">
@@ -384,6 +384,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <script src="app.js?v=8.9"></script>
+    <script src="app.js?v=9.2"></script>
 </body>
 </html>

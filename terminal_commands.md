@@ -6,7 +6,7 @@ Chi digita in questa console ha accesso fisico o via SSH alla macchina Master (T
 *   I comandi della console **non richiedono autenticazione biometrica vocale**.
 *   Bypassa le restrizioni delle modalità `restrict` o `paranoid`.
 *   Supporta comandi e sottocomandi bilingui (**Inglese** e **Italiano**).
-*   Se digiti testo senza il prefisso `/`, viene automaticamente inoltrato come domanda a Gemini Brain (`/ask <testo>`).
+*   Se digiti testo senza il prefisso `/`, viene automaticamente inoltrato come domanda ad AXL (`/ask <testo>`).
 
 ---
 
@@ -14,7 +14,7 @@ Chi digita in questa console ha accesso fisico o via SSH alla macchina Master (T
 
 | Azione | Comandi accettati (Alias EN / IT) | Sintassi ed Esempi |
 |---|---|---|
-| **Parlare via TTS** | `/speak`, `/say`, `/answer`, `/parla`, `/rispondi` | `/speak <testo>`<br>`/speak --it Ciao A-X-L`<br>`/speak --en Systems online` |
+| **Parlare via TTS** | `/speak`, `/say`, `/answer`, `/parla`, `/rispondi` | `/speak <testo>`<br>`/speak --it Ciao io sono A-X-L`<br>`/speak --en Systems online` |
 | **Interrogare Gemini** | `/ask`, `/query`, `/q`, `/chiedi`, `/domanda` | `/ask <domanda>`<br>*(oppure digita direttamente la frase senza `/`)* |
 | **Gestione Task** | `/tasks`, `/task`, `/compiti`, `/promemoria`, `/todo` | `/tasks add <descrizione>`<br>`/tasks list` *(mostra compiti di oggi)*<br>`/tasks list --all` *(tutti i compiti)*<br>`/tasks done <id>`<br>`/tasks remove <id>`<br>`/tasks clear` |
 | **Calendario** | `/calendar`, `/cal`, `/calendario` | `/calendar add <titolo> [data/ora]`<br>`/calendar list` *(mostra eventi di oggi)*<br>`/calendar list --all` *(tutti gli eventi)*<br>`/calendar remove <id>` |

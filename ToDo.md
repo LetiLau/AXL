@@ -173,7 +173,18 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
       - **Connessione Istantanea & Heartbeat Real-Time 1Hz per i Mini-Slider del Server:**
         - I cursori compatti in alto (CPU, GPU, MEM + temp CPU) ora si collegano istantaneamente all'avvio dell'app tramite richiesta immediata `REQUEST_SERVER_TELEMETRY` all'apertura del WebSocket e all'evento `INIT`, senza dover più attivare e disattivare la telemetria del master dal riquadro.
         - Frequenza aumentata a 1.0s (1 Hz effettivo in tempo reale sia lato client che backend) e processo in background permanente durante il ciclo di vita del server.
-        - **Fix Sovrapposizione Header:** Eliminato il margine negativo (`margin-top: -6px`) e impostato un offset pulito verso il basso (`margin-top: 5px` su desktop e `4px` su mobile landscape), staccando visivamente gli slider dalla linea orizzontale di confine dell'header.
+        - **Fix Sovrapposizione Header & Allineamento a Destra:** Eliminato il margine negativo (`margin-top: -6px`), rimosso il padding destro superfluo (`padding: 0`) allineando perfettamente il bordo destro dei mini slider ai pulsanti sovrastanti dell'header (`fullscreen` / `settings`), con offset pulito di 5px verso il basso.
+        - **Allarmi Termici e di Carico Disaccoppiati (Scritta CPU, Slider e Temperatura Indipendenti):**
+          - Se la temperatura della CPU supera la soglia critica (>= 80°C): diventano rossi il **numero** (`miniCpuTemp`) e la **scritta CPU** (`miniCpuLabel`), mentre lo slider del carico rimane del colore legato unicamente all'uso effettivo della CPU.
+          - Se l'uso della CPU è alto (>= 85%): diventano rossi lo **slider** (`miniCpuFill`) e la **scritta CPU** (`miniCpuLabel`), mentre la temperatura rimane del colore standard senza allarmi termici spuri.
+          - Se entrambi i parametri sono alti (CPU molto carica e molto calda): tutti e tre gli elementi (scritta CPU, numero temperatura e slider carico) diventano rossi all'unisono.
+        - **Scalatura Avatar Cane e Separazione Verticale su Mobile / Kiosk:**
+          - Risolta la collisione visiva tra la capsula di stato `#visor-sub-label` (`"ACOUSTIC ARRAY: ACTIVE (16kHz PCM)"`) e la striscia biometrica (`CONFIDENCE` slider e testo sottostanti).
+          - Ricalibrato `.visor-core-box` su schermi compatti e landscape mobile da 180px/155px a 140px (125px con telemetria attiva) con vincolo dinamico `calc(100vh - 215px)` che sconta l'ingombro reale del banner e del footer, compattando `.visor-status-box` e `.state-sub` per garantire oltre 25px di margine pulito di separazione senza toccare il layout desktop PC.
+        - **Ancoraggio Assoluto Zero-Footprint Mini Telemetria (`#server-mini-telem`):**
+          - Spostato `#server-mini-telem` all'interno dell'header con posizionamento assoluto (`position: absolute; right: 0; top: calc(100% + 4px); width: max-content`).
+          - I mini slider occupano unicamente il proprio spazio compatto in alto a destra senza più estendersi invisibilmente per l'intera larghezza dello schermo (`width: 100%`) nel flusso flex principale.
+          - Eliminata la spinta verso il basso: il pannello di telemetria completo (Slave, Kiosk, Master) guadagna ~18px verticali sul lato sinistro, posizionandosi armoniosamente sotto la barra dell'header e lasciando ampio spazio libero sopra la striscia biometrica (`CONFIDENCE`), azzerando ogni collisione.
 
 17. [x] **Console Terminale Server (Minecraft-Style REPL & Admin Slash Commands):** Implementata console server interattiva in background (`console_manager.py`) nel terminale del Master. Chi digita nel terminale opera con privilegi root/Admin bypassando i guardrail vocali. Supporta comandi slash bilingui: `/speak` (vocal test su client con language detection automatica o flag `--en`/`--it`), `/ask` (query diretta a Gemini Brain), `/tasks` (aggiunta/elenco compiti filtrati di default per oggi salvati su `data/tasks.json`), `/calendar` (creazione/elenco eventi filtrati di default per oggi su `data/calendar.json`), `/mode`, `/mute`, `/telem`, `/audio`, `/status`, `/stop`, `/help`. Documentazione salvata in `terminal_commands.md`.
 18. [x] **Gestione Client Audio Concorrenti & Takeover Dinamico (`/ws/audio`):** Implementata gestione graziosa del passaggio tra sorgenti audio. Se si collega un nuovo client audio (es. Galaxy A33 o PC), il Master disconnette in modo pulito il vecchio stream (`code=1000`) e accoglie il nuovo senza errori né riavvii. Separazione architetturale tra Visori UI (multipli schermi simultanei su `/ws/ui` come tablet o browser) e Streaming Microfono/Cassa (singolo stream attivo su `/ws/audio`).
@@ -199,11 +210,13 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
         - `stranger` / `alert`: animazione cane aggressivo / snarl ringhio verso estranei
         - `music` / `balletto`: cane con console DJ o balletto / movimento a ritmo quando suona musica o in festeggiamenti
         - `speaking`: muso che dialoga sincronizzato con la voce Piper TTS
-      - [ ] Fumetto che indica lo stato di axl. Utile per gestire in futuro le animazioni ma avere l'architettura già pronta (not per speaking)
+      - [ ] Fumetto che indica lo stato di axl. Utile per gestire in futuro le animazioni ma avere l'architettura già pronta (not per speaking)   
 
 ---
 
 #### FASE 7: Gestione Audio Avanzata, Riproduzione Musicale & Integrazioni Cloud (Post-Kiosk)
+
+16. [ ] **Notifica cliccabile**: cliccare sulla notifica nel kiosk che AXL è attivo riapre AXL
 
 16. [ ] **Routing Audio e Riproduzione Musicale Dinamica (Slave vs Galaxy A33):**
     * Selezione del target di riproduzione vocale e musicale ("suona su PC" vs "suona sul visore A33"):
@@ -214,6 +227,30 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
     * Integrazione Spotify & Smart Apps:
       - Supporto comandi vocali A-X-L per avvio playlist/brani Spotify (via Spotify Connect, Web API, o local daemon).
 16. [ ] **Gestione A33**: volume, sveglie?, timer e relative ui se necessarie
+
+-------------------
+17. [ ] **Musica**: altoparlanti wifi. usa spotify e si connette ad altoparlanti presenti sulla sua stessa rete wifi o disponibili col bluetooth (oppure gestisce la musica su altri dispositivi. semrpe grazie a spotify)
+
+### Tramite Wi-Fi con **Spotify Connect (Spotify Web API)** — *Soluzione ideale*
+Spotify integra nativamente il protocollo **Spotify Connect**, accessibile via software (ad esempio tramite la libreria Python `spotipy` sul Master Server):
+
+* **Come funziona**: 
+  * Il Master può interrogare l'API di Spotify per ottenere l'elenco di tutti i dispositivi attivi e visibili sulla rete Wi-Fi (altoparlanti smart come Sonos, Bose, Amazon Echo, Smart TV, PC, tablet o altri smartphone).
+  * Ricevendo un comando come *"metti del jazz in salotto"* o *"passa la musica al computer"*, il server recupera l'ID del dispositivo desiderato (`device_id`) e trasferisce la riproduzione lì, avviando tracce, playlist o regolando il volume da remoto.
+* **Vantaggi**: Non richiede cavi né accoppiamenti Bluetooth; la musica viene trasmessa via Wi-Fi direttamente dai server di Spotify all'altoparlante con massima qualità e senza impegnare la banda audio di AXL.
+* **Requisito**: L'API di Spotify richiede un account **Spotify Premium** per poter controllare e deviare la riproduzione tra dispositivi.
+
+### Tramite **Bluetooth**
+* **Come funziona**: 
+  * L'altoparlante Bluetooth viene accoppiato a livello di sistema operativo al dispositivo desiderato (sul PC Master Linux tramite `bluetoothctl`/BlueZ oppure direttamente sullo smartphone Samsung A33).
+  * Una volta connesso, l'altoparlante funge da normale uscita audio (sink audio A2DP). Qualsiasi flusso riprodotto da Spotify (o la stessa voce di AXL) uscirà automaticamente dalla cassa Bluetooth.
+* **Vantaggi**: Funziona con qualsiasi cassa portatile standard, anche offline o senza supporto a Spotify Connect.
+
+### Sintesi
+* Per **altoparlanti Wi-Fi e gestione multi-dispositivo**: si sfrutta **Spotify Connect** sul Master Server (tramite API Web di Spotify), che permette di comandare la riproduzione ovunque nella casa.
+* Per **casse Bluetooth**: basta il pairing Bluetooth sul Master o sull'A33, usandole come periferica di output audio.
+
+----------
 17. [ ] **Integrazione Cloud APIs Nativi su Master Server (Completamente Esterni all'A33):**
     * **Google Calendar API Ufficiale (Cloud)**:
       - Modulo di autenticazione OAuth 2.0 (`credentials.json` / `token.json`) sul Master Server ThinkPad.

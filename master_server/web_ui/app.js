@@ -71,6 +71,7 @@
 
     // Master Server Mini Sparklines Elements (Sub-Header Sliders)
     const serverMiniTelem = document.getElementById("server-mini-telem");
+    const miniCpuLabel = document.getElementById("mini-cpu-label");
     const miniCpuFill = document.getElementById("mini-cpu-fill");
     const miniCpuTemp = document.getElementById("mini-cpu-temp");
     const miniGpuFill = document.getElementById("mini-gpu-fill");
@@ -732,6 +733,10 @@
         if (miniCpuTemp) {
             miniCpuTemp.textContent = "N/A";
             miniCpuTemp.style.color = "var(--text-muted)";
+            miniCpuTemp.classList.remove("crit");
+        }
+        if (miniCpuLabel) {
+            miniCpuLabel.classList.remove("crit");
         }
         if (miniGpuFill) {
             miniGpuFill.style.width = "0%";
@@ -912,15 +917,30 @@
         }
         const resolvedTemp = (cpuTemp !== null && cpuTemp !== undefined) ? Math.round(cpuTemp) : null;
 
+        const usageIsCrit = cpuUsage >= 85;
+        const usageIsWarn = !usageIsCrit && (cpuUsage >= 70);
+        const tempIsCrit = (resolvedTemp !== null && resolvedTemp >= 80);
+        const cpuLabelIsCrit = usageIsCrit || tempIsCrit;
+
         if (miniCpuFill) {
             miniCpuFill.style.width = `${cpuUsage}%`;
-            const isCrit = (cpuUsage >= 85) || (resolvedTemp !== null && resolvedTemp >= 82);
-            const isWarn = !isCrit && (cpuUsage >= 70);
-            miniCpuFill.className = "mini-fill" + (isCrit ? " crit" : (isWarn ? " warn" : ""));
+            // Slider turns red ONLY if CPU usage is high
+            miniCpuFill.className = "mini-fill" + (usageIsCrit ? " crit" : (usageIsWarn ? " warn" : ""));
         }
         if (miniCpuTemp) {
             miniCpuTemp.textContent = resolvedTemp !== null ? `${resolvedTemp}°C` : "--°C";
-            miniCpuTemp.style.color = (resolvedTemp !== null && resolvedTemp >= 82) ? "var(--red-alert)" : "";
+            // Temperature number turns red ONLY if temperature is high
+            if (tempIsCrit) {
+                miniCpuTemp.classList.add("crit");
+                miniCpuTemp.style.color = "var(--red-alert)";
+            } else {
+                miniCpuTemp.classList.remove("crit");
+                miniCpuTemp.style.color = "";
+            }
+        }
+        if (miniCpuLabel) {
+            // CPU label turns red if EITHER usage is high OR temperature is high (or both)
+            miniCpuLabel.classList.toggle("crit", cpuLabelIsCrit);
         }
 
         // 2. GPU Load (Slider only, no numbers)
