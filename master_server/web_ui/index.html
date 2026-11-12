@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>A-X-L // Cybernetic Visor</title>
-    <link rel="stylesheet" href="style.css?v=9.3">
+    <link rel="stylesheet" href="style.css?v=9.5">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -306,6 +306,14 @@
                     <!-- Holographic Cybernetic Core Visualizer Canvas (Hidden when video avatar is active) -->
                     <canvas id="visor-canvas" width="600" height="600" style="display: none;"></canvas>
 
+                    <!-- Contextual Tactical Speech Bubble (Comic status balloon anchored to dog avatar) -->
+                    <div id="axl-speech-bubble" class="axl-speech-bubble bubble-idle" role="status" aria-live="polite" title="A-X-L Status Balloon (Click to cycle quote)">
+                        <div class="axl-bubble-content">
+                            <span id="axl-bubble-text" class="axl-bubble-text">Waiting for ya...</span>
+                        </div>
+                        <div class="axl-bubble-tail"></div>
+                    </div>
+
                     <!-- Tactical Visor Reticles & HUD Brackets -->
                     <div class="visor-reticle-overlay">
                         <div class="bracket bracket-tl"></div>
@@ -369,7 +377,7 @@
             <div class="dialogue-panel">
                 <div class="dialogue-row user-row">
                     <span class="speaker-tag tag-user">HEARD &gt;</span>
-                    <span id="user-transcript" class="speech-text transcript-text">"Hey Jarvis..."</span>
+                    <span id="user-transcript" class="speech-text transcript-text">"Hey A-X-L..."</span>
                 </div>
                 <div class="dialogue-row axl-row">
                     <span class="speaker-tag tag-axl">A-X-L &gt;</span>
@@ -384,6 +392,6 @@
     <!-- Alert Audio Strobe Glitch Overlay -->
     <div id="alert-strobe" class="alert-overlay"></div>
 
-    <script src="app.js?v=9.3"></script>
+    <script src="app.js?v=9.5"></script>
 </body>
 </html>

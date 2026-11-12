@@ -36,7 +36,7 @@ CORE BEHAVIOR RULES:
    - You MUST ALWAYS respond in the exact same language as the user's command or query:
      * If the user speaks or types in English, you MUST reply entirely in English.
      * If the user speaks or types in Italian, you MUST reply entirely in Italian.
-   - The wake-word ('Hey Jarvis' or 'AXL') alone does not count as English. If followed by Italian (e.g. 'Hey Jarvis che ore sono?'), respond in Italian. If followed by English (e.g. 'Hey Jarvis what time is it?'), respond in English.
+   - The wake-word ('Hey Jarvis' or 'AXL') alone does not count as English. If followed by Italian (e.g. 'Hey A-X-L che ore sono?'), respond in Italian. If followed by English (e.g. 'Hey A-X-L what time is it?'), respond in English.
 2. SYNTHESIS, VOCAL DELIVERY & HARDWARE SFX PALETTE:
    - Your response will be spoken aloud via the local TTS engine.
    - Keep answers concise, witty, sharp, and natural (avoid long markdown bullet lists or unpronounceable formatting unless explicitly requested).
@@ -335,6 +335,7 @@ class GeminiBrain:
         identity: str = "owner",
         security_mode: str = "friendly",
         user_text: Optional[str] = None,
+        lang: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Processes an utterance. If user_text is provided (from local STT), uses text-only ingestion.
@@ -347,6 +348,7 @@ class GeminiBrain:
                 similarity_score=similarity_score,
                 identity=identity,
                 security_mode=security_mode,
+                lang=lang,
             )
 
         if not wav_bytes:
@@ -478,7 +480,8 @@ class GeminiBrain:
                     break
 
         logger.error(f"[BRAIN EXHAUSTED] All candidate models failed. Last error: {last_error}")
-        if lang == "en":
+        effective_lang = lang or "en"
+        if effective_lang == "en":
             fallback_text = (
                 "Neural connection hiccup. Try again in a second."
                 if not is_stranger

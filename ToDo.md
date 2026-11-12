@@ -214,7 +214,17 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
         - `stranger` / `alert`: animazione cane aggressivo / snarl ringhio verso estranei
         - `music` / `balletto`: cane con console DJ o balletto / movimento a ritmo quando suona musica o in festeggiamenti
         - `speaking`: muso che dialoga sincronizzato con la voce Piper TTS
-      - [ ] Fumetto che indica lo stato di axl. Utile per gestire in futuro le animazioni ma avere l'architettura già pronta (not per speaking)   
+      - [x] **Fumetto Tattico Contestuale sopra Avatar Cane (`#axl-speech-bubble`):**
+        - Architettura fumetto pronta, posizionato a destra della testa del cane (`left: 80%`, `width: max-content`) per evitare ogni sovrapposizione visiva sul modello 3D video, con coda/puntatore orientato a sinistra verso la testa/muso del cane. Layout responsive ottimizzato per PC Desktop, Tablet e Mobile Kiosk (Galaxy A33 Landscape & Portrait senza wrapping verticale). Predisposta per riposizionamento dinamico al variare delle animazioni future.
+        - **Stile Cyberpunk Glassmorphic A-X-L:** Sfondo scuro semitrasparente blur, bordo neon, tipografia Share Tech Mono, micro-animazione pop all'apparizione e al cambio stato.
+        - **Quote Divertenti Contestuali in Inglese:**
+          - `IDLE`: *"Waiting for ya..."*, *"100% good tactical boy."*, *"Scanning room for snacks... err, threats."*, *"Say 'Hey Jarvis' to wake me up!"*, *"Cyber-tail wagging at 60 FPS."* (rotazione automatica ogni 14s e al click/tap sul fumetto).
+          - `MUTE`: *"I've headphones, can't hear you!"*, *"Sensors muted! La la la..."*, *"Microphone blocked! Safe mode on."*
+          - `LISTENING`: *"Ears up! I'm all ears..."*, *"Acoustic array locked on."*, *"Go ahead, speak up!"*
+          - `THINKING`: *"Consulting Gemini neural net..."*, *"Crunching bytes, hang on!"*, *"Quantum gears turning..."*
+          - `ALERT`: *"INTRUDER DETECTED! Grrr..."*, *"Stranger danger! Step back!"*, *"Targeting reticles locked!"*
+          - `OFFLINE`: Passaggio automatico al tema rosso/grigio tattico: *"LOST LINK // Server is offline..."*, *"OFFLINE: Master ThinkPad is gone!"*, *"No signal... taking a nap."*
+          - `SPEAKING`: Nascosto con dissolvenza fluida durante l'output vocale TTS (evitando sovrapposizioni con i sottotitoli in basso).   
 
 ---
 

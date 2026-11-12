@@ -79,6 +79,8 @@
 
     const stateLabel = document.getElementById("visor-state-label");
     const stateSub = document.getElementById("visor-sub-label");
+    const speechBubble = document.getElementById("axl-speech-bubble");
+    const bubbleText = document.getElementById("axl-bubble-text");
     const bioIdentity = document.getElementById("bio-identity");
     const bioScoreBar = document.getElementById("bio-score-bar");
     const bioScoreText = document.getElementById("bio-score-text");
@@ -107,6 +109,8 @@
     let isServerConnected = false;
     let isTelemetryActive = false;
     let telemetryTarget = "slave";
+    let currentBubbleQuote = "";
+    let bubbleIdleInterval = null;
     let telemetrySimInterval = null;
     let lastRealTelemetryTime = 0;
     let serverMiniTelemInterval = null;
@@ -170,12 +174,14 @@
     function wakeScreen() {
         if (body.classList.contains("hud-subdued")) {
             body.classList.remove("hud-subdued");
+            updateSpeechBubble();
         }
     }
 
     function dimScreen() {
         if (currentState === "IDLE") {
             body.classList.add("hud-subdued");
+            updateSpeechBubble();
         }
     }
 
@@ -1755,6 +1761,7 @@
             if (muteBtnIcon) muteBtnIcon.textContent = isMuted ? "🔇" : "🎙️";
             if (muteBtnLabel) muteBtnLabel.textContent = isMuted ? "MIC: MUTO" : "MIC: OFFLINE";
             muteBtn.title = "Master Server disconnesso (WS Offline): clicca per riconnettere.";
+            updateSpeechBubble();
             return;
         }
 
@@ -1772,6 +1779,7 @@
             if (muteBtnLabel) muteBtnLabel.textContent = "MIC: ATTIVO";
             muteBtn.title = "Disattiva ascolto microfono (Può essere riattivato solo cliccando qui)";
         }
+        updateSpeechBubble();
     }
 
     if (muteBtn) {
@@ -1889,6 +1897,7 @@
             targetMicLevel = 0.0;
         }
         updateAskButton();
+        updateSpeechBubble();
     }
 
     // ==========================================================================
@@ -1931,6 +1940,153 @@
         }
         visorVideo.load();
         visorVideo.play().catch(() => {});
+    }
+
+    // ==========================================================================
+    // 10. CONTEXTUAL SPEECH BUBBLE CONTROLLER (COMIC STATUS BALLOON OVER AVATAR)
+    // ==========================================================================
+    const BUBBLE_QUOTES = {//All notes here are for when I'll create the actual animation
+        //NOTE: Taking a nap only with nap animation
+        IDLE: [
+            "Waiting for ya...",
+            "100% tactical good boy.",
+            "Scanning room for snacks... err, threats.",
+            "Say 'A-X-L' to wake me up!",
+            "Cyber-tail wagging at 60 FPS!",
+            "Ready when you are, boss.",
+            "All sensors nominal. Waiting...",
+            "Taking a nap, but you can wake me up every time!"
+        ],
+        MUTE: [
+            "I've headphones, can't hear you!",
+            "Sensors muted! La la la...",
+            "Microphone blocked! Safe mode on",
+            "Digital earplugs engaged :)",
+            "Can't hear ya! Tap MIC to unlock ;)"
+        ],
+        LISTENING: [
+            "Ears up! I'm all ears...",
+            "I'm listening, human!",
+            "Acoustic array locked on",
+            "Go ahead, speak up!",
+            "Recording your voice packet..."
+        ],
+        THINKING: [
+            "Consulting Gemini neural net...",
+            "Crunching bytes, hang on!",
+            "Processing... don't rush the doggo",
+            "Quantum gears turning...",
+            "Analyzing intent..."
+        ],
+        ALERT: [
+            "INTRUDER DETECTED! Grrr...",
+            "Stranger danger! Step back!",
+            "Targeting reticles locked!",
+            "Who let the stranger in?!",
+            "Security threat flagged!"
+        ],
+        //NOTE: vacation only with sunbath animation
+        OFFLINE: [
+            "LOST LINK // Server is offline...",
+            "No signal... going on vacation.",
+            "OFFLINE: OH NO! Master Server is gone!",
+            "Disconnected! Where's my Wi-Fi?",
+            "404: Master brain not found."
+        ],
+        
+        //When the screen has low lum
+        SUBDUED: [
+            "Screen Low, conserving AMOLED pixels...",
+        ]
+    };
+
+    function updateSpeechBubble(forcedText) {
+        if (!speechBubble || !bubbleText) return;
+
+        // 1. If speaking, hide the bubble (per ToDo: not for speaking)
+        if (currentState === "SPEAKING") {
+            speechBubble.classList.add("bubble-speaking");
+            return;
+        }
+        speechBubble.classList.remove("bubble-speaking");
+
+        // Remove previous theme classes
+        speechBubble.classList.remove(
+            "bubble-offline",
+            "bubble-mute",
+            "bubble-alert",
+            "bubble-listening",
+            "bubble-thinking",
+            "bubble-idle"
+        );
+
+        let category = "IDLE";
+        let themeClass = "bubble-idle";
+
+        // 2. Check offline state
+        if (!isServerConnected) {
+            category = "OFFLINE";
+            themeClass = "bubble-offline";
+        }
+        // 3. Check mute state
+        else if (isMuted) {
+            category = "MUTE";
+            themeClass = "bubble-mute";
+        }
+        // 4. Check alert / stranger state
+        else if (currentState === "ALERT") {
+            category = "ALERT";
+            themeClass = "bubble-alert";
+        }
+        // 5. Check listening state
+        else if (currentState === "LISTENING") {
+            category = "LISTENING";
+            themeClass = "bubble-listening";
+        }
+        // 6. Check thinking state
+        else if (currentState === "THINKING") {
+            category = "THINKING";
+            themeClass = "bubble-thinking";
+        }
+        // 7. Check subdued state
+        else if (body.classList.contains("hud-subdued")) {
+            category = "SUBDUED";
+            themeClass = "bubble-idle";
+        }
+
+        speechBubble.classList.add(themeClass);
+
+        let textToDisplay = forcedText;
+        if (!textToDisplay) {
+            const quotes = BUBBLE_QUOTES[category] || BUBBLE_QUOTES.IDLE;
+            let nextIndex = Math.floor(Math.random() * quotes.length);
+            if (quotes.length > 1 && quotes[nextIndex] === currentBubbleQuote) {
+                nextIndex = (nextIndex + 1) % quotes.length;
+            }
+            textToDisplay = quotes[nextIndex];
+            currentBubbleQuote = textToDisplay;
+        }
+
+        bubbleText.textContent = textToDisplay;
+        speechBubble.classList.remove("pop");
+        void speechBubble.offsetWidth; // trigger reflow for smooth pop
+        speechBubble.classList.add("pop");
+    }
+
+    if (speechBubble) {
+        speechBubble.addEventListener("click", (e) => {
+            e.stopPropagation();
+            updateSpeechBubble();
+        });
+    }
+
+    function startBubbleIdleLoop() {
+        if (bubbleIdleInterval) clearInterval(bubbleIdleInterval);
+        bubbleIdleInterval = setInterval(() => {
+            if (currentState === "IDLE" && isServerConnected && !isMuted && !body.classList.contains("hud-subdued")) {
+                updateSpeechBubble();
+            }
+        }, 14000);
     }
 
     // ==========================================================================
@@ -2104,5 +2260,7 @@
     updateAskButton();
     syncModePopupUI();
     updateMiniTelemVisibility();
+    updateSpeechBubble();
+    startBubbleIdleLoop();
 
 })();

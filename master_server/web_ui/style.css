@@ -870,6 +870,173 @@ body.telemetry-active .visor-core-box {
     z-index: 2;
 }
 
+/* ==========================================================================
+   A-X-L CONTEXTUAL SPEECH BUBBLE (COMIC STATUS BALLOON OVER AVATAR)
+   Anchored near the cyber-dog's head with a tactical cyberpunk HUD aesthetic.
+   Supports dynamic theme states (idle, listening, thinking, mute, alert, offline).
+   ========================================================================== */
+.axl-speech-bubble {
+    position: absolute;
+    top: 6%;
+    left: 80%;
+    z-index: 15;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: max-content;
+    min-width: 130px;
+    max-width: 220px;
+    background: linear-gradient(140deg, rgba(2, 22, 38, 0.92) 0%, rgba(0, 10, 20, 0.96) 100%);
+    border: 1.5px solid rgba(0, 240, 255, 0.5);
+    border-radius: 12px;
+    padding: 6px 12px;
+    box-shadow: 0 0 14px rgba(0, 240, 255, 0.22), inset 0 0 10px rgba(0, 240, 255, 0.08);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    cursor: pointer;
+    user-select: none;
+    pointer-events: auto;
+    transform-origin: bottom left;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), 
+                opacity 0.25s ease, 
+                background 0.35s ease, 
+                border-color 0.35s ease, 
+                box-shadow 0.35s ease, 
+                color 0.35s ease;
+}
+
+.axl-speech-bubble:hover {
+    transform: scale(1.05);
+    border-color: var(--cyan-glow);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.42), inset 0 0 12px rgba(0, 240, 255, 0.12);
+}
+
+.axl-speech-bubble.pop {
+    animation: bubble-pop 0.32s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes bubble-pop {
+    0% { transform: scale(0.85); opacity: 0.6; }
+    50% { transform: scale(1.06); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* Comic Speech Bubble Tail pointing leftwards towards dog's head/mouth */
+.axl-bubble-tail {
+    position: absolute;
+    bottom: 10px;
+    left: -8px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 6px 8px 6px 0;
+    border-color: transparent rgba(0, 240, 255, 0.55) transparent transparent;
+    transition: border-color 0.35s ease;
+}
+
+.axl-speech-bubble:hover .axl-bubble-tail {
+    border-color: transparent var(--cyan-glow) transparent transparent;
+}
+
+.axl-bubble-text {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04rem;
+    color: var(--cyan-glow);
+    text-shadow: 0 0 6px rgba(0, 240, 255, 0.4);
+    line-height: 1.25;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: break-word;
+    transition: color 0.35s ease, text-shadow 0.35s ease;
+}
+
+/* 1. IDLE & NORMAL STATE */
+.axl-speech-bubble.bubble-idle {
+    border-color: rgba(0, 240, 255, 0.5);
+    color: var(--cyan-glow);
+}
+
+/* 2. LISTENING STATE (Electric Neon Blue Glow) */
+.axl-speech-bubble.bubble-listening {
+    border-color: var(--blue-neon);
+    box-shadow: 0 0 18px rgba(0, 136, 255, 0.4), inset 0 0 10px rgba(0, 136, 255, 0.12);
+}
+.axl-speech-bubble.bubble-listening .axl-bubble-text {
+    color: #80d8ff;
+    text-shadow: 0 0 8px var(--blue-neon);
+}
+.axl-speech-bubble.bubble-listening .axl-bubble-tail {
+    border-color: transparent var(--blue-neon) transparent transparent;
+}
+
+/* 3. THINKING STATE (Violet / Purple Neural Glow) */
+.axl-speech-bubble.bubble-thinking {
+    border-color: var(--violet-neural);
+    box-shadow: 0 0 18px rgba(176, 56, 255, 0.4), inset 0 0 10px rgba(176, 56, 255, 0.12);
+}
+.axl-speech-bubble.bubble-thinking .axl-bubble-text {
+    color: #ea80fc;
+    text-shadow: 0 0 8px var(--violet-neural);
+}
+.axl-speech-bubble.bubble-thinking .axl-bubble-tail {
+    border-color: transparent var(--violet-neural) transparent transparent;
+}
+
+/* 4. SPEAKING STATE: Smoothly hidden during vocal delivery (per ToDo: not for speaking) */
+.axl-speech-bubble.bubble-speaking {
+    opacity: 0 !important;
+    transform: scale(0.8) translateY(-4px) !important;
+    pointer-events: none !important;
+}
+
+/* 5. MUTE STATE (Amber / Warn Headphone Mode) */
+.axl-speech-bubble.bubble-mute {
+    background: linear-gradient(140deg, rgba(38, 22, 5, 0.94) 0%, rgba(20, 12, 2, 0.96) 100%) !important;
+    border-color: var(--amber-warn) !important;
+    box-shadow: 0 0 16px rgba(255, 153, 0, 0.35), inset 0 0 10px rgba(255, 153, 0, 0.1) !important;
+}
+.axl-speech-bubble.bubble-mute .axl-bubble-text {
+    color: #ffb74d !important;
+    text-shadow: 0 0 8px rgba(255, 153, 0, 0.5) !important;
+}
+.axl-speech-bubble.bubble-mute .axl-bubble-tail {
+    border-color: transparent var(--amber-warn) transparent transparent !important;
+}
+
+/* 6. ALERT / STRANGER STATE (Red Tactical Defense Alert) */
+.axl-speech-bubble.bubble-alert {
+    background: linear-gradient(140deg, rgba(46, 12, 20, 0.95) 0%, rgba(26, 6, 12, 0.98) 100%) !important;
+    border-color: var(--red-alert) !important;
+    box-shadow: 0 0 20px rgba(255, 0, 59, 0.5), inset 0 0 10px rgba(255, 0, 59, 0.15) !important;
+    animation: alert-pulse 1.2s infinite alternate !important;
+}
+.axl-speech-bubble.bubble-alert .axl-bubble-text {
+    color: #ff5252 !important;
+    text-shadow: 0 0 8px var(--red-alert) !important;
+}
+.axl-speech-bubble.bubble-alert .axl-bubble-tail {
+    border-color: transparent var(--red-alert) transparent transparent !important;
+}
+
+/* 7. DISCONNECTED / OFFLINE STATE (Grigio / Rosso Tactical Look) */
+body.server-offline .axl-speech-bubble,
+.axl-speech-bubble.bubble-offline {
+    background: linear-gradient(140deg, rgba(44, 22, 28, 0.92) 0%, rgba(24, 12, 16, 0.96) 100%) !important;
+    border-color: rgba(255, 45, 85, 0.55) !important;
+    box-shadow: 0 0 14px rgba(255, 0, 59, 0.25), inset 0 0 10px rgba(0, 0, 0, 0.6) !important;
+}
+body.server-offline .axl-speech-bubble .axl-bubble-text,
+.axl-speech-bubble.bubble-offline .axl-bubble-text {
+    color: #ff6b81 !important;
+    text-shadow: 0 0 6px rgba(255, 45, 85, 0.4) !important;
+}
+body.server-offline .axl-speech-bubble .axl-bubble-tail,
+.axl-speech-bubble.bubble-offline .axl-bubble-tail {
+    border-color: transparent rgba(255, 45, 85, 0.6) transparent transparent !important;
+}
+
 .visor-reticle-overlay {
     display: none;
 }
@@ -2092,6 +2259,11 @@ body.state-alert .alert-overlay {
         width: 220px;
         height: 220px;
     }
+    .axl-speech-bubble {
+        top: 4%;
+        left: 78%;
+        max-width: 180px;
+    }
 }
 
 /* Mobile Landscape & Low-Height Screens (Galaxy A33 Landscape: ~800x380px) */
@@ -2154,6 +2326,24 @@ body.state-alert .alert-overlay {
     body.telemetry-active .visor-core-box {
         width: min(24vw, calc(100vh - 215px), 125px);
         height: min(24vw, calc(100vh - 215px), 125px);
+    }
+    .axl-speech-bubble {
+        top: 2%;
+        left: 80%;
+        width: max-content;
+        min-width: 105px;
+        max-width: 155px;
+        padding: 4px 8px;
+        border-radius: 9px;
+    }
+    .axl-bubble-text {
+        font-size: 0.55rem;
+        line-height: 1.2;
+    }
+    .axl-bubble-tail {
+        bottom: 6px;
+        left: -6px;
+        border-width: 5px 6px 5px 0;
     }
 
     /* Status Banner under dog avatar: compact text, wraps PASSIVE SURVEILLANCE underneath, small capsule */
@@ -2548,6 +2738,23 @@ body.state-alert .alert-overlay {
     body.telemetry-active .visor-core-box {
         width: min(44vw, calc(100vh - 420px), 150px);
         height: min(44vw, calc(100vh - 420px), 150px);
+    }
+    .axl-speech-bubble {
+        top: 2%;
+        left: 68%;
+        width: max-content;
+        min-width: 95px;
+        max-width: 140px;
+        padding: 4px 8px;
+        border-radius: 9px;
+    }
+    .axl-bubble-text {
+        font-size: 0.56rem;
+    }
+    .axl-bubble-tail {
+        bottom: 6px;
+        left: -6px;
+        border-width: 5px 6px 5px 0;
     }
 
     /* Status Banner under dog avatar */
