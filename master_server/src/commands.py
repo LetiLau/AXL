@@ -238,25 +238,31 @@ def media_control(
             except Exception as exc:
                 logger.warning(f"[media_control] Spotify transfer failed: {exc}")
 
+    norm_target_lower = clean_target.lower()
+    is_local_kiosk_target = (not norm_target_lower) or any(
+        k in norm_target_lower for k in ("kiosk", "a33", "tablet", "local", "locale", "qui", "schermo")
+    )
+
+    spotify_res: Optional[Dict[str, Any]] = None
     if spotify_controller.is_configured() and spotify_controller.is_authenticated():
         try:
-            res = spotify_controller.control_playback(
+            spotify_res = spotify_controller.control_playback(
                 action=act,
                 target=clean_target or None,
                 volume=volume,
                 repeat_mode=clean_repeat or None,
             )
-            if res.get("ok"):
+            if spotify_res.get("ok"):
                 event_payload: Dict[str, Any] = {
                     "type": "MUSIC_STATE",
                     "action": act,
                     "ok": True,
-                    "device_name": res.get("device_name", clean_target),
+                    "device_name": spotify_res.get("device_name", clean_target),
                 }
-                if "repeat_state" in res:
-                    event_payload["repeat_state"] = res["repeat_state"]
+                if "repeat_state" in spotify_res:
+                    event_payload["repeat_state"] = spotify_res["repeat_state"]
                 notify_telemetry(event_payload)
-                return res["message"]
+                return spotify_res["message"]
         except Exception as exc:
             logger.warning(f"[media_control] Spotify Connect control error: {exc}")
 
@@ -268,7 +274,13 @@ def media_control(
         if spotify_controller._try_sonos_upnp_fallback(norm_t, sonos_list, act, volume=volume, repeat_mode=norm_rep):
             return f"Comando '{act}' eseguito direttamente su Sonos via rete locale."
 
-    # Fallback: dispatch Android Kiosk media/volume intent
+    # Never fall back to local Kiosk Android intent when the user explicitly targeted a remote device (e.g. S25, PC)
+    if not is_local_kiosk_target:
+        if spotify_res and spotify_res.get("message"):
+            return spotify_res["message"]
+        return f"Impossibile eseguire '{act}' su '{clean_target}'."
+
+    # Fallback: dispatch Android Kiosk media/volume intent (local Kiosk only)
     if act == "set_volume" and volume is not None:
         notify_telemetry({
             "type": "INTENT",

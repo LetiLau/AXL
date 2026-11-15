@@ -938,19 +938,19 @@ body.telemetry-active .visor-core-box {
     border-color: transparent var(--cyan-glow) transparent transparent;
 }
 
-/* When Music Player or Telemetry is open, anchor bubble above dog's head pointing down so it never overlaps side panels */
-body.music-active .axl-speech-bubble,
-body.telemetry-active .axl-speech-bubble {
-    top: -14px;
+/* When BOTH Music Player and Telemetry are active simultaneously:
+   The avatar is squeezed in the middle between panels, so anchor the speech bubble ABOVE the dog's head pointing down.
+   If ONLY ONE is active (or neither), the bubble remains on the RIGHT in its classic position. */
+body.music-active.telemetry-active .axl-speech-bubble {
+    top: -16px;
     left: 50%;
     translate: -50% 0;
     transform-origin: bottom center;
-    max-width: 240px;
-    padding: 5px 11px;
+    max-width: 220px;
+    padding: 4px 10px;
 }
 
-body.music-active .axl-bubble-tail,
-body.telemetry-active .axl-bubble-tail {
+body.music-active.telemetry-active .axl-bubble-tail {
     top: auto;
     bottom: -8px;
     left: 50%;
@@ -959,9 +959,24 @@ body.telemetry-active .axl-bubble-tail {
     border-color: rgba(0, 240, 255, 0.55) transparent transparent transparent;
 }
 
-body.music-active .axl-speech-bubble:hover .axl-bubble-tail,
-body.telemetry-active .axl-speech-bubble:hover .axl-bubble-tail {
+body.music-active.telemetry-active .axl-speech-bubble:hover .axl-bubble-tail {
     border-color: var(--cyan-glow) transparent transparent transparent;
+}
+body.music-active.telemetry-active .axl-speech-bubble.bubble-listening .axl-bubble-tail {
+    border-color: var(--blue-neon) transparent transparent transparent;
+}
+body.music-active.telemetry-active .axl-speech-bubble.bubble-thinking .axl-bubble-tail {
+    border-color: var(--violet-neural) transparent transparent transparent;
+}
+body.music-active.telemetry-active .axl-speech-bubble.bubble-mute .axl-bubble-tail {
+    border-color: var(--amber-warn) transparent transparent transparent !important;
+}
+body.music-active.telemetry-active .axl-speech-bubble.bubble-alert .axl-bubble-tail {
+    border-color: var(--red-alert) transparent transparent transparent !important;
+}
+body.server-offline.music-active.telemetry-active .axl-speech-bubble .axl-bubble-tail,
+body.music-active.telemetry-active .axl-speech-bubble.bubble-offline .axl-bubble-tail {
+    border-color: rgba(255, 45, 85, 0.6) transparent transparent transparent !important;
 }
 
 .axl-bubble-text {
@@ -1238,11 +1253,35 @@ body.music-active .telemetry-panel {
     order: 3;
 }
 
-.badge-music-pill {
-    background: rgba(0, 240, 255, 0.14);
-    border-color: rgba(0, 240, 255, 0.45);
-    color: #9bf6ff;
-    font-weight: 700;
+/* Keep right-aligned Telemetry panel clear of top-right #server-mini-telem sparklines */
+body.music-active.telemetry-active .telemetry-panel {
+    margin-top: 26px;
+    max-height: calc(100vh - 205px);
+}
+
+.music-header-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    padding: 2px;
+    margin: 0;
+    color: var(--cyan-glow);
+    cursor: pointer;
+    opacity: 0.38;
+    transition: opacity 0.2s ease, transform 0.2s ease, filter 0.2s ease;
+    flex-shrink: 0;
+}
+
+.music-header-icon-btn[hidden] {
+    display: none !important;
+}
+
+.music-header-icon-btn:hover {
+    opacity: 0.85;
+    transform: scale(1.1);
+    filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.6));
 }
 
 .music-top-bar {
@@ -1281,6 +1320,12 @@ body.music-active .telemetry-panel {
     color: #ffd180;
 }
 
+.music-live-pill.offline {
+    background: rgba(255, 23, 68, 0.16);
+    border-color: rgba(255, 23, 68, 0.48);
+    color: #ff6b81;
+}
+
 .music-eq-bars {
     display: inline-flex;
     align-items: flex-end;
@@ -1299,7 +1344,8 @@ body.music-active .telemetry-panel {
 
 .music-eq-bars i:nth-child(2) { animation-delay: 0.2s; height: 9px; }
 .music-eq-bars i:nth-child(3) { animation-delay: 0.4s; height: 6px; }
-.music-live-pill.paused .music-eq-bars i {
+.music-live-pill.paused .music-eq-bars i,
+.music-live-pill.offline .music-eq-bars i {
     animation: none;
     height: 3px;
 }
@@ -1624,8 +1670,72 @@ body.music-active .telemetry-panel {
         gap: 4px;
     }
     body.music-active.telemetry-active .telemetry-panel {
-        width: min(34vw, 275px);
-        max-height: 100%;
+        width: min(39vw, 315px) !important;
+        margin-top: 20px !important;
+        max-height: calc(100% - 22px) !important;
+        padding: 4px 7px !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-header {
+        margin-bottom: 2px !important;
+        padding-bottom: 2px !important;
+        gap: 4px !important;
+        min-width: 0 !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-title-group {
+        min-width: 0 !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-header-actions {
+        flex-shrink: 0 !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-tag {
+        display: none !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-title {
+        font-size: 0.66rem !important;
+        letter-spacing: 0.04rem !important;
+        white-space: nowrap !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .badge-telem-online,
+    body.music-active.telemetry-active .telemetry-panel .badge-telem-offline {
+        font-size: 0.46rem !important;
+        padding: 1px 5px !important;
+        white-space: nowrap !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-icon-btn {
+        width: 18px !important;
+        height: 18px !important;
+        font-size: 0.65rem !important;
+    }
+    body.music-active.telemetry-active .telem-grid {
+        gap: 3px !important;
+    }
+    body.music-active.telemetry-active .telem-card {
+        padding: 3px 6px !important;
+        border-radius: 9px !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-card-header {
+        font-size: 0.48rem !important;
+        margin-bottom: 1px !important;
+        white-space: nowrap !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-val {
+        font-size: 0.86rem !important;
+        line-height: 1.05 !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-sub {
+        font-size: 0.48rem !important;
+        line-height: 1.1 !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-bar-wrap {
+        height: 3px !important;
+        margin-top: 2px !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-gpu-item {
+        padding: 2px 5px !important;
+        gap: 1px !important;
+    }
+    body.music-active.telemetry-active .telemetry-panel .telem-fan-card {
+        padding: 3px 6px !important;
     }
     body.music-active.telemetry-active .visor-core-box {
         width: min(19vw, calc(100vh - 215px), 120px);
@@ -1699,21 +1809,40 @@ body.music-active .telemetry-panel {
         font-size: 0.64rem;
         min-width: 28px;
     }
-    body.music-active .axl-speech-bubble,
-    body.telemetry-active .axl-speech-bubble {
-        top: -10px !important;
+    /* On Kiosk / Mobile Landscape: ONLY when BOTH music and telemetry are active does the bubble sit above the dog */
+    body.music-active.telemetry-active .axl-speech-bubble {
+        top: -18px !important;
         left: 50% !important;
         translate: -50% 0 !important;
-        max-width: 165px;
-        padding: 3px 8px;
+        max-width: 165px !important;
+        padding: 3px 8px !important;
     }
-    body.music-active .axl-bubble-tail,
-    body.telemetry-active .axl-bubble-tail {
+    body.music-active.telemetry-active .axl-bubble-tail {
         top: auto !important;
         bottom: -6px !important;
         left: 50% !important;
         translate: -50% 0 !important;
         border-width: 6px 5px 0 5px !important;
+        border-color: rgba(0, 240, 255, 0.55) transparent transparent transparent !important;
+    }
+    body.music-active.telemetry-active .axl-speech-bubble:hover .axl-bubble-tail {
+        border-color: var(--cyan-glow) transparent transparent transparent !important;
+    }
+    body.music-active.telemetry-active .axl-speech-bubble.bubble-listening .axl-bubble-tail {
+        border-color: var(--blue-neon) transparent transparent transparent !important;
+    }
+    body.music-active.telemetry-active .axl-speech-bubble.bubble-thinking .axl-bubble-tail {
+        border-color: var(--violet-neural) transparent transparent transparent !important;
+    }
+    body.music-active.telemetry-active .axl-speech-bubble.bubble-mute .axl-bubble-tail {
+        border-color: var(--amber-warn) transparent transparent transparent !important;
+    }
+    body.music-active.telemetry-active .axl-speech-bubble.bubble-alert .axl-bubble-tail {
+        border-color: var(--red-alert) transparent transparent transparent !important;
+    }
+    body.server-offline.music-active.telemetry-active .axl-speech-bubble .axl-bubble-tail,
+    body.music-active.telemetry-active .axl-speech-bubble.bubble-offline .axl-bubble-tail {
+        border-color: rgba(255, 45, 85, 0.6) transparent transparent transparent !important;
     }
 }
 

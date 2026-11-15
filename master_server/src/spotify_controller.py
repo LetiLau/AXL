@@ -1232,7 +1232,53 @@ class SpotifyController:
                 "ok": False,
                 "message": f"Errore Spotify ({resp.status_code}) impostando loop '{resolved_repeat}' su {dev_label}: {resp.text}",
             }
+        elif act in ("shuffle", "random", "casuale"):
+            # Toggle shuffle state on active playlist/album playback unless explicitly specified
+            target_shuffle: Optional[bool] = None
+            m_rep = (repeat_mode or "").lower().strip()
+            if m_rep in ("on", "true", "1", "attivo"):
+                target_shuffle = True
+            elif m_rep in ("off", "false", "0", "spento"):
+                target_shuffle = False
+            else:
+                try:
+                    cur_pb = self.get_current_playback()
+                    target_shuffle = not bool(cur_pb.get("shuffle_state", False))
+                except Exception:
+                    target_shuffle = True
+
+            shuf_params = dict(params)
+            shuf_params["state"] = "true" if target_shuffle else "false"
+            resp = self._api_request("PUT", "/me/player/shuffle", params=shuf_params)
+            if resp.status_code in (200, 202, 204):
+                return {
+                    "ok": True,
+                    "shuffle_state": target_shuffle,
+                    "device_name": dev_label,
+                    "message": (
+                        f"Riproduzione casuale attivata su {dev_label}."
+                        if target_shuffle
+                        else f"Riproduzione casuale disattivata su {dev_label}."
+                    ),
+                }
+            return {
+                "ok": False,
+                "message": f"Riproduzione casuale non disponibile su {dev_label} ({resp.status_code}).",
+            }
         elif act in ("volume_up", "volume_down", "set_volume", "mute"):
+            if matched_dev and matched_dev.get("supports_volume") is False:
+                # Try direct Sonos UPnP first in case this is a Sonos room, otherwise report device limitation honestly
+                if self._try_sonos_upnp_fallback(norm_target, sonos_speakers, "set_volume", volume):
+                    return {"ok": True, "device_name": dev_label, "message": f"Volume Sonos impostato."}
+                return {
+                    "ok": False,
+                    "volume_unsupported": True,
+                    "device_name": dev_label,
+                    "message": (
+                        f"Spotify Connect non permette la regolazione remota del volume su {dev_label} "
+                        "(limitazione del dispositivo/app)."
+                    ),
+                }
             target_vol = volume
             if target_vol is None:
                 cur_vol = int((matched_dev or {}).get("volume_percent") or 50)
@@ -1249,11 +1295,21 @@ class SpotifyController:
             vol_params["volume_percent"] = target_vol
             resp = self._api_request("PUT", "/me/player/volume", params=vol_params)
             if resp.status_code in (200, 202, 204):
-                return {"ok": True, "message": f"Volume su {dev_label} impostato al {target_vol}%."}
+                return {"ok": True, "device_name": dev_label, "message": f"Volume su {dev_label} impostato al {target_vol}%."}
             # Local Sonos UPnP volume fallback if Spotify Connect volume is restricted
             if self._try_sonos_upnp_fallback(norm_target, sonos_speakers, "set_volume", target_vol):
-                return {"ok": True, "message": f"Volume Sonos impostato al {target_vol}%."}
-            return {"ok": False, "message": f"Errore regolazione volume su {dev_label} ({resp.status_code})."}
+                return {"ok": True, "device_name": dev_label, "message": f"Volume Sonos impostato al {target_vol}%."}
+            if resp.status_code == 403:
+                return {
+                    "ok": False,
+                    "volume_unsupported": True,
+                    "device_name": dev_label,
+                    "message": (
+                        f"Spotify Connect non permette la regolazione remota del volume su {dev_label} "
+                        "(403: controllo volume disabilitato dal dispositivo)."
+                    ),
+                }
+            return {"ok": False, "device_name": dev_label, "message": f"Errore regolazione volume su {dev_label} ({resp.status_code})."}
         else:
             return {"ok": False, "message": f"Azione multimediale non supportata: {action}"}
 
@@ -1318,6 +1374,7 @@ class SpotifyController:
             "device_id": device.get("id", ""),
             "device_name": device.get("name", ""),
             "device_type": device.get("type", ""),
+            "supports_volume": device.get("supports_volume"),
             "volume_percent": device.get("volume_percent"),
             "repeat_state": data.get("repeat_state", "off"),
             "shuffle_state": bool(data.get("shuffle_state", False)),

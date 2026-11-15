@@ -216,6 +216,11 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
         - `speaking`: muso che dialoga sincronizzato con la voce Piper TTS
       - [x] **Fumetto Tattico Contestuale sopra Avatar Cane (`#axl-speech-bubble`):**
         - Architettura fumetto pronta, posizionato a destra della testa del cane (`left: 80%`, `width: max-content`) per evitare ogni sovrapposizione visiva sul modello 3D video, con coda/puntatore orientato a sinistra verso la testa/muso del cane. Layout responsive ottimizzato per PC Desktop, Tablet e Mobile Kiosk (Galaxy A33 Landscape & Portrait senza wrapping verticale). Predisposta per riposizionamento dinamico al variare delle animazioni future.
+        - **Regola Dinamica Layout Kiosk (Musica + Telemetria):**
+          - Se sono attivi **contemporaneamente** sia il Player Musicale che il Pannello Telemetrico (`body.music-active.telemetry-active`), lo stage centrale è stretto tra i due pannelli laterali, quindi il fumetto si sposta automaticamente **sopra la testa del cane** (`top: -18px; left: 50%`) con la coda orientata verso il basso.
+          - Se è attivo **uno solo dei due** (solo musica OPPURE solo telemetria) oppure **nessuno**, lo spazio a destra dell'avatar è libero: il fumetto si posiziona automaticamente a **destra del cane nella sua posizione classica** con coda orientata a sinistra.
+        - **Sincronizzazione Bidirezionale Player Musicale (Kiosk <-> Web Browser):**
+          - Implementati eventi WebSocket `TOGGLE_MUSIC_PLAYER` e `MUSIC_PLAYER_MODE`: la chiusura o la riapertura del widget musicale da qualsiasi client (browser desktop o Kiosk Android) sincronizza istantaneamente lo stato di visibilità su tutti i nodi collegati, esattamente come accade per la telemetria.
         - **Stile Cyberpunk Glassmorphic A-X-L:** Sfondo scuro semitrasparente blur, bordo neon, tipografia Share Tech Mono, micro-animazione pop all'apparizione e al cambio stato.
         - **Quote Divertenti Contestuali in Inglese:**
           - `IDLE`: *"Waiting for ya..."*, *"100% good tactical boy."*, *"Scanning room for snacks... err, threats."*, *"Say 'Hey Jarvis' to wake me up!"*, *"Cyber-tail wagging at 60 FPS."* (rotazione automatica ogni 14s e al click/tap sul fumetto).

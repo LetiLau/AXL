@@ -506,6 +506,7 @@
         }
 
         ws.onopen = () => {
+            wsDisconnectCount = 0;
             updateConnectionStatus("online");
             updateKioskUI();
             requestServerMiniTelemetry();
@@ -526,6 +527,7 @@
         };
 
         ws.onclose = () => {
+            wsDisconnectCount += 1;
             stopServerMiniTelemLoop();
             updateConnectionStatus("offline");
             scheduleReconnect();
@@ -561,6 +563,7 @@
             if (isTelemetryActive) {
                 renderOfflineTelemetry(telemetryTarget);
             }
+            handleMusicDisconnect();
         }
 
         updateMuteUI(isMuted);
@@ -608,6 +611,9 @@
                 if (msg.telemetry_active !== undefined) {
                     setTelemetryMode(msg.telemetry_active, msg.telemetry_target || "slave", false);
                 }
+                if (msg.music_player_visible !== undefined) {
+                    setMusicPlayerVisible(msg.music_player_visible, false);
+                }
                 requestServerMiniTelemetry();
                 resetInactivityTimer();
                 break;
@@ -625,6 +631,11 @@
                 } else if (msg.data) {
                     updateTelemetryData(msg.data, msg.target || "slave");
                 }
+                break;
+
+            case "MUSIC_PLAYER_MODE":
+                resetInactivityTimer();
+                setMusicPlayerVisible(msg.visible, false);
                 break;
 
             case "SERVER_TELEMETRY":
@@ -2347,11 +2358,10 @@
     const musicSeekSlider = document.getElementById("music-seek-slider");
     const musicTimeCur = document.getElementById("music-time-cur");
     const musicTimeTot = document.getElementById("music-time-tot");
-    const musicBtnRestart = document.getElementById("music-btn-restart");
+    const musicBtnShuffle = document.getElementById("music-btn-shuffle");
     const musicBtnPrev = document.getElementById("music-btn-prev");
     const musicBtnPlay = document.getElementById("music-btn-play");
-    const musicIconPlay = document.getElementById("music-icon-play");
-    const musicIconPause = document.getElementById("music-icon-pause");
+    const musicIconPath = document.getElementById("music-icon-path");
     const musicBtnNext = document.getElementById("music-btn-next");
     const musicBtnLoop = document.getElementById("music-btn-loop");
     const musicLoopBadge = document.getElementById("music-loop-badge");
@@ -2372,7 +2382,10 @@
         duration_ms: 0,
         timestamp: Date.now(),
     };
+    let wsDisconnectCount = 0;
     let musicMinimized = false;
+    let musicPausePendingUntil = 0;
+    let musicLocalSyncAt = performance.now();
     let isSeekingMusic = false;
     let isAdjustingMusicVol = false;
 
@@ -2404,16 +2417,30 @@
 
     function updateMusicPlayerUI(patch) {
         if (!musicPanel || !patch) return;
-        const prevTrackUri = currentMusicData.track_uri;
+        const wasTrack = Boolean(currentMusicData.track);
         const prevPlaying = Boolean(currentMusicData.playing);
-        currentMusicData = Object.assign({}, currentMusicData, patch, {
-            timestamp: patch.timestamp || Date.now(),
-        });
+        const effectivePatch = Object.assign({}, patch);
+        if (effectivePatch.playing === false) {
+            musicPausePendingUntil = 0;
+        } else if (Date.now() < musicPausePendingUntil && effectivePatch.playing === true) {
+            // Ignore in-flight playing=true poll briefly after user clicked X to pause & close
+            effectivePatch.playing = false;
+        }
+        const hasProgressUpdate = typeof effectivePatch.progress_ms === "number";
+        currentMusicData = Object.assign({}, currentMusicData, effectivePatch);
+        if (hasProgressUpdate || (!prevPlaying && currentMusicData.playing)) {
+            // Anchor interpolation strictly to local monotonic clock to avoid server-client clock skew
+            musicLocalSyncAt = performance.now();
+        }
 
         const hasTrack = Boolean(currentMusicData.track);
-        // Auto-expand widget when a brand new track starts playing externally
-        if (currentMusicData.playing && currentMusicData.track_uri && currentMusicData.track_uri !== prevTrackUri) {
+        // On initial page load / reconnect, keep player minimized if Spotify is paused; auto-open only while playing
+        if (currentMusicData.playing) {
             musicMinimized = false;
+        } else if (!hasTrack) {
+            musicMinimized = false;
+        } else if (!wasTrack) {
+            musicMinimized = true;
         }
 
         const wasMusicActive = body.classList.contains("music-active");
@@ -2424,7 +2451,7 @@
         if (musicReopenBadge) {
             musicReopenBadge.hidden = !(hasTrack && musicMinimized);
             if (musicMiniLabel) {
-                musicMiniLabel.textContent = currentMusicData.playing ? "PLAYING" : "PAUSED";
+                musicMiniLabel.textContent = currentMusicData.playing ? "PLAYING" : "";
             }
         }
 
@@ -2438,6 +2465,7 @@
             updateSpeechBubble();
         }
         if (musicStatusPill) {
+            musicStatusPill.classList.remove("offline");
             musicStatusPill.classList.toggle("paused", !isPlaying);
         }
         if (musicStatusText) {
@@ -2463,11 +2491,18 @@
             }
         }
 
-        if (musicIconPlay && musicIconPause) {
-            musicIconPlay.hidden = isPlaying;
-            musicIconPause.hidden = !isPlaying;
-            musicIconPlay.style.display = isPlaying ? "none" : "block";
-            musicIconPause.style.display = isPlaying ? "block" : "none";
+        if (musicIconPath) {
+            // Pause two vertical bars (||) while playing; Play triangle (>) while paused
+            musicIconPath.setAttribute(
+                "d",
+                isPlaying
+                    ? "M6 5h4v14H6zm8 0h4v14h-4z"
+                    : "M8 5v14l11-7z"
+            );
+        }
+
+        if (musicBtnShuffle) {
+            musicBtnShuffle.classList.toggle("active", Boolean(currentMusicData.shuffle_state));
         }
 
         const rep = (currentMusicData.repeat_state || "off").toLowerCase();
@@ -2488,31 +2523,126 @@
         renderMusicProgress(currentMusicData.progress_ms, currentMusicData.duration_ms);
     }
 
+    function renderMusicOfflineUI() {
+        if (!musicPanel || !currentMusicData.track) return;
+        currentMusicData.playing = false;
+        if (musicStatusPill) {
+            musicStatusPill.classList.remove("paused");
+            musicStatusPill.classList.add("offline");
+        }
+        if (musicStatusText) musicStatusText.textContent = "OFFLINE";
+        if (musicDevicePill) musicDevicePill.textContent = "🔌 Disconnesso";
+        if (musicTrackTitle) musicTrackTitle.textContent = "N/A — Disconnesso";
+        if (musicTrackArtist) musicTrackArtist.textContent = "Master offline • Riconnessione...";
+        if (musicTrackAlbum) musicTrackAlbum.textContent = "N/A";
+        if (musicArtImg) musicArtImg.hidden = true;
+        if (musicArtFallback) musicArtFallback.hidden = false;
+        if (musicIconPath) musicIconPath.setAttribute("d", "M8 5v14l11-7z");
+        if (musicSeekSlider) {
+            musicSeekSlider.value = "0";
+            musicSeekSlider.style.setProperty("--slider-pct", "0%");
+        }
+        if (musicTimeCur) musicTimeCur.textContent = "--:--";
+        if (musicTimeTot) musicTimeTot.textContent = "--:--";
+        if (musicVolSlider) {
+            musicVolSlider.value = "0";
+            musicVolSlider.style.setProperty("--slider-pct", "0%");
+        }
+        if (musicVolPct) musicVolPct.textContent = "N/A";
+        updateSpeechBubble();
+    }
+
+    function clearMusicPlayerUI() {
+        musicMinimized = false;
+        updateMusicPlayerUI({
+            playing: false,
+            track: "",
+            track_uri: "",
+            artists: "",
+            album: "",
+            album_art: "",
+            device_name: "",
+            progress_ms: 0,
+            duration_ms: 0,
+        });
+    }
+
+    function handleMusicDisconnect() {
+        if (!currentMusicData.track) return;
+        if (wsDisconnectCount >= 3) {
+            // After 2 failed reconnect polling attempts, hide the stale player cleanly
+            clearMusicPlayerUI();
+        } else {
+            renderMusicOfflineUI();
+        }
+    }
+
+    function setMusicPlayerVisible(visible, notifyServer = true) {
+        musicMinimized = !visible;
+        const hasTrack = Boolean(currentMusicData.track);
+        const showCard = hasTrack && !musicMinimized;
+        if (musicPanel) musicPanel.hidden = !showCard;
+        body.classList.toggle("music-active", showCard);
+        if (musicReopenBadge) {
+            musicReopenBadge.hidden = !(hasTrack && musicMinimized);
+            if (musicMiniLabel) {
+                musicMiniLabel.textContent = currentMusicData.playing ? "PLAYING" : "";
+            }
+        }
+        updateSpeechBubble();
+
+        if (notifyServer && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: "TOGGLE_MUSIC_PLAYER",
+                visible: !musicMinimized,
+                pause: musicMinimized
+            }));
+        }
+    }
+
     function initMusicPlayerControls() {
         if (musicCloseBtn) {
             musicCloseBtn.addEventListener("click", () => {
-                musicMinimized = true;
-                updateMusicPlayerUI({});
+                // Closing via X pauses playback, hides card, and syncs across kiosk & web browser
+                musicPausePendingUntil = Date.now() + 4500;
+                currentMusicData.playing = false;
+                setMusicPlayerVisible(false, true);
             });
         }
         if (musicReopenBadge) {
             musicReopenBadge.addEventListener("click", () => {
-                musicMinimized = false;
-                updateMusicPlayerUI({});
+                musicPausePendingUntil = 0;
+                setMusicPlayerVisible(true, true);
                 sendMusicCommand({ action: "refresh" });
             });
         }
         if (musicBtnPlay) {
-            musicBtnPlay.addEventListener("click", () => sendMusicCommand({ action: "toggle" }));
+            musicBtnPlay.addEventListener("click", () => {
+                musicPausePendingUntil = 0;
+                sendMusicCommand({ action: "toggle" });
+            });
         }
         if (musicBtnNext) {
             musicBtnNext.addEventListener("click", () => sendMusicCommand({ action: "next" }));
         }
         if (musicBtnPrev) {
-            musicBtnPrev.addEventListener("click", () => sendMusicCommand({ action: "previous" }));
+            musicBtnPrev.addEventListener("click", () => {
+                // Mirror Spotify app behavior: if > 3.5s into track, restart from 0:00; otherwise go to previous track
+                const now = performance.now();
+                const delta = currentMusicData.playing ? Math.max(0, now - musicLocalSyncAt) : 0;
+                const estProgress = (Number(currentMusicData.progress_ms) || 0) + delta;
+                if (estProgress > 3500) {
+                    currentMusicData.progress_ms = 0;
+                    musicLocalSyncAt = now;
+                    renderMusicProgress(0, currentMusicData.duration_ms);
+                    sendMusicCommand({ action: "restart" });
+                } else {
+                    sendMusicCommand({ action: "previous" });
+                }
+            });
         }
-        if (musicBtnRestart) {
-            musicBtnRestart.addEventListener("click", () => sendMusicCommand({ action: "restart" }));
+        if (musicBtnShuffle) {
+            musicBtnShuffle.addEventListener("click", () => sendMusicCommand({ action: "shuffle" }));
         }
         if (musicBtnLoop) {
             musicBtnLoop.addEventListener("click", () => sendMusicCommand({ action: "loop", repeat_mode: "toggle" }));
@@ -2529,7 +2659,7 @@
                 const targetMs = Math.max(0, Math.floor(Number(musicSeekSlider.value) || 0));
                 isSeekingMusic = false;
                 currentMusicData.progress_ms = targetMs;
-                currentMusicData.timestamp = Date.now();
+                musicLocalSyncAt = performance.now();
                 sendMusicCommand({ action: "seek", position_ms: targetMs });
             });
         }
@@ -2547,16 +2677,15 @@
             });
         }
 
-        // Smooth 1-second local progress bar interpolation between server polls
+        // Smooth local progress bar interpolation between server polls using monotonic clock
         setInterval(() => {
             if (!currentMusicData.playing || !currentMusicData.track || isSeekingMusic) return;
             const dur = Number(currentMusicData.duration_ms) || 0;
             if (dur <= 0) return;
-            const now = Date.now();
-            const delta = Math.max(0, now - (currentMusicData.timestamp || now));
+            const delta = Math.max(0, performance.now() - musicLocalSyncAt);
             const estProgress = Math.min(dur, (Number(currentMusicData.progress_ms) || 0) + delta);
             renderMusicProgress(estProgress, dur);
-        }, 500);
+        }, 250);
     }
 
     // Start everything

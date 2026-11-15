@@ -117,6 +117,9 @@ class StreamManager:
         self._server_heartbeat_task: Optional[asyncio.Task] = None
         self._music_poll_task: Optional[asyncio.Task] = None
         self.last_music_state: Optional[dict] = None
+        self.music_player_visible: bool = False
+        self._duck_state: Optional[dict] = None
+        self._duck_safety_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
 
     def initialize_pipeline(self):
@@ -145,6 +148,11 @@ class StreamManager:
             return
 
         if ptype == "MUSIC_STATE":
+            if payload.get("action") in ("set_volume", "volume_up", "volume_down", "mute"):
+                # User explicitly changed volume via command; do not overwrite it on IDLE restore
+                self._duck_state = None
+                if self._duck_safety_task and not self._duck_safety_task.done():
+                    self._duck_safety_task.cancel()
             await self.broadcast_ui(payload)
             asyncio.create_task(self.push_music_snapshot(delay=0.35, force=True))
             return
@@ -341,6 +349,14 @@ class StreamManager:
 
             if changed:
                 self.last_music_state = pb
+                if pb.get("playing") and not self.music_player_visible:
+                    self.music_player_visible = True
+                    if self.ui_clients:
+                        await self.broadcast_ui({
+                            "type": "MUSIC_PLAYER_MODE",
+                            "visible": True,
+                        })
+
                 if self.ui_clients:
                     await self.broadcast_ui({
                         "type": "MUSIC_UPDATE",
@@ -348,6 +364,22 @@ class StreamManager:
                     })
         except Exception as exc:
             logger.debug(f"[MUSIC SYNC] Snapshot fetch error: {exc}")
+
+    async def set_music_player_mode(self, visible: bool, pause_if_closing: bool = False):
+        """Controls synchronized visibility of the music player card across all UI clients."""
+        self.music_player_visible = visible
+        logger.info(f"[MUSIC SYNC] set_music_player_mode: visible={visible} (pause_if_closing={pause_if_closing})")
+        if not visible and pause_if_closing:
+            if spotify_controller.is_configured() and spotify_controller.is_authenticated():
+                try:
+                    await asyncio.to_thread(spotify_controller.control_playback, "pause")
+                except Exception as ex:
+                    logger.debug(f"[MUSIC SYNC] Pause on close failed: {ex}")
+        await self.broadcast_ui({
+            "type": "MUSIC_PLAYER_MODE",
+            "visible": self.music_player_visible,
+        })
+        await self.push_music_snapshot(delay=0.15, force=True)
 
     async def _music_poll_loop(self):
         """Background poller that keeps all Visor HUDs synced with external speaker/device Spotify playback."""
@@ -402,6 +434,7 @@ class StreamManager:
             "is_muted": self.is_muted,
             "telemetry_active": self.telemetry_active,
             "telemetry_target": self.telemetry_target,
+            "music_player_visible": self.music_player_visible,
             "node_tag": node_tag,
             "is_kiosk": is_kiosk,
         })
@@ -475,8 +508,110 @@ class StreamManager:
         else:
             logger.warning(f"[INTENT DISPATCH] No connected Android Kiosk to receive '{action_name}'.")
 
+    @staticmethod
+    def _should_duck_playback(pb: Optional[dict]) -> bool:
+        """Returns True only for room speakers/PCs that can leak audio into A33's mic (never phones/headphones)."""
+        if not pb or not pb.get("playing"):
+            return False
+        if pb.get("supports_volume") is False:
+            return False
+        dev_name = str(pb.get("device_name") or "").lower()
+        dev_type = str(pb.get("device_type") or "").lower()
+        if not dev_name and not dev_type:
+            return False
+
+        # Always skip smartphones, tablets, earbuds, and headphones
+        if dev_type in ("smartphone", "tablet"):
+            return False
+        if any(w in dev_name for w in ("s25", "a33", "phone", "cell", "buds", "earbuds", "airpods", "headphones", "cuffie", "headset")):
+            return False
+
+        if dev_type in ("speaker", "computer", "avr", "tv", "castaudio"):
+            return True
+
+        allowed_raw = os.getenv("AXL_DUCK_DEVICES", "sonos,salotto,pc,desktop,computer,speaker,cucina,camera")
+        allowed_kws = [k.strip().lower() for k in allowed_raw.split(",") if k.strip()]
+        return any(k in dev_name for k in allowed_kws)
+
+    async def duck_music_for_voice(self):
+        """Temporarily lowers room speaker volume during wake-word listening & TTS without pausing playback."""
+        enabled = os.getenv("AXL_DUCK_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+        if not enabled or self._duck_state is not None:
+            return
+        if not spotify_controller.is_configured() or not spotify_controller.is_authenticated():
+            return
+        try:
+            pb = self.last_music_state
+            now_ms = int(time.time() * 1000)
+            if not pb or (now_ms - int(pb.get("timestamp") or 0)) > 5000:
+                pb = await asyncio.to_thread(spotify_controller.get_current_playback)
+            if not self._should_duck_playback(pb):
+                return
+            cur_vol = pb.get("volume_percent")
+            if cur_vol is None:
+                return
+            cur_vol = int(cur_vol)
+            duck_target = max(5, min(60, int(os.getenv("AXL_DUCK_VOLUME", "18"))))
+            if cur_vol <= duck_target:
+                return
+            dev_name = pb.get("device_name") or ""
+            self._duck_state = {
+                "device_id": pb.get("device_id") or "",
+                "device_name": dev_name,
+                "original_volume": cur_vol,
+                "ducked_volume": duck_target,
+            }
+            res = await asyncio.to_thread(
+                spotify_controller.control_playback, "set_volume", dev_name or None, duck_target
+            )
+            if res.get("ok"):
+                logger.info(f"[AUTO-DUCK] Lowered '{dev_name}' volume {cur_vol}% -> {duck_target}% for voice.")
+                if self._duck_safety_task and not self._duck_safety_task.done():
+                    self._duck_safety_task.cancel()
+                self._duck_safety_task = asyncio.create_task(self._duck_safety_timeout())
+            else:
+                self._duck_state = None
+        except Exception as exc:
+            self._duck_state = None
+            logger.debug(f"[AUTO-DUCK] Duck skipped: {exc}")
+
+    async def _duck_safety_timeout(self):
+        try:
+            await asyncio.sleep(25.0)
+            if self._duck_state is not None:
+                logger.warning("[AUTO-DUCK] Safety timeout reached; restoring original speaker volume.")
+                await self.restore_music_ducking()
+        except asyncio.CancelledError:
+            pass
+
+    async def restore_music_ducking(self):
+        """Restores original room speaker volume after voice interaction returns to IDLE."""
+        state = self._duck_state
+        self._duck_state = None
+        if self._duck_safety_task and not self._duck_safety_task.done():
+            self._duck_safety_task.cancel()
+        self._duck_safety_task = None
+        if not state:
+            return
+        try:
+            dev_name = state.get("device_name") or ""
+            orig_vol = int(state.get("original_volume", 50))
+            res = await asyncio.to_thread(
+                spotify_controller.control_playback, "set_volume", dev_name or None, orig_vol
+            )
+            if res.get("ok"):
+                logger.info(f"[AUTO-DUCK] Restored '{dev_name}' volume -> {orig_vol}%.")
+        except Exception as exc:
+            logger.debug(f"[AUTO-DUCK] Restore failed: {exc}")
+
     async def broadcast_ui(self, message: dict):
         """Dispatches an asynchronous state event to all connected Web UI clients."""
+        if message.get("type") == "STATE_CHANGE":
+            st = message.get("state")
+            if st == "LISTENING":
+                asyncio.create_task(self.duck_music_for_voice())
+            elif st == "IDLE":
+                asyncio.create_task(self.restore_music_ducking())
         if not self.ui_clients:
             return
         dead_clients = set()
@@ -1228,6 +1363,10 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                     enabled = msg.get("enabled", not stream_manager.telemetry_active)
                     target = msg.get("target", stream_manager.telemetry_target)
                     await stream_manager.set_telemetry_mode(enabled, target=target)
+                elif mtype == "TOGGLE_MUSIC_PLAYER":
+                    visible = bool(msg.get("visible", not stream_manager.music_player_visible))
+                    pause = bool(msg.get("pause", False))
+                    await stream_manager.set_music_player_mode(visible, pause_if_closing=pause)
                 elif mtype == "KIOSK_TELEMETRY":
                     stream_manager.last_kiosk_telemetry = msg
                     spotify_controller.update_kiosk_audio_outputs(msg.get("audio_outputs"))

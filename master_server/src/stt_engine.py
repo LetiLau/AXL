@@ -101,7 +101,16 @@ class STTEngine:
         else:
             audio_float = audio_data.astype(np.float32)
 
+        # Fast energy gate: discard near-silence/static hiss before feeding to neural decoder
+        rms = float(np.sqrt(np.mean(audio_float ** 2)))
+        if rms < 0.003:
+            logger.info(f"[STT SILENCE] Audio energy too low (RMS={rms:.5f}), ignoring.")
+            return ""
+
         t0 = time.perf_counter()
+        duration_sec = max(0.1, len(audio_float) / 16000.0)
+
+        # Transcribe with anti-hallucination and repetition suppression constraints
         segments, info = self.model.transcribe(
             audio_float,
             language=self.language if self.language != "auto" else None,
@@ -109,19 +118,44 @@ class STTEngine:
             best_of=1,
             temperature=0.0,
             condition_on_previous_text=False,
+            repetition_penalty=1.2,
+            no_repeat_ngram_size=3,
+            hallucination_silence_threshold=0.5,
             vad_filter=False,  # Audio has already been segmented by Silero VAD
             initial_prompt=INITIAL_PROMPT,
         )
 
         texts = []
         for segment in segments:
+            # 1. Filter segments marked as pure noise/silence
+            if segment.no_speech_prob > 0.65:
+                logger.debug(f"[STT FILTER] Dropped segment with no_speech_prob={segment.no_speech_prob:.2f}")
+                continue
+
+            # 2. Filter repetitive hallucination loops (abnormally high compression ratio)
+            if segment.compression_ratio > 2.4:
+                logger.warning(
+                    f"[STT HALLUCINATION FILTER] Dropped repetitive segment "
+                    f"(compression_ratio={segment.compression_ratio:.2f}, text=\"{segment.text.strip()[:60]}...\")"
+                )
+                continue
+
             clean_text = segment.text.strip()
             if clean_text:
                 texts.append(clean_text)
 
         result_text = " ".join(texts).strip()
+
+        # 3. Sanity check: humans cannot physically speak more than 6.0 words per second
+        words = result_text.split()
+        if len(words) / duration_sec > 6.0:
+            logger.warning(
+                f"[STT HALLUCINATION FILTER] Dropped utterance exceeding 6 words/sec "
+                f"({len(words)} words in {duration_sec:.2f}s: \"{result_text[:60]}...\")"
+            )
+            result_text = ""
+
         elapsed = (time.perf_counter() - t0) * 1000
-        duration_sec = len(audio_float) / 16000.0
         logger.info(
             f"[STT DONE] Transcribed {duration_sec:.2f}s audio in {elapsed:.1f} ms | Text: \"{result_text}\""
         )

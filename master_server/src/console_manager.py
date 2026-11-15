@@ -491,17 +491,30 @@ class ConsoleManager:
             res = await asyncio.to_thread(media_control, "loop", tgt, None, rep_mode)
             print(f"[Spotify] {res}")
         elif sub in ["vol", "volume"]:
-            vparts = arg.split(maxsplit=1)
+            vol_arg = arg
+            tgt = ""
+            if " --on " in vol_arg:
+                vol_arg, tgt = [x.strip() for x in vol_arg.split(" --on ", 1)]
+            vparts = vol_arg.split(maxsplit=1)
             if not vparts:
-                print("[Console] Usage: /spotify vol <0-100> [speaker_name]")
+                print("[Console] Usage: /spotify vol <0-100|up|down|mute> [--on <speaker>]")
                 return
-            try:
-                vol = int(vparts[0])
-            except ValueError:
-                print("[Console] Volume must be an integer between 0 and 100.")
-                return
-            tgt = vparts[1].strip() if len(vparts) > 1 else ""
-            res = await asyncio.to_thread(media_control, "set_volume", tgt, vol)
+            first_v = vparts[0].lower()
+            if not tgt and len(vparts) > 1:
+                tgt = vparts[1].strip()
+            if first_v in ("up", "+"):
+                res = await asyncio.to_thread(media_control, "volume_up", tgt, None)
+            elif first_v in ("down", "-"):
+                res = await asyncio.to_thread(media_control, "volume_down", tgt, None)
+            elif first_v == "mute":
+                res = await asyncio.to_thread(media_control, "mute", tgt, None)
+            else:
+                try:
+                    vol = int(first_v)
+                except ValueError:
+                    print("[Console] Volume must be an integer (0-100) or up/down/mute.")
+                    return
+                res = await asyncio.to_thread(media_control, "set_volume", tgt, vol)
             print(f"[Spotify] {res}")
         else:
             print("[Console] Usage: /spotify <status | devices | now | play <query> [--on <speaker>] | transfer <speaker> | pause | resume | next | prev | restart | loop [track|context|off|toggle] [speaker] | vol <0-100> [speaker]>")
