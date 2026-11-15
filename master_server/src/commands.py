@@ -286,7 +286,7 @@ def media_control(
     return f"Comando multimediale '{act}' inviato a '{clean_target or 'local'}'."
 
 
-def play_music(query: str = "", target: str = "") -> str:
+def play_music(query: str = "", target: str = "", kind: str = "") -> str:
     """
     Searches and plays music, artists, albums, or playlists on Spotify across Wi-Fi speakers (e.g. Sonos),
     Bluetooth speakers, PC, or Android Kiosk. Also transfers active playback if query is empty and target is given.
@@ -294,10 +294,12 @@ def play_music(query: str = "", target: str = "") -> str:
     Args:
         query: Song name, artist, album, genre, or playlist (e.g. 'Queen Bohemian Rhapsody', 'Lazza', 'playlist jazz'). Leave empty when just transferring current music to another speaker.
         target: Target speaker or device name spoken by the user (e.g. 'sonos', 'salotto', 'sala', 'kiosk', 'telefono', 'pc', 'bluetooth'). Leave empty for active/default device.
+        kind: Optional content type hint: 'track', 'artist', 'album', 'playlist', or empty for auto-detection.
     """
     clean_query = str(query or "").strip()
     clean_target = str(target or "").strip()
-    logger.info(f"[COMMAND: play_music] Query: '{clean_query}' | Target: '{clean_target}'")
+    clean_kind = str(kind or "").strip() or None
+    logger.info(f"[COMMAND: play_music] Query: '{clean_query}' | Target: '{clean_target}' | Kind: '{clean_kind}'")
 
     # Check if Spotify Web API is configured and linked
     if not spotify_controller.is_configured():
@@ -331,6 +333,7 @@ def play_music(query: str = "", target: str = "") -> str:
                 query=clean_query,
                 target=clean_target or None,
                 dispatch_kiosk_intent=notify_telemetry,
+                preferred_kind=clean_kind,
             )
 
         if res.get("ok"):

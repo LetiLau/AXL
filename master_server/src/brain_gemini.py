@@ -25,6 +25,7 @@ load_dotenv(dotenv_path=ENV_PATH)
 
 DEFAULT_FLASH_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 DEFAULT_PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview")
+DEFAULT_THINKING_LEVEL = os.getenv("GEMINI_THINKING_LEVEL", "").strip().upper()
 
 SYSTEM_PROMPT_TEMPLATE = """\
 You are A-X-L (Adaptive eXecution Logistic), an advanced AI assistant with the personality of a loyal, high-tech cybernetic guard dog combined with the sarcastic efficiency of Tony Stark's JARVIS.
@@ -73,8 +74,11 @@ CORE BEHAVIOR RULES:
      * When an AUTHORIZED OWNER asks to enroll or register a friend (e.g. 'registra la voce di Luca', 'aggiungi amico Marco'), invoke `enroll_voice_profile(profile_name="<friend_name>")`.
      * Privilege security rule: If an UNAUTHORIZED stranger asks to enroll, modify, or overwrite any voice profile, reject with snarling distrust (*growl*) and DO NOT invoke the tool!
    - MUSIC PLAYBACK & SPOTIFY (WI-FI SPEAKERS, SONOS, BLUETOOTH & DEVICES):
-     * When the user asks to play music, a song, an artist, or a playlist (e.g. 'metti una canzone dei Queen', 'fammi sentire Lazza su Sonos', 'metti musica rilassante in salotto', 'play Coldplay on Sonos'):
-       YOU MUST INVOKE `play_music(query=..., target=...)` extracting BOTH the music query AND the target speaker/room name if mentioned (e.g. target='sonos', target='salotto', target='sala', target='kiosk', target='pc', or target='' if unspecified).
+     * When the user asks to play music, a song, an artist, or a playlist (e.g. 'metti una canzone dei Queen', 'fammi sentire Lazza su Sonos', 'riproduci ascensori di cerrato su cel', 'play Coldplay on Sonos'):
+       YOU MUST INVOKE `play_music(query=..., target=..., kind=...)` extracting:
+       - `query`: clean search query for Spotify; if phrased as '<song> di <artist>' or '<song> by <artist>', remove the connector ('di'/'by') and expand partial artist names if well-known (e.g. 'ascensori di cerrato' -> 'Ascensori Andrea Cerrato')
+       - `target`: the speaker/room name if mentioned (e.g. 'sonos', 'salotto', 'sala', 'kiosk', 'cel', 'pc', or '' if unspecified)
+       - `kind`: 'track' if they asked for a specific song (including '<song> di <artist>'), 'artist' if they asked for an artist/band, 'playlist' for a playlist, 'album' for an album, or '' if unsure.
      * When the user asks to move/transfer currently playing music to another speaker without naming a song (e.g. 'sposta la musica su Sonos', 'metti la musica in salotto'):
        YOU MUST INVOKE `play_music(query='', target='<speaker_name>')` or `media_control(action='transfer', target='<speaker_name>')`.
      * When the user asks to pause, resume, skip, go back, restart the track, loop/repeat, or change speaker volume:
@@ -148,16 +152,29 @@ class GeminiBrain:
         self.text_history.clear()
         self._reset_chat_session()
 
+    @staticmethod
+    def _build_thinking_config(model_name: str) -> Optional[types.ThinkingConfig]:
+        """Builds an optional ThinkingConfig when GEMINI_THINKING_LEVEL is set for the primary model."""
+        if not DEFAULT_THINKING_LEVEL or model_name != DEFAULT_FLASH_MODEL:
+            return None
+        # Models like gemini-4-hydrogen accept low, medium, high, and xhigh
+        return types.ThinkingConfig(thinking_level=DEFAULT_THINKING_LEVEL)
+
     def _reset_chat_session(self, model: Optional[str] = None):
         """Initializes or resets a stateful chat session."""
         self._current_model = model or DEFAULT_FLASH_MODEL
         logger.info(f"[AXL-Brain]: Cognitive Core ready | Active Model: {self._current_model}")
 
-        config = types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT_TEMPLATE,
-            tools=REGISTERED_TOOLS,
-            temperature=0.7,
-        )
+        config_kwargs: Dict[str, Any] = {
+            "system_instruction": SYSTEM_PROMPT_TEMPLATE,
+            "tools": REGISTERED_TOOLS,
+            "temperature": 0.7,
+        }
+        thinking_cfg = self._build_thinking_config(self._current_model)
+        if thinking_cfg is not None:
+            config_kwargs["thinking_config"] = thinking_cfg
+
+        config = types.GenerateContentConfig(**config_kwargs)
 
         # Seed the chat session with text-only history from previous turns
         # This completely avoids re-transmitting raw binary audio WAVs across turns

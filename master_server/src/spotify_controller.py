@@ -517,6 +517,14 @@ class SpotifyController:
         if resp.status_code != 200:
             raise RuntimeError(f"Spotify devices query failed ({resp.status_code}): {resp.text}")
         devices = resp.json().get("devices", [])
+        if devices:
+            summary = ", ".join(
+                f"{d.get('name')} [{d.get('type')}, active={d.get('is_active')}]"
+                for d in devices
+            )
+            logger.info(f"[Spotify Connect] Devices: {summary}")
+        else:
+            logger.info("[Spotify Connect] No active devices returned by Spotify API.")
         return devices
 
     def list_available_speakers(self) -> Dict[str, Any]:
@@ -611,6 +619,7 @@ class SpotifyController:
         target: Optional[str],
         devices: Optional[List[Dict[str, Any]]] = None,
         sonos_speakers: Optional[List[Dict[str, Any]]] = None,
+        prefer_speaker_default: bool = False,
     ) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]], str]:
         """
         Resolves a requested speaker/device name to a Spotify Connect device dictionary.
@@ -638,11 +647,23 @@ class SpotifyController:
         if not devices:
             return None, devices, norm_target
 
-        # If no specific target was requested, prefer active device, then Sonos/Speaker, then first
+        # If no specific target was requested, honor SPOTIFY_DEFAULT_DEVICE first,
+        # then prefer Sonos/Speaker when starting new playback, otherwise prefer active device.
         if not norm_target or norm_target in ("default", "auto", "qui", "here"):
-            active = next((d for d in devices if d.get("is_active")), None)
-            if active:
-                return active, devices, norm_target
+            env_default = os.getenv("SPOTIFY_DEFAULT_DEVICE", "").strip()
+            if env_default and prefer_speaker_default:
+                default_norm = self._normalize_target_text(env_default)
+                if default_norm:
+                    best_env_dev = None
+                    best_env_score = 0.0
+                    for dev in devices:
+                        sc = self._match_device_score(default_norm, dev, sonos_room_names)
+                        if sc > best_env_score:
+                            best_env_score = sc
+                            best_env_dev = dev
+                    if best_env_dev and best_env_score >= 0.58:
+                        return best_env_dev, devices, norm_target
+
             speaker = next(
                 (
                     d for d in devices
@@ -651,7 +672,15 @@ class SpotifyController:
                 ),
                 None,
             )
-            return (speaker or devices[0]), devices, norm_target
+            active = next((d for d in devices if d.get("is_active")), None)
+
+            if prefer_speaker_default and speaker is not None:
+                return speaker, devices, norm_target
+            if active is not None:
+                return active, devices, norm_target
+            if speaker is not None:
+                return speaker, devices, norm_target
+            return devices[0], devices, norm_target
 
         best_dev = None
         best_score = 0.0
@@ -669,7 +698,7 @@ class SpotifyController:
     # Search & Playback Execution
     # ------------------------------------------------------------------
 
-    def search_spotify(self, query: str) -> Optional[Dict[str, Any]]:
+    def search_spotify(self, query: str, preferred_kind: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Searches Spotify catalog and chooses the best track, artist, album, or playlist.
         """
@@ -678,17 +707,24 @@ class SpotifyController:
             return None
 
         lower_q = clean_q.lower()
-        preferred_kind: Optional[str] = None
+        norm_kind = (preferred_kind or "").lower().strip() or None
         search_q = clean_q
 
-        if lower_q.startswith("playlist "):
-            preferred_kind = "playlist"
-            search_q = clean_q[len("playlist "):].strip()
-        elif " playlist" in lower_q or "playlist di" in lower_q:
-            preferred_kind = "playlist"
-        elif lower_q.startswith("album "):
-            preferred_kind = "album"
-            search_q = clean_q[len("album "):].strip()
+        if norm_kind is None:
+            if lower_q.startswith("playlist "):
+                norm_kind = "playlist"
+                search_q = clean_q[len("playlist "):].strip()
+            elif " playlist" in lower_q or "playlist di" in lower_q:
+                norm_kind = "playlist"
+            elif lower_q.startswith("album "):
+                norm_kind = "album"
+                search_q = clean_q[len("album "):].strip()
+            elif lower_q.startswith("artista ") or lower_q.startswith("artist "):
+                norm_kind = "artist"
+                search_q = clean_q.split(maxsplit=1)[1].strip()
+            elif lower_q.startswith("canzone ") or lower_q.startswith("track ") or lower_q.startswith("brano "):
+                norm_kind = "track"
+                search_q = clean_q.split(maxsplit=1)[1].strip()
 
         resp = self._api_request(
             "GET",
@@ -709,7 +745,7 @@ class SpotifyController:
         playlists = [p for p in data.get("playlists", {}).get("items", []) if p]
         albums = [al for al in data.get("albums", {}).get("items", []) if al]
 
-        if preferred_kind == "playlist" and playlists:
+        if norm_kind == "playlist" and playlists:
             pl = playlists[0]
             return {
                 "kind": "playlist",
@@ -719,7 +755,7 @@ class SpotifyController:
                 "is_context": True,
             }
 
-        if preferred_kind == "album" and albums:
+        if norm_kind == "album" and albums:
             al = albums[0]
             al_artists = ", ".join(a.get("name", "") for a in al.get("artists", []))
             return {
@@ -730,26 +766,58 @@ class SpotifyController:
                 "is_context": True,
             }
 
-        # If query matches an artist name closely without specifying a song title, play artist context
-        if artists:
+        if norm_kind == "artist" and artists:
+            top_artist = artists[0]
+            return {
+                "kind": "artist",
+                "uri": top_artist["uri"],
+                "name": top_artist.get("name", search_q),
+                "subtitle": "Artista Spotify",
+                "is_context": True,
+            }
+
+        # Auto-ranking: choose artist context only when the query matches the artist name
+        # and does NOT clash with a matching track title (e.g. "Shut Up and Dance"),
+        # unless the artist is clearly more popular than the top track.
+        if norm_kind != "track" and artists:
             top_artist = artists[0]
             artist_name_norm = (top_artist.get("name") or "").lower().strip()
             q_norm = search_q.lower().strip()
-            if artist_name_norm == q_norm or difflib.SequenceMatcher(None, artist_name_norm, q_norm).ratio() >= 0.90:
-                return {
-                    "kind": "artist",
-                    "uri": top_artist["uri"],
-                    "name": top_artist.get("name", search_q),
-                    "subtitle": "Artista Spotify",
-                    "is_context": True,
-                }
+            artist_matches = (
+                artist_name_norm == q_norm
+                or difflib.SequenceMatcher(None, artist_name_norm, q_norm).ratio() >= 0.90
+            )
+            if artist_matches:
+                top_track = tracks[0] if tracks else None
+                track_name_norm = (top_track.get("name") or "").lower().strip() if top_track else ""
+                track_base_norm = re.sub(r"\s*[\(\[].*?[\)\]]|\s*-\s*remaster.*$", "", track_name_norm).strip()
+                track_also_matches = bool(
+                    top_track and (
+                        track_name_norm == q_norm
+                        or track_base_norm == q_norm
+                        or difflib.SequenceMatcher(None, track_base_norm, q_norm).ratio() >= 0.90
+                    )
+                )
+                artist_pop = int(top_artist.get("popularity") or 0)
+                track_pop = int((top_track or {}).get("popularity") or 0)
+
+                if not track_also_matches or (artist_pop > 0 and artist_pop >= track_pop + 10):
+                    return {
+                        "kind": "artist",
+                        "uri": top_artist["uri"],
+                        "name": top_artist.get("name", search_q),
+                        "subtitle": "Artista Spotify",
+                        "is_context": True,
+                    }
 
         if tracks:
             tr = tracks[0]
             tr_artists = ", ".join(a.get("name", "") for a in tr.get("artists", []))
+            album_uri = (tr.get("album") or {}).get("uri")
             return {
                 "kind": "track",
                 "uri": tr["uri"],
+                "album_uri": album_uri,
                 "name": tr.get("name", search_q),
                 "subtitle": tr_artists,
                 "is_context": False,
@@ -778,10 +846,16 @@ class SpotifyController:
 
         return None
 
-    def _start_playback_on_device_id(self, device_id: str, item: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+    def _start_playback_on_device_id(
+        self,
+        device_id: str,
+        item: Optional[Dict[str, Any]] = None,
+        is_active: bool = True,
+    ) -> Tuple[bool, str]:
         """
         Starts or resumes playback on a specific Spotify Connect device_id.
-        Handles 404/502 transfer warm-up if the remote speaker is waking up.
+        Transfers playback first if the device is sleeping and verifies that the
+        requested track/context actually started instead of just resuming an old queue.
         """
         body: Optional[Dict[str, Any]] = None
         if item:
@@ -790,16 +864,31 @@ class SpotifyController:
             else:
                 body = {"uris": [item["uri"]]}
 
+        logger.info(
+            f"[Spotify Play] Target device_id={device_id} (active={is_active}) | "
+            f"Payload={body}"
+        )
+
+        # If an inactive/sleeping device is targeted with a specific URI, wake/transfer first
+        # so Spotify Connect does not ignore the payload and resume a stale local queue.
+        if body is not None and not is_active:
+            tr_pre = self._api_request(
+                "PUT",
+                "/me/player",
+                json_body={"device_ids": [device_id], "play": False},
+            )
+            logger.debug(f"[Spotify Play] Pre-play transfer status={tr_pre.status_code}")
+            if tr_pre.status_code in (200, 202, 204):
+                time.sleep(0.45)
+
         resp = self._api_request(
             "PUT",
             "/me/player/play",
             params={"device_id": device_id},
             json_body=body,
         )
-        if resp.status_code in (200, 202, 204):
-            return True, "OK"
+        logger.info(f"[Spotify Play] PUT /me/player/play -> HTTP {resp.status_code}")
 
-        # Some Wi-Fi speakers require transferring playback first before /play succeeds
         if resp.status_code in (404, 502):
             tr_resp = self._api_request(
                 "PUT",
@@ -807,35 +896,117 @@ class SpotifyController:
                 json_body={"device_ids": [device_id], "play": body is None},
             )
             if body is not None and tr_resp.status_code in (200, 202, 204):
-                time.sleep(0.5)
-                resp2 = self._api_request(
+                time.sleep(0.55)
+                resp = self._api_request(
                     "PUT",
                     "/me/player/play",
                     params={"device_id": device_id},
                     json_body=body,
                 )
-                if resp2.status_code in (200, 202, 204):
-                    return True, "OK"
-                return False, f"HTTP {resp2.status_code}: {resp2.text}"
-            if tr_resp.status_code in (200, 202, 204):
+                logger.info(f"[Spotify Play] Retry PUT /me/player/play -> HTTP {resp.status_code}")
+            elif tr_resp.status_code in (200, 202, 204):
                 return True, "OK"
 
-        return False, f"HTTP {resp.status_code}: {resp.text}"
+        if resp.status_code not in (200, 202, 204):
+            return False, f"HTTP {resp.status_code}: {resp.text}"
+
+        # Guard against Spotify Connect mobile quirk: cold-waking or resuming a paused Android client
+        # can return HTTP 204 while continuing the old queue instead of loading the requested URI.
+        if item and item.get("uri"):
+            expected_uri = item["uri"]
+
+            def _fetch_mismatched_uri() -> Optional[str]:
+                pb_resp = self._api_request("GET", "/me/player")
+                if pb_resp.status_code != 200:
+                    return None
+                pb_data = pb_resp.json()
+                playing_item_uri = (pb_data.get("item") or {}).get("uri", "")
+                playing_ctx_uri = (pb_data.get("context") or {}).get("uri", "")
+                if not item.get("is_context") and playing_item_uri and playing_item_uri != expected_uri:
+                    return playing_item_uri
+                if item.get("is_context") and playing_ctx_uri and playing_ctx_uri != expected_uri:
+                    return playing_ctx_uri
+                return None
+
+            time.sleep(0.55)
+            try:
+                stale_uri = _fetch_mismatched_uri()
+                if stale_uri:
+                    logger.warning(
+                        f"[Spotify Play] Device resumed stale track ({stale_uri}) "
+                        f"instead of {expected_uri}; re-sending play payload."
+                    )
+                    # Passing parent album context_uri + offset often breaks Android Connect queue desync
+                    retry_body = body
+                    if not item.get("is_context") and item.get("album_uri"):
+                        retry_body = {
+                            "context_uri": item["album_uri"],
+                            "offset": {"uri": expected_uri},
+                        }
+                    resp_retry = self._api_request(
+                        "PUT",
+                        "/me/player/play",
+                        params={"device_id": device_id},
+                        json_body=retry_body,
+                    )
+                    logger.info(f"[Spotify Play] Second-pass PUT /me/player/play -> HTTP {resp_retry.status_code}")
+
+                    # Verify second pass; if still stuck on a single track, fall back to queue + next
+                    if not item.get("is_context"):
+                        time.sleep(0.55)
+                        stale_uri_2 = _fetch_mismatched_uri()
+                        if stale_uri_2:
+                            logger.warning(
+                                f"[Spotify Play] Device still on stale track ({stale_uri_2}); "
+                                f"trying queue + next fallback for {expected_uri}."
+                            )
+                            q_resp = self._api_request(
+                                "POST",
+                                "/me/player/queue",
+                                params={"uri": expected_uri, "device_id": device_id},
+                            )
+                            if q_resp.status_code in (200, 202, 204):
+                                time.sleep(0.25)
+                                n_resp = self._api_request(
+                                    "POST",
+                                    "/me/player/next",
+                                    params={"device_id": device_id},
+                                )
+                                logger.info(
+                                    f"[Spotify Play] Queue+Next fallback -> queue={q_resp.status_code}, next={n_resp.status_code}"
+                                )
+                                time.sleep(0.55)
+                                stale_uri_3 = _fetch_mismatched_uri()
+                                if stale_uri_3:
+                                    return (
+                                        False,
+                                        f"Il dispositivo ha ripreso il brano precedente ({stale_uri_3}) ignorando '{item.get('name', expected_uri)}'.",
+                                    )
+            except Exception as exc:
+                logger.debug(f"[Spotify Play] Post-play verification skipped: {exc}")
+
+        return True, "OK"
 
     def play_on_device(
         self,
         query: str = "",
         target: Optional[str] = None,
         dispatch_kiosk_intent: Optional[Callable[[Dict[str, Any]], None]] = None,
+        preferred_kind: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Searches Spotify (if query is provided) and starts/transfers playback on the resolved speaker.
         """
         sonos_speakers = self.discover_sonos_speakers()
         devices = self.get_spotify_devices()
-        matched_dev, all_devs, norm_target = self.resolve_device(target, devices=devices, sonos_speakers=sonos_speakers)
+        matched_dev, all_devs, norm_target = self.resolve_device(
+            target,
+            devices=devices,
+            sonos_speakers=sonos_speakers,
+            prefer_speaker_default=True,
+        )
 
-        item = self.search_spotify(query) if query and query.strip() else None
+        item = self.search_spotify(query, preferred_kind=preferred_kind) if query and query.strip() else None
         if query and query.strip() and not item:
             return {
                 "ok": False,
@@ -904,7 +1075,11 @@ class SpotifyController:
                 ).strip(),
             }
 
-        ok, err_detail = self._start_playback_on_device_id(matched_dev["id"], item=item)
+        ok, err_detail = self._start_playback_on_device_id(
+            matched_dev["id"],
+            item=item,
+            is_active=bool(matched_dev.get("is_active")),
+        )
         if not ok:
             return {
                 "ok": False,
