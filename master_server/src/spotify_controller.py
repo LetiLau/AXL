@@ -11,7 +11,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import socket
+import subprocess
 import threading
 import time
 import urllib.parse
@@ -26,6 +28,7 @@ logger = logging.getLogger("AXL-Spotify")
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 TOKEN_FILE = DATA_DIR / "spotify_token.json"
+ZEROCONF_CREDS_FILE = DATA_DIR / "spotify_zeroconf_credentials.json"
 
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -432,6 +435,37 @@ class SpotifyController:
             logger.debug(f"Failed querying Sonos ZoneGroupTopology on {ip}: {exc}")
             return {}
 
+    def get_sonos_volume(self, ip: str) -> Optional[int]:
+        """Reads current Master volume (0-100) directly from a Sonos speaker via UPnP."""
+        try:
+            envelope = (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+                's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
+                "<s:Body>"
+                '<u:GetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">'
+                "<InstanceID>0</InstanceID><Channel>Master</Channel>"
+                "</u:GetVolume>"
+                "</s:Body>"
+                "</s:Envelope>"
+            )
+            resp = requests.post(
+                f"http://{ip}:1400/MediaRenderer/RenderingControl/Control",
+                data=envelope.encode("utf-8"),
+                headers={
+                    "Content-Type": 'text/xml; charset="utf-8"',
+                    "SOAPACTION": '"urn:schemas-upnp-org:service:RenderingControl:1#GetVolume"',
+                },
+                timeout=2.0,
+            )
+            if resp.status_code == 200:
+                m = re.search(r"<CurrentVolume>(\d+)</CurrentVolume>", resp.text)
+                if m:
+                    return int(m.group(1))
+        except Exception as exc:
+            logger.debug(f"Sonos UPnP GetVolume failed on {ip}: {exc}")
+        return None
+
     def control_sonos_upnp(
         self,
         ip: str,
@@ -462,6 +496,10 @@ class SpotifyController:
                 service = "AVTransport"
                 soap_action = "Seek"
                 inner = "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>00:00:00</Target>"
+            elif action_norm in ("shuffle", "random"):
+                service = "AVTransport"
+                soap_action = "SetPlayMode"
+                inner = "<InstanceID>0</InstanceID><NewPlayMode>SHUFFLE</NewPlayMode>"
             elif action_norm in ("loop", "repeat", "loop_track", "loop_context", "loop_playlist", "loop_off"):
                 service = "AVTransport"
                 soap_action = "SetPlayMode"
@@ -473,10 +511,17 @@ class SpotifyController:
                 else:
                     play_mode = "NORMAL"
                 inner = f"<InstanceID>0</InstanceID><NewPlayMode>{play_mode}</NewPlayMode>"
-            elif action_norm == "set_volume" and volume is not None:
+            elif action_norm in ("set_volume", "volume_up", "volume_down", "mute"):
                 service = "RenderingControl"
                 soap_action = "SetVolume"
-                vol = max(0, min(100, int(volume)))
+                if action_norm == "mute":
+                    vol = 0
+                elif action_norm == "set_volume" and volume is not None:
+                    vol = max(0, min(100, int(volume)))
+                else:
+                    cur = self.get_sonos_volume(ip)
+                    base = cur if cur is not None else 40
+                    vol = min(100, base + 12) if action_norm == "volume_up" else max(0, base - 12)
                 inner = f"<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{vol}</DesiredVolume>"
             else:
                 return False
@@ -527,9 +572,427 @@ class SpotifyController:
             logger.info("[Spotify Connect] No active devices returned by Spotify API.")
         return devices
 
+    def discover_mdns_spotify_devices(self, timeout: float = 2.2) -> List[Dict[str, Any]]:
+        """
+        Discovers dormant/active Spotify Connect devices on the local Wi-Fi LAN
+        via mDNS (`_spotify-connect._tcp`) using `avahi-browse` + HTTP `getInfo`.
+        Detects Sonos, Sky Q / decoders, smart TVs, and receivers even in standby.
+        """
+        if not shutil.which("avahi-browse"):
+            return []
+        try:
+            proc = subprocess.run(
+                ["avahi-browse", "-rtpk", "_spotify-connect._tcp"],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if proc.returncode != 0 or not proc.stdout:
+                return []
+        except Exception as exc:
+            logger.debug(f"[Spotify mDNS] avahi-browse failed: {exc}")
+            return []
+
+        found: List[Dict[str, Any]] = []
+        seen_endpoints = set()
+        for line in proc.stdout.splitlines():
+            # Avahi parseable resolved line format: =;iface;IPv4;service;_spotify-connect._tcp;domain;host;ip;port;txt
+            if not line.startswith("=;"):
+                continue
+            parts = line.split(";")
+            if len(parts) < 10 or parts[2] != "IPv4":
+                continue
+            service_name = parts[3]
+            ip = parts[7].strip()
+            port = parts[8].strip()
+            txt_raw = ";".join(parts[9:])
+            if not ip or not port:
+                continue
+            cpath_match = re.search(r"CPath=([^\s\"';]+)", txt_raw, re.IGNORECASE)
+            cpath = cpath_match.group(1) if cpath_match else "/spotifyconnect"
+            if not cpath.startswith("/"):
+                cpath = "/" + cpath
+
+            endpoint = (ip, port, cpath)
+            if endpoint in seen_endpoints:
+                continue
+            seen_endpoints.add(endpoint)
+
+            info: Dict[str, Any] = {}
+            try:
+                r = requests.get(f"http://{ip}:{port}{cpath}", params={"action": "getInfo"}, timeout=1.5)
+                if r.status_code == 200:
+                    info = r.json()
+            except Exception:
+                pass
+
+            found.append({
+                "name": info.get("remoteName") or service_name,
+                "device_id": info.get("deviceID", ""),
+                "device_type": info.get("deviceType", ""),
+                "brand": info.get("brandDisplayName", ""),
+                "active_user": info.get("activeUser", ""),
+                "ip": ip,
+                "port": int(port),
+                "cpath": cpath,
+                "public_key": info.get("publicKey", ""),
+                "has_zeroconf_key": bool(info.get("publicKey")),
+            })
+        return found
+
+    def pair_zeroconf(self, timeout_sec: int = 60) -> Dict[str, Any]:
+        """Runs temporary Zeroconf receiver to capture Spotify reusable credentials."""
+        from spotify_zeroconf import run_pairing_server
+        return run_pairing_server(ZEROCONF_CREDS_FILE, timeout_sec=timeout_sec)
+
+    def _load_zeroconf_creds(self) -> Optional[Dict[str, Any]]:
+        if not ZEROCONF_CREDS_FILE.exists():
+            return None
+        try:
+            data = json.loads(ZEROCONF_CREDS_FILE.read_text(encoding="utf-8"))
+            if data.get("username") and data.get("auth_data"):
+                return data
+        except Exception as exc:
+            logger.debug(f"[Spotify ZC] Could not read credentials file: {exc}")
+        return None
+
+    def inspect_sonos_spotify_accounts(self) -> Dict[str, Any]:
+        """
+        Inspects discovered Sonos speakers on LAN for configured Spotify account slots (`sn`).
+        Checks `/status/accounts` XML and active queue metadata so the user can pin `SONOS_SPOTIFY_SN` in `.env`.
+        """
+        sonos_list = self.discover_sonos_speakers(force_refresh=True)
+        coordinators = [s for s in sonos_list if s.get("is_coordinator", True)] or sonos_list
+        if not coordinators:
+            return {"ok": False, "message": "Nessuno speaker Sonos rilevato sulla Wi-Fi LAN.", "accounts": []}
+
+        sp = coordinators[0]
+        ip = sp["ip"]
+        accounts: List[Dict[str, str]] = []
+        try:
+            r = requests.get(f"http://{ip}:1400/status/accounts", timeout=2.0)
+            if r.status_code == 200:
+                root = ET.fromstring(r.text)
+                for acc in root.findall(".//Account"):
+                    acc_type = acc.attrib.get("Type", "")
+                    sn = acc.attrib.get("SerialNum", "")
+                    un = (acc.findtext("UN") or "").strip()
+                    md = (acc.findtext("MD") or "").strip()
+                    nickname = (acc.findtext("Nickname") or "").strip()
+                    accounts.append({
+                        "type": acc_type,
+                        "sn": sn,
+                        "username": un,
+                        "nickname": nickname,
+                        "metadata": md,
+                        "is_spotify": acc_type in ("2311", "3079"),
+                    })
+        except Exception as exc:
+            logger.debug(f"[Sonos Accounts] /status/accounts query failed on {ip}: {exc}")
+
+        sid, cur_sn, cur_tok, forced = self._extract_sonos_spotify_service_params(ip)
+        return {
+            "ok": True,
+            "room": sp.get("room_name", "Sonos"),
+            "ip": ip,
+            "accounts": [a for a in accounts if a.get("is_spotify")] or accounts,
+            "active_queue_sid": sid,
+            "active_queue_sn": cur_sn,
+            "active_queue_token": cur_tok,
+            "env_forced_sn": os.getenv("SONOS_SPOTIFY_SN", "").strip(),
+            "forced": forced,
+        }
+
+    def _extract_sonos_spotify_service_params(self, ip: str) -> Tuple[str, str, str, bool]:
+        """
+        Resolves Sonos Spotify service parameters (sid, sn, desc token, is_forced).
+        Priority:
+        1. Explicit `SONOS_SPOTIFY_SN` (+ optional `SONOS_SPOTIFY_TOKEN` / `SONOS_SPOTIFY_SID`) in `.env`
+           so A-X-L always locks to the configured household account instead of the last played account.
+        2. Existing queue metadata on the Sonos coordinator (`GetPositionInfo` / `GetMediaInfo`).
+        3. Standard Sonos Spotify defaults (`sid=9`, `sn=1`).
+        """
+        env_sn = os.getenv("SONOS_SPOTIFY_SN", "").strip()
+        env_sid = os.getenv("SONOS_SPOTIFY_SID", "").strip() or "9"
+        env_tok = os.getenv("SONOS_SPOTIFY_TOKEN", "").strip()
+
+        sid, sn, token = env_sid, "1", env_tok or "SA_RINCON2311_X_#Svc2311-0-Token"
+        forced = bool(env_sn)
+        if forced:
+            sn = env_sn
+
+        for action in ("GetPositionInfo", "GetMediaInfo"):
+            try:
+                env = (
+                    '<?xml version="1.0" encoding="utf-8"?>'
+                    '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+                    's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
+                    "<s:Body>"
+                    f'<u:{action} xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">'
+                    "<InstanceID>0</InstanceID>"
+                    f"</u:{action}>"
+                    "</s:Body></s:Envelope>"
+                )
+                r = requests.post(
+                    f"http://{ip}:1400/MediaRenderer/AVTransport/Control",
+                    data=env.encode("utf-8"),
+                    headers={
+                        "Content-Type": 'text/xml; charset="utf-8"',
+                        "SOAPACTION": f'"urn:schemas-upnp-org:service:AVTransport:1#{action}"',
+                    },
+                    timeout=1.5,
+                )
+                if r.status_code == 200:
+                    unesc = html.unescape(r.text)
+                    m_sid = re.search(r"[?&]sid=(\d+)", unesc)
+                    m_sn = re.search(r"[?&]sn=(\d+)", unesc)
+                    m_tok = re.search(r"(SA_RINCON\d+_[^<\s]+)", unesc)
+                    if m_sid and not os.getenv("SONOS_SPOTIFY_SID", "").strip():
+                        sid = m_sid.group(1)
+                    if m_sn and not forced:
+                        sn = m_sn.group(1)
+                    if m_tok and not env_tok:
+                        token = m_tok.group(1)
+                    if m_sn or m_tok:
+                        break
+            except Exception:
+                pass
+        return sid, sn, token, forced
+
+    def play_spotify_item_on_sonos_upnp(
+        self,
+        sonos_sp: Dict[str, Any],
+        item: Dict[str, Any],
+        volume: Optional[int] = None,
+        override_sn: Optional[str] = None,
+    ) -> bool:
+        """
+        Enqueues and plays a Spotify track/album/playlist URI directly on a Sonos coordinator
+        via local UPnP AVTransport (`AddURIToQueue` + `Seek` + `Play`), setting volume first if requested.
+        """
+        ip = sonos_sp.get("ip")
+        uuid = sonos_sp.get("uuid")
+        if not ip or not item or not item.get("uri"):
+            return False
+
+        # 1. Apply requested volume BEFORE starting audio so it never blasts loud first
+        if volume is not None:
+            self.control_sonos_upnp(ip, "set_volume", volume=volume)
+
+        uri = item["uri"]  # e.g. spotify:track:4AWyj6hDtrIrXu0REX6gKX
+        parts = uri.split(":")
+        if len(parts) < 3:
+            return False
+        kind = parts[1]
+        sp_id = parts[2]
+        enc_uri = urllib.parse.quote(f"spotify:{kind}:{sp_id}", safe="")
+
+        sid, detected_sn, detected_token, is_forced = self._extract_sonos_spotify_service_params(ip)
+        title_esc = html.escape(item.get("name") or "Spotify")
+
+        if override_sn:
+            sn_candidates = [str(override_sn).strip()]
+        elif is_forced:
+            # Lock strictly to the account pinned in SONOS_SPOTIFY_SN
+            sn_candidates = [detected_sn]
+        else:
+            # Try detected sn first, then common Sonos account serial numbers (1..4)
+            sn_candidates = [detected_sn] + [str(n) for n in (1, 2, 3, 4) if str(n) != detected_sn]
+        for sn in sn_candidates:
+            if kind == "track":
+                sonos_uri = f"x-sonos-spotify:{enc_uri}?sid={sid}&flags=8224&sn={sn}"
+                item_id = f"00032020{enc_uri}"
+                upnp_class = "object.item.audioItem.musicTrack"
+            elif kind == "album":
+                sonos_uri = f"x-rincon-cpcontainer:1004206c{enc_uri}?sid={sid}&flags=8300&sn={sn}"
+                item_id = f"1004206c{enc_uri}"
+                upnp_class = "object.container.album.musicAlbum"
+            elif kind == "playlist":
+                sonos_uri = f"x-rincon-cpcontainer:1006206c{enc_uri}?sid={sid}&flags=8300&sn={sn}"
+                item_id = f"1006206c{enc_uri}"
+                upnp_class = "object.container.playlistContainer"
+            else:
+                return False
+
+            didl = (
+                '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" '
+                'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" '
+                'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" '
+                'xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">'
+                f'<item id="{item_id}" parentID="-1" restricted="true">'
+                f"<dc:title>{title_esc}</dc:title>"
+                f"<upnp:class>{upnp_class}</upnp:class>"
+                f'<desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">{detected_token}</desc>'
+                "</item></DIDL-Lite>"
+            )
+            didl_esc = html.escape(didl)
+            uri_esc = html.escape(sonos_uri)
+
+            add_env = (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+                's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
+                "<s:Body>"
+                '<u:AddURIToQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">'
+                "<InstanceID>0</InstanceID>"
+                f"<EnqueuedURI>{uri_esc}</EnqueuedURI>"
+                f"<EnqueuedURIMetaData>{didl_esc}</EnqueuedURIMetaData>"
+                "<DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>"
+                "<EnqueueAsNext>1</EnqueueAsNext>"
+                "</u:AddURIToQueue>"
+                "</s:Body></s:Envelope>"
+            )
+            try:
+                resp = requests.post(
+                    f"http://{ip}:1400/MediaRenderer/AVTransport/Control",
+                    data=add_env.encode("utf-8"),
+                    headers={
+                        "Content-Type": 'text/xml; charset="utf-8"',
+                        "SOAPACTION": '"urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue"',
+                    },
+                    timeout=2.5,
+                )
+                if resp.status_code == 200:
+                    m_tr = re.search(r"<FirstTrackNumberEnqueued>(\d+)</FirstTrackNumberEnqueued>", resp.text)
+                    track_nr = m_tr.group(1) if m_tr else "1"
+                    if uuid:
+                        q_env = (
+                            '<?xml version="1.0" encoding="utf-8"?>'
+                            '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+                            's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
+                            "<s:Body>"
+                            '<u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">'
+                            "<InstanceID>0</InstanceID>"
+                            f"<CurrentURI>x-rincon-queue:{uuid}#0</CurrentURI>"
+                            "<CurrentURIMetaData></CurrentURIMetaData>"
+                            "</u:SetAVTransportURI>"
+                            "</s:Body></s:Envelope>"
+                        )
+                        requests.post(
+                            f"http://{ip}:1400/MediaRenderer/AVTransport/Control",
+                            data=q_env.encode("utf-8"),
+                            headers={
+                                "Content-Type": 'text/xml; charset="utf-8"',
+                                "SOAPACTION": '"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI"',
+                            },
+                            timeout=2.0,
+                        )
+                    seek_env = (
+                        '<?xml version="1.0" encoding="utf-8"?>'
+                        '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+                        's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
+                        "<s:Body>"
+                        '<u:Seek xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">'
+                        "<InstanceID>0</InstanceID>"
+                        "<Unit>TRACK_NR</Unit>"
+                        f"<Target>{track_nr}</Target>"
+                        "</u:Seek>"
+                        "</s:Body></s:Envelope>"
+                    )
+                    requests.post(
+                        f"http://{ip}:1400/MediaRenderer/AVTransport/Control",
+                        data=seek_env.encode("utf-8"),
+                        headers={
+                            "Content-Type": 'text/xml; charset="utf-8"',
+                            "SOAPACTION": '"urn:schemas-upnp-org:service:AVTransport:1#Seek"',
+                        },
+                        timeout=2.0,
+                    )
+                    played = self.control_sonos_upnp(ip, "play")
+                    logger.info(
+                        f"[Sonos Direct Play] Enqueued '{item.get('name')}' ({uri}) on {ip} (track_nr={track_nr}, sn={sn}, play={played})"
+                    )
+                    return played
+            except Exception as exc:
+                logger.debug(f"[Sonos Direct Play] AddURIToQueue sn={sn} failed on {ip}: {exc}")
+        return False
+
+    def _wake_sonos_or_mdns_device(
+        self,
+        target: str,
+        sonos_speakers: Optional[List[Dict[str, Any]]] = None,
+        allow_upnp_resume: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Attempts to wake a dormant Sonos/mDNS Spotify Connect speaker via Zeroconf `addUser`
+        so it registers with Spotify Cloud (`/me/player/devices`).
+        Only calls UPnP `Play` when `allow_upnp_resume=True` (no specific track URI requested)
+        so it never resumes a stale track when the user asked for a specific song.
+        """
+        norm_t = self._normalize_target_text(target)
+        sonos_list = sonos_speakers if sonos_speakers is not None else self.discover_sonos_speakers()
+
+        # 1. Try mDNS Zeroconf `addUser` first (wakes Spotify Connect cleanly without resuming old tracks)
+        mdns_devs = self.discover_mdns_spotify_devices()
+        mdns_match = next(
+            (
+                d for d in mdns_devs
+                if norm_t in (d.get("name") or "").lower()
+                or norm_t in (d.get("brand") or "").lower()
+                or ("sonos" in norm_t and "sonos" in (d.get("brand") or "").lower())
+            ),
+            None,
+        )
+        if mdns_match:
+            logger.info(
+                f"[Spotify mDNS] Found standby device '{mdns_match['name']}' "
+                f"({mdns_match.get('brand') or mdns_match.get('device_type')}) at "
+                f"{mdns_match['ip']}:{mdns_match['port']}{mdns_match['cpath']} "
+                f"(activeUser='{mdns_match.get('active_user') or 'none'}')"
+            )
+            creds = self._load_zeroconf_creds()
+            if creds and mdns_match.get("device_id") and mdns_match.get("public_key"):
+                try:
+                    from spotify_zeroconf import send_add_user
+                    ok = send_add_user(
+                        mdns_match["ip"],
+                        mdns_match["port"],
+                        mdns_match["cpath"],
+                        mdns_match["device_id"],
+                        mdns_match["public_key"],
+                        creds,
+                    )
+                    logger.info(f"[Spotify ZC] addUser -> '{mdns_match['name']}' ok={ok}")
+                    if ok:
+                        for wait_sec in (1.0, 1.2, 1.2):
+                            time.sleep(wait_sec)
+                            devices = self.get_spotify_devices()
+                            matched_dev, _, _ = self.resolve_device(
+                                target, devices=devices, sonos_speakers=sonos_list
+                            )
+                            if matched_dev is not None:
+                                return matched_dev
+                except Exception as exc:
+                    logger.warning(f"[Spotify ZC] Wake via addUser failed: {exc}")
+
+        # 2. Only use bare UPnP Play when no specific song was requested (pure resume/wake)
+        if allow_upnp_resume:
+            coordinators = [s for s in sonos_list if s.get("is_coordinator", True)] or sonos_list
+            lan_match = next(
+                (
+                    s for s in coordinators
+                    if "sonos" in norm_t or norm_t in (s.get("room_name") or "").lower()
+                ),
+                None,
+            )
+            if lan_match and lan_match.get("ip"):
+                played = self.control_sonos_upnp(lan_match["ip"], "play")
+                logger.info(
+                    f"[Spotify Wake] Sonos LAN '{lan_match.get('room_name')}' ({lan_match['ip']}) AVTransport Play={played}"
+                )
+                if played:
+                    for wait_sec in (1.0, 1.2, 1.3):
+                        time.sleep(wait_sec)
+                        devices = self.get_spotify_devices()
+                        matched_dev, _, _ = self.resolve_device(target, devices=devices, sonos_speakers=sonos_list)
+                        if matched_dev is not None:
+                            return matched_dev
+        return None
+
     def list_available_speakers(self) -> Dict[str, Any]:
-        """Combines Spotify Connect devices, local Sonos LAN speakers, and Kiosk BT outputs."""
+        """Combines Spotify Connect devices, local Sonos LAN speakers, mDNS standby devices, and Kiosk BT outputs."""
         sonos_lan = self.discover_sonos_speakers()
+        mdns_lan = self.discover_mdns_spotify_devices()
         spotify_devices: List[Dict[str, Any]] = []
         spotify_error: Optional[str] = None
 
@@ -544,6 +1007,7 @@ class SpotifyController:
         return {
             "spotify_devices": spotify_devices,
             "sonos_lan": sonos_lan,
+            "mdns_lan": mdns_lan,
             "kiosk_audio_outputs": self.get_kiosk_audio_outputs(),
             "spotify_error": spotify_error,
         }
@@ -993,6 +1457,7 @@ class SpotifyController:
         target: Optional[str] = None,
         dispatch_kiosk_intent: Optional[Callable[[Dict[str, Any]], None]] = None,
         preferred_kind: Optional[str] = None,
+        volume: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Searches Spotify (if query is provided) and starts/transfers playback on the resolved speaker.
@@ -1039,6 +1504,37 @@ class SpotifyController:
                 ),
             }
 
+        if matched_dev is None and (norm_target or (not all_devs and sonos_speakers)):
+            matched_dev = self._wake_sonos_or_mdns_device(
+                target or norm_target or "sonos",
+                sonos_speakers=sonos_speakers,
+                allow_upnp_resume=(item is None),
+            )
+
+        # Direct Sonos UPnP queue+play fallback when Sonos is on Wi-Fi LAN but not registered on Spotify Connect cloud
+        if matched_dev is None and item and sonos_speakers:
+            coordinators = [s for s in sonos_speakers if s.get("is_coordinator", True)] or sonos_speakers
+            lan_sonos = next(
+                (
+                    s for s in coordinators
+                    if (not norm_target and not all_devs)
+                    or "sonos" in norm_target
+                    or norm_target in (s.get("room_name") or "").lower()
+                ),
+                None,
+            )
+            if lan_sonos and self.play_spotify_item_on_sonos_upnp(lan_sonos, item, volume=volume):
+                room = lan_sonos.get("room_name", "Sonos")
+                subtitle = f" di {item['subtitle']}" if item.get("subtitle") else ""
+                vol_suffix = f" (volume {int(volume)}%)" if volume is not None else ""
+                return {
+                    "ok": True,
+                    "via": "sonos_upnp",
+                    "device_name": room,
+                    "item": item,
+                    "message": f"Riproduco '{item['name']}'{subtitle} su {room}{vol_suffix}.",
+                }
+
         if matched_dev is None:
             avail_names = [d.get("name", "?") for d in all_devs]
             sonos_names = [s.get("room_name", "?") for s in sonos_speakers if s.get("visible", True)]
@@ -1075,6 +1571,15 @@ class SpotifyController:
                 ).strip(),
             }
 
+        if volume is not None:
+            vol_clamped = max(0, min(100, int(volume)))
+            if not self._try_sonos_upnp_fallback(norm_target, sonos_speakers, "set_volume", volume=vol_clamped):
+                self._api_request(
+                    "PUT",
+                    "/me/player/volume",
+                    params={"device_id": matched_dev["id"], "volume_percent": vol_clamped},
+                )
+
         ok, err_detail = self._start_playback_on_device_id(
             matched_dev["id"],
             item=item,
@@ -1109,6 +1614,9 @@ class SpotifyController:
         sonos_speakers = self.discover_sonos_speakers()
         devices = self.get_spotify_devices()
         matched_dev, all_devs, _ = self.resolve_device(target, devices=devices, sonos_speakers=sonos_speakers)
+
+        if matched_dev is None:
+            matched_dev = self._wake_sonos_or_mdns_device(target, sonos_speakers=sonos_speakers)
 
         if matched_dev is None:
             avail_str = ", ".join(d.get("name", "?") for d in all_devs) or "nessuno"
@@ -1297,8 +1805,8 @@ class SpotifyController:
             if resp.status_code in (200, 202, 204):
                 return {"ok": True, "device_name": dev_label, "message": f"Volume su {dev_label} impostato al {target_vol}%."}
             # Local Sonos UPnP volume fallback if Spotify Connect volume is restricted
-            if self._try_sonos_upnp_fallback(norm_target, sonos_speakers, "set_volume", target_vol):
-                return {"ok": True, "device_name": dev_label, "message": f"Volume Sonos impostato al {target_vol}%."}
+            if self._try_sonos_upnp_fallback(norm_target, sonos_speakers, act, volume=target_vol):
+                return {"ok": True, "device_name": dev_label, "message": f"Volume Sonos regolato via rete locale."}
             if resp.status_code == 403:
                 return {
                     "ok": False,

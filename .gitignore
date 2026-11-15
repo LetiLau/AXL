@@ -13,6 +13,8 @@ ENV/
 .env
 *.env
 master_server/data/spotify_token.json
+master_server/data/spotify_zeroconf_credentials.json
+master_server/data/*credentials*.json
 *.spotify_cache
 
 # OS specific files

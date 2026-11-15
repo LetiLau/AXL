@@ -455,6 +455,38 @@ class ConsoleManager:
         elif sub in ["devices", "speakers", "ls", "list", "dispositivi"]:
             res = await asyncio.to_thread(list_music_devices)
             print(f"[Spotify Devices] {res}")
+        elif sub in ["pair", "accoppia", "zeroconf"]:
+            res = await asyncio.to_thread(spotify_controller.pair_zeroconf, 60)
+            print(f"[Spotify Pair] {res.get('message')}")
+        elif sub in ["sonos-accounts", "accounts", "sn"]:
+            info = await asyncio.to_thread(spotify_controller.inspect_sonos_spotify_accounts)
+            if not info.get("ok"):
+                print(f"[Sonos] {info.get('message')}")
+                return
+            print(f"[Sonos] Room: {info['room']} ({info['ip']}) | Active queue: sid={info['active_queue_sid']} sn={info['active_queue_sn']} token={info['active_queue_token']}")
+            print(f"[Sonos] Pinned in .env (SONOS_SPOTIFY_SN): {info['env_forced_sn'] or 'auto (not pinned)'}")
+            accs = info.get("accounts") or []
+            if accs:
+                for a in accs:
+                    print(f"  - sn={a.get('sn')} | type={a.get('type')} | user='{a.get('username')}' | nick='{a.get('nickname')}'")
+            else:
+                print("  (Sonos firmware did not expose /status/accounts XML; use '/spotify sonos-test <1|2>' to test which sn belongs to your account)")
+        elif sub == "sonos-test":
+            sn_val = arg.split()[0].strip() if arg else ""
+            if not sn_val.isdigit():
+                print("[Console] Usage: /spotify sonos-test <sn_number> (e.g. /spotify sonos-test 1 or 2)")
+                return
+            sonos_list = await asyncio.to_thread(spotify_controller.discover_sonos_speakers, 1.5, True)
+            coords = [s for s in sonos_list if s.get("is_coordinator", True)] or sonos_list
+            if not coords:
+                print("[Sonos] No Sonos speaker found on Wi-Fi LAN.")
+                return
+            item = await asyncio.to_thread(spotify_controller.search_spotify, "Waterloo ABBA", "track")
+            if not item:
+                print("[Sonos] Could not search Spotify track for test.")
+                return
+            ok = await asyncio.to_thread(spotify_controller.play_spotify_item_on_sonos_upnp, coords[0], item, 8, sn_val)
+            print(f"[Sonos Test sn={sn_val}] ok={ok} -> Check your Spotify app to see which account started playing!")
         elif sub in ["now", "current", "playing"]:
             res = await asyncio.to_thread(get_now_playing)
             print(f"[Spotify Now] {res}")
@@ -517,7 +549,7 @@ class ConsoleManager:
                 res = await asyncio.to_thread(media_control, "set_volume", tgt, vol)
             print(f"[Spotify] {res}")
         else:
-            print("[Console] Usage: /spotify <status | devices | now | play <query> [--on <speaker>] | transfer <speaker> | pause | resume | next | prev | restart | loop [track|context|off|toggle] [speaker] | vol <0-100> [speaker]>")
+            print("[Console] Usage: /spotify <status | devices | pair | sonos-accounts | sonos-test <1|2> | now | play <query> [--on <speaker>] | transfer <speaker> | pause | resume | next | prev | restart | loop [track|context|off|toggle] [speaker] | vol <0-100|up|down|mute> [--on <speaker>]>")
 
     def _print_status(self):
         sec_mode = self.stream_manager.verifier.security_mode if self.stream_manager.verifier else "unknown"

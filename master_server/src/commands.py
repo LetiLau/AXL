@@ -10,7 +10,7 @@ import logging
 import os
 import random
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import psutil
 import requests
@@ -298,7 +298,7 @@ def media_control(
     return f"Comando multimediale '{act}' inviato a '{clean_target or 'local'}'."
 
 
-def play_music(query: str = "", target: str = "", kind: str = "") -> str:
+def play_music(query: str = "", target: str = "", kind: str = "", volume: Optional[int] = None) -> str:
     """
     Searches and plays music, artists, albums, or playlists on Spotify across Wi-Fi speakers (e.g. Sonos),
     Bluetooth speakers, PC, or Android Kiosk. Also transfers active playback if query is empty and target is given.
@@ -307,11 +307,14 @@ def play_music(query: str = "", target: str = "", kind: str = "") -> str:
         query: Song name, artist, album, genre, or playlist (e.g. 'Queen Bohemian Rhapsody', 'Lazza', 'playlist jazz'). Leave empty when just transferring current music to another speaker.
         target: Target speaker or device name spoken by the user (e.g. 'sonos', 'salotto', 'sala', 'kiosk', 'telefono', 'pc', 'bluetooth'). Leave empty for active/default device.
         kind: Optional content type hint: 'track', 'artist', 'album', 'playlist', or empty for auto-detection.
+        volume: Optional initial volume percentage (0-100) to apply before starting playback.
     """
     clean_query = str(query or "").strip()
     clean_target = str(target or "").strip()
     clean_kind = str(kind or "").strip() or None
-    logger.info(f"[COMMAND: play_music] Query: '{clean_query}' | Target: '{clean_target}' | Kind: '{clean_kind}'")
+    logger.info(
+        f"[COMMAND: play_music] Query: '{clean_query}' | Target: '{clean_target}' | Kind: '{clean_kind}' | Volume: {volume}"
+    )
 
     # Check if Spotify Web API is configured and linked
     if not spotify_controller.is_configured():
@@ -346,6 +349,7 @@ def play_music(query: str = "", target: str = "", kind: str = "") -> str:
                 target=clean_target or None,
                 dispatch_kiosk_intent=notify_telemetry,
                 preferred_kind=clean_kind,
+                volume=volume,
             )
 
         if res.get("ok"):
@@ -395,6 +399,14 @@ def list_music_devices() -> str:
             grp_str = f" (gruppo: {' + '.join(grp)})" if len(grp) > 1 else ""
             sonos_strs.append(f"{s.get('room_name')} [{s.get('model_name')}]{grp_str}")
         parts.append("Speaker Sonos rilevati su Wi-Fi: " + ", ".join(sonos_strs))
+
+    mdns_lan = info.get("mdns_lan", [])
+    if mdns_lan:
+        mdns_strs = [
+            f"{d.get('name')} [{d.get('brand') or d.get('device_type') or 'mDNS'}] ({d.get('ip')})"
+            for d in mdns_lan
+        ]
+        parts.append("Dispositivi mDNS in standby sulla LAN: " + ", ".join(mdns_strs))
 
     kiosk_bt = info.get("kiosk_audio_outputs", [])
     if kiosk_bt:
@@ -1836,6 +1848,218 @@ def is_compound_ai_query(text: str) -> bool:
     return False
 
 
+def _extract_trailing_speaker_target(text: str) -> Tuple[str, str]:
+    """Splits an optional trailing 'su/on <speaker>' clause from a clean music command."""
+    m = re.match(r"^(.*?)\s+(?:su|sul|sulla|in|on)\s+([a-z0-9àèéìòù _-]{2,28})$", text, re.IGNORECASE)
+    if m and m.group(1).strip():
+        return m.group(1).strip(), m.group(2).strip()
+    return text.strip(), ""
+
+
+def detect_music_fast_path(text: str, lang: str = "it") -> Optional[Dict[str, Any]]:
+    """
+    Tier-1 regex router for deterministic music controls and direct play requests.
+    Returns None for vague/descriptive music requests so Gemini Brain can disambiguate them.
+    """
+    raw = re.sub(r"[?!.,;:]+$", "", (text or "").strip())
+    raw = re.sub(r"\s+(?:per\s+favore|grazie|please|thanks)$", "", raw, flags=re.IGNORECASE).strip()
+    if not raw:
+        return None
+    low = raw.lower()
+
+    # 1. Pause / Stop music
+    m = re.match(
+        r"^(?:metti\s+(?:in\s+)?pausa|pausa(?:\s+(?:la\s+)?musica)?|ferma(?:\s+(?:la\s+)?musica)?|stop(?:\s+(?:la\s+)?musica|\s+music)?|pause(?:\s+music)?|stop\s+playing)(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("pause", target=tgt)
+        return {"handled": True, "type": "music_pause", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 2. Resume / Unpause
+    m = re.match(
+        r"^(?:riprendi(?:\s+(?:la\s+)?musica)?|continua(?:\s+(?:la\s+)?musica)?|togli\s+(?:la\s+)?pausa|resume(?:\s+music)?|unpause|play(?:\s+music)?|riproduci)(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("resume", target=tgt)
+        return {"handled": True, "type": "music_resume", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 3. Next / Skip
+    m = re.match(
+        r"^(?:prossima(?:\s+(?:canzone|traccia|brano))?|canzone\s+successiva|avanti|salta(?:\s+(?:questa\s+)?(?:canzone|traccia|brano))?|next(?:\s+(?:song|track))?|skip(?:\s+(?:song|track))?)(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("next", target=tgt)
+        return {"handled": True, "type": "music_next", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 4. Previous
+    m = re.match(
+        r"^(?:(?:canzone|traccia|brano)\s+precedente|precedente|indietro|torna\s+indietro|canzone\s+(?:di\s+)?prima|previous(?:\s+(?:song|track))?|prev|go\s+back)(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("previous", target=tgt)
+        return {"handled": True, "type": "music_previous", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 5. Restart current track
+    m = re.match(
+        r"^(?:ricomincia(?:\s+(?:la\s+)?(?:canzone|traccia|brano))?|da\s+capo|riparti\s+da\s+capo|restart(?:\s+(?:this\s+)?(?:song|track))?)(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("restart", target=tgt)
+        return {"handled": True, "type": "music_restart", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 6. Loop / Repeat
+    m = re.match(
+        r"^(?:ripeti\s+(?:questa\s+|la\s+)?(?:canzone|traccia|brano)|metti\s+in\s+loop(?:\s+(?:questa\s+|la\s+)?(?:canzone|traccia|brano))?|loop\s+(?:this\s+)?(?:song|track)|repeat\s+(?:this\s+)?(?:song|track))(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("loop", target=tgt, repeat_mode="track")
+        return {"handled": True, "type": "music_loop", "reply": f"{get_random_dog_sound()} {res}"}
+
+    m = re.match(
+        r"^(?:ripeti\s+(?:la\s+)?(?:playlist|coda)|loop\s+(?:playlist|album|context)|repeat\s+(?:playlist|all))(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("loop", target=tgt, repeat_mode="context")
+        return {"handled": True, "type": "music_loop", "reply": f"{get_random_dog_sound()} {res}"}
+
+    m = re.match(
+        r"^(?:(?:togli|disattiva|stop)\s+(?:il\s+)?(?:loop|ripeti|ripetizione)|(?:disable|turn\s+off)\s+(?:loop|repeat))(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("loop", target=tgt, repeat_mode="off")
+        return {"handled": True, "type": "music_loop", "reply": f"{get_random_dog_sound()} {res}"}
+
+    m = re.match(
+        r"^(?:loop|ripeti|attiva\s+(?:il\s+)?loop|toggle\s+loop)(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("loop", target=tgt, repeat_mode="toggle")
+        return {"handled": True, "type": "music_loop", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 7. Shuffle
+    m = re.match(
+        r"^(?:(?:attiva|metti|togli|disattiva)?\s*(?:la\s+)?(?:riproduzione\s+casuale|modalit[aà]\s+casuale|casuale|shuffle)|shuffle(?:\s+(?:on|off))?)(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("shuffle", target=tgt)
+        return {"handled": True, "type": "music_shuffle", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 8. Volume controls
+    m = re.match(r"^(?:alza|aumenta)\s+(?:il\s+)?volume(?:\s+della\s+musica)?(?:\s+(?:su|sul|sulla|on)\s+(.+))?$", low)
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("volume_up", target=tgt)
+        return {"handled": True, "type": "music_volume", "reply": f"{get_random_dog_sound()} {res}"}
+
+    m = re.match(r"^(?:abbassa|diminuisci|riduci)\s+(?:il\s+)?volume(?:\s+della\s+musica)?(?:\s+(?:su|sul|sulla|on)\s+(.+))?$", low)
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("volume_down", target=tgt)
+        return {"handled": True, "type": "music_volume", "reply": f"{get_random_dog_sound()} {res}"}
+
+    m = re.match(
+        r"^(?:(?:metti|imposta|porta)\s+(?:il\s+)?volume(?:\s+a|\s+al)?|volume(?:\s+a|\s+al)?)\s+(\d{1,3})\s*%?(?:\s+(?:su|sul|sulla|on)\s+(.+))?$",
+        low,
+    )
+    if m:
+        vol = max(0, min(100, int(m.group(1))))
+        tgt = (m.group(2) or "").strip()
+        res = media_control("set_volume", target=tgt, volume=vol)
+        return {"handled": True, "type": "music_volume", "reply": f"{get_random_dog_sound()} {res}"}
+
+    m = re.match(r"^(?:muta|silenzia)\s+(?:la\s+musica|spotify|lo\s+speaker|l[' ]audio)(?:\s+(?:su|sul|sulla|on)\s+(.+))?$", low)
+    if m:
+        tgt = (m.group(1) or "").strip()
+        res = media_control("mute", target=tgt)
+        return {"handled": True, "type": "music_volume", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 9. Now playing
+    if re.match(r"^(?:che\s+canzone\s+[eè]|cosa\s+sta\s+suonando|titolo\s+(?:della\s+)?canzone|what(?:'s|\s+is)\s+playing)$", low):
+        res = get_now_playing()
+        return {"handled": True, "type": "music_now_playing", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 9b. Transfer / switch active speaker (e.g. 'usa sonos', 'passa su salotto', 'sposta sul pc')
+    m = re.match(
+        r"^(?:usa|passa\s+a|passa\s+su|sposta(?:\s+(?:la\s+)?musica)?\s+(?:su|sul|sulla|in)|trasferisci(?:\s+(?:la\s+)?musica)?\s+(?:su|sul|sulla|in)|metti\s+su|use|switch\s+to|move\s+to)\s+([a-z0-9àèéìòù _-]{2,28})$",
+        low,
+    )
+    if m:
+        tgt = m.group(1).strip()
+        if tgt not in ("pausa", "muto", "silenzioso", "ripeti", "loop", "casuale", "shuffle"):
+            res = media_control("transfer", target=tgt)
+            return {"handled": True, "type": "music_transfer", "reply": f"{get_random_dog_sound()} {res}"}
+
+    # 10. Direct Play (<title/artist> [su <speaker>] [con volume <N>%]) — delegate vague/descriptive requests to Gemini
+    m = re.match(r"^(?:riproduci|metti|fammi\s+sentire|ascolta|play)\s+(.+)$", raw, re.IGNORECASE)
+    if m:
+        body = m.group(1).strip()
+        requested_vol: Optional[int] = None
+        vol_tail = re.search(r"\s+(?:con|al|a)\s+volume(?:\s+(?:al|a))?\s*(\d{1,3})\s*%?$", body, re.IGNORECASE)
+        if vol_tail:
+            requested_vol = max(0, min(100, int(vol_tail.group(1))))
+            body = body[:vol_tail.start()].strip()
+
+        query_part, tgt = _extract_trailing_speaker_target(body)
+        q_low = query_part.lower()
+
+        # Skip non-music system phrases so they never hijack play_music
+        non_music_kws = ("timer", "sveglia", "alarm", "silenzioso", "modalità", "modalita", "restrict", "paranoid", "friendly", "telemetria")
+        if any(k in q_low for k in non_music_kws):
+            return None
+
+        # Delegate vague, descriptive, or long conversational requests to Gemini Brain
+        vague_markers = (
+            "quella", "quello", "qualcosa", "una canzone", "un brano", "un po'", "un po ", "qualche",
+            "che fa", "che dice", "sugli", "sulla", "simile", "famosa", "famoso", "something",
+            "anything", "that song", "similar to", "rilassante", "triste", "allegra", "carica",
+        )
+        if any(vm in q_low for vm in vague_markers) or len(query_part.split()) > 6:
+            return None
+
+        kind = ""
+        for prefix, k_val in (
+            ("la playlist ", "playlist"),
+            ("playlist ", "playlist"),
+            ("l'album ", "album"),
+            ("album ", "album"),
+            ("l'artista ", "artist"),
+            ("la canzone ", "track"),
+            ("il brano ", "track"),
+        ):
+            if q_low.startswith(prefix):
+                kind = k_val
+                query_part = query_part[len(prefix):].strip()
+                break
+
+        if not query_part:
+            return None
+
+        res = play_music(query=query_part, target=tgt, kind=kind, volume=requested_vol)
+        return {"handled": True, "type": "music_play", "reply": f"{get_random_dog_sound()} {res}"}
+
+    return None
+
+
 def handle_local_fast_path(
     text: str,
     is_authorized: bool = True,
@@ -2119,6 +2343,11 @@ def handle_local_fast_path(
                 "type": "enrollment_rejected",
                 "reply": reply
             }
+
+    # 8. Music & Media Controls / Direct Play (0 API calls; vague requests fall through to Gemini)
+    music_fast = detect_music_fast_path(text, lang=lang)
+    if music_fast is not None:
+        return music_fast
 
     return None
 
