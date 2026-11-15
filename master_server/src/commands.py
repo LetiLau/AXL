@@ -544,9 +544,71 @@ def get_weather(city: str = "", days: int = 2) -> str:
         return f"Errore nel recupero del meteo per '{target_city}': {exc}"
 
 
+def _fallback_free_web_search(query: str) -> Optional[str]:
+    """
+    Free no-key fallback search when Gemini Google Search grounding hits 429 / Free-Tier limit: 0.
+    Uses Google News RSS for news queries and DuckDuckGo HTML for general web queries.
+    """
+    import html as html_lib
+    import urllib.parse
+    import xml.etree.ElementTree as ET
+
+    lower = query.lower()
+    is_news = any(k in lower for k in ("notizi", "news", "cronaca", "aggiornament", "ultim", "giornale", "oggi in italia"))
+
+    if is_news:
+        try:
+            # Use top Italian headlines feed for broad "news in Italy" requests
+            generic_it = any(p in lower for p in ("notizie in italia", "notizie italia", "ultime notizie")) and len(lower.split()) <= 8
+            if generic_it:
+                rss_url = "https://news.google.com/rss?hl=it&gl=IT&ceid=IT:it"
+            else:
+                rss_url = f"https://news.google.com/rss/search?q={urllib.parse.quote_plus(query)}&hl=it&gl=IT&ceid=IT:it"
+            resp = requests.get(rss_url, timeout=6.0, headers={"User-Agent": "Mozilla/5.0"})
+            if resp.status_code == 200:
+                root = ET.fromstring(resp.text)
+                items = root.findall(".//item")[:6]
+                headlines: List[str] = []
+                for it in items:
+                    title = (it.findtext("title") or "").strip()
+                    pub = (it.findtext("pubDate") or "").strip()
+                    if title:
+                        headlines.append(f"- {title}" + (f" ({pub[:16]})" if pub else ""))
+                if headlines:
+                    return "Ultime notizie (Google News RSS):\n" + "\n".join(headlines)
+        except Exception as exc:
+            logger.debug(f"[web_search fallback] Google News RSS failed: {exc}")
+
+    try:
+        ddg_resp = requests.post(
+            "https://html.duckduckgo.com/html/",
+            data={"q": query},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=6.0,
+        )
+        if ddg_resp.status_code == 200:
+            titles = re.findall(r'class="result__a"[^>]*>(.*?)</a>', ddg_resp.text, flags=re.DOTALL)
+            snippets = re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', ddg_resp.text, flags=re.DOTALL)
+            results: List[str] = []
+            for idx, raw_t in enumerate(titles[:5]):
+                clean_t = html_lib.unescape(re.sub(r"<[^>]+>", "", raw_t)).strip()
+                clean_s = ""
+                if idx < len(snippets):
+                    clean_s = html_lib.unescape(re.sub(r"<[^>]+>", "", snippets[idx])).strip()
+                if clean_t:
+                    results.append(f"- {clean_t}: {clean_s}" if clean_s else f"- {clean_t}")
+            if results:
+                return "Risultati web (DuckDuckGo):\n" + "\n".join(results)
+    except Exception as exc:
+        logger.debug(f"[web_search fallback] DuckDuckGo failed: {exc}")
+
+    return None
+
+
 def web_search(query: str) -> str:
     """
     Searches Google online for up-to-date news, sports results, events, prices, or recent real-world facts.
+    Automatically falls back to free Google News RSS / DuckDuckGo if Gemini Search Grounding hits 429 quota limits.
 
     Args:
         query: Concise search query in natural language (e.g. 'ultime notizie Italia oggi', 'risultato partita Milan ieri').
@@ -557,33 +619,37 @@ def web_search(query: str) -> str:
 
     logger.info(f"[COMMAND: web_search] Query: '{clean_q}'")
     client = _get_search_genai_client()
-    if client is None:
-        return "GEMINI_API_KEY non configurata: impossibile eseguire ricerche Google Search."
+    if client is not None:
+        try:
+            from google.genai import types
+            search_model = (
+                os.getenv("GEMINI_SEARCH_MODEL", "").strip()
+                or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
+                or "gemini-3.5-flash-lite"
+            )
+            prompt = (
+                f"Search the web and answer concisely with accurate, up-to-date facts, dates, and numbers "
+                f"for the following query:\n{clean_q}"
+            )
+            resp = client.models.generate_content(
+                model=search_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    temperature=0.2,
+                ),
+            )
+            answer = (resp.text or "").strip()
+            if answer:
+                return answer
+        except Exception as exc:
+            logger.warning(f"[web_search] Google Search grounding failed for '{clean_q}': {exc}")
 
-    try:
-        from google.genai import types
-        search_model = (
-            os.getenv("GEMINI_SEARCH_MODEL", "").strip()
-            or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
-            or "gemini-3.5-flash-lite"
-        )
-        prompt = (
-            f"Search the web and answer concisely with accurate, up-to-date facts, dates, and numbers "
-            f"for the following query:\n{clean_q}"
-        )
-        resp = client.models.generate_content(
-            model=search_model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-                temperature=0.2,
-            ),
-        )
-        answer = (resp.text or "").strip()
-        return answer or f"Nessun risultato trovato online per '{clean_q}'."
-    except Exception as exc:
-        logger.warning(f"[web_search] Google Search grounding failed for '{clean_q}': {exc}")
-        return f"Ricerca online non riuscita per '{clean_q}': {exc}"
+    # Free fallback when billing/Search Grounding is disabled (429 limit: 0) or unavailable
+    fallback_res = _fallback_free_web_search(clean_q)
+    if fallback_res:
+        return fallback_res
+    return f"Ricerca online non riuscita per '{clean_q}'."
 
 
 def add_task(text: str) -> str:
