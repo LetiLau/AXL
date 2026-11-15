@@ -23,9 +23,30 @@ logger = logging.getLogger("AXL-Brain")
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
-DEFAULT_FLASH_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-DEFAULT_PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview")
+DEFAULT_FLASH_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+DEFAULT_PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-4-hydrogen")
 DEFAULT_THINKING_LEVEL = os.getenv("GEMINI_THINKING_LEVEL", "").strip().upper()
+DEFAULT_PRO_THINKING_LEVEL = os.getenv("GEMINI_PRO_THINKING_LEVEL", "HIGH").strip().upper()
+ENABLE_AUTO_MODEL_ROUTING = os.getenv("GEMINI_AUTO_ROUTING", "true").strip().lower() in ("1", "true", "yes", "on")
+
+# Compiled regex rules for zero-cost Easy vs Deep/Coding/Exam model escalation
+_FORCE_PRO_RE = re.compile(
+    r"\b(usa\s+(?:pro|hydrogen)|modalit[aà]\s+(?:pro|hydrogen)|ragiona\s+bene|pensaci\s+bene|domanda\s+difficile|risposta\s+dettagliata)\b",
+    re.IGNORECASE,
+)
+_EASY_ACTION_RE = re.compile(
+    r"\b(spotify|sonos|salotto|musica|canzone|brano|playlist|riproduci|metti|metti\s+in\s+loop|loop|ricomincia|pausa|stop|meteo|che\s+tempo|piove|timer|sveglia|calendario|appuntament[oi]|promemoria|compit[oi]|task|notizie|news)\b",
+    re.IGNORECASE,
+)
+_HARD_CODING_EXAM_RE = re.compile(
+    r"\b(codice|code|python|kotlin|java|c\+\+|javascript|typescript|sql|html|css|bash|regex|"
+    r"bug|stacktrace|traceback|algoritmo|complessit[aà]|funzione|classe|refactor|architettura|"
+    r"esame|esami|studia|universit[aà]|dimostra|dimostrazione|teorema|equazione|integrale|derivata|"
+    r"matrice|probabilit[aà]|fisica|chimica|diritto|economia|filosofia|letteratura|"
+    r"analizza|confronta|differenza\s+tra|pro\s+e\s+contro|spiegami\s+(?:bene|come|perch[eé])|"
+    r"spiega\s+nel\s+dettaglio|come\s+si\s+risolve)\b",
+    re.IGNORECASE,
+)
 
 SYSTEM_PROMPT_TEMPLATE = """\
 You are A-X-L (Adaptive eXecution Logistic), an advanced AI assistant with the personality of a loyal, high-tech cybernetic guard dog combined with the sarcastic efficiency of Tony Stark's JARVIS.
@@ -88,6 +109,9 @@ CORE BEHAVIOR RULES:
          invoke `media_control(action='loop', repeat_mode='track'|'context'|'off'|'toggle', target=...)` ('track' for current song, 'context' for playlist/album loop, 'off' to disable, 'toggle' if generic).
      * When the user asks which speakers or Spotify devices are available/visible: invoke `list_music_devices()`.
      * When the user asks what song is currently playing: invoke `get_now_playing()`.
+   - WEATHER & LIVE WEB SEARCH:
+     * When the user asks about current weather or forecasts (e.g. 'che tempo fa oggi?', 'piove domani a Milano?'), invoke `get_weather(city=..., days=...)` (leave `city=''` if they did not name one so the server uses the configured default city).
+     * When the user asks about current news, sports scores, events, or recent online facts you cannot know offline, invoke `web_search(query=...)`.
    - TASKS, REMINDERS & TO-DO:
      * When the user asks to add or note a reminder or task (e.g. 'ricordami di comprare il latte', 'aggiungi compito studiare'):
        Invoke `add_task(text=...)`.
@@ -140,6 +164,7 @@ class GeminiBrain:
         self.client = genai.Client(api_key=self.api_key)
         self.active_chat = None
         self._current_model = DEFAULT_FLASH_MODEL
+        self._manual_model_override: Optional[str] = None
         # Conversational memory kept strictly in lightweight text format to prevent
         # multi-audio re-encoding latency, 429 quota exhaustion, and cross-turn audio confusion.
         self.text_history: List[types.Content] = []
@@ -153,16 +178,43 @@ class GeminiBrain:
         self._reset_chat_session()
 
     @staticmethod
-    def _build_thinking_config(model_name: str) -> Optional[types.ThinkingConfig]:
-        """Builds an optional ThinkingConfig when GEMINI_THINKING_LEVEL is set for the primary model."""
-        if not DEFAULT_THINKING_LEVEL or model_name != DEFAULT_FLASH_MODEL:
-            return None
-        # Models like gemini-4-hydrogen accept low, medium, high, and xhigh
-        return types.ThinkingConfig(thinking_level=DEFAULT_THINKING_LEVEL)
+    def select_model_for_query(user_text: str) -> Tuple[str, str, str]:
+        """
+        Determines whether a text query should run on the fast easy model (e.g. gemini-3.5-flash-lite)
+        or escalate to the deep/coding/exam model (e.g. gemini-4-hydrogen at HIGH thinking).
+        Returns (model_name, thinking_level, reason).
+        """
+        clean = (user_text or "").strip()
+        if not ENABLE_AUTO_MODEL_ROUTING or DEFAULT_PRO_MODEL == DEFAULT_FLASH_MODEL:
+            return DEFAULT_FLASH_MODEL, DEFAULT_THINKING_LEVEL, "auto_routing_disabled"
 
-    def _reset_chat_session(self, model: Optional[str] = None):
+        if _FORCE_PRO_RE.search(clean):
+            return DEFAULT_PRO_MODEL, DEFAULT_PRO_THINKING_LEVEL, "explicit_pro_request"
+
+        if _HARD_CODING_EXAM_RE.search(clean):
+            return DEFAULT_PRO_MODEL, DEFAULT_PRO_THINKING_LEVEL, "coding_or_exam_deep_query"
+
+        # Escalate long analytical questions when not a simple home/music/weather command
+        if not _EASY_ACTION_RE.search(clean):
+            if len(clean) >= 160 or clean.count("?") >= 2:
+                return DEFAULT_PRO_MODEL, DEFAULT_PRO_THINKING_LEVEL, "long_complex_question"
+
+        return DEFAULT_FLASH_MODEL, DEFAULT_THINKING_LEVEL, "easy_or_action"
+
+    @staticmethod
+    def _build_thinking_config(model_name: str, thinking_level: Optional[str] = None) -> Optional[types.ThinkingConfig]:
+        """Builds an optional ThinkingConfig for the primary routed model."""
+        level = (thinking_level if thinking_level is not None else DEFAULT_THINKING_LEVEL).strip().upper()
+        if not level:
+            return None
+        # Skip applying custom levels to legacy flash-lite fallbacks
+        if model_name == "gemini-flash-lite-latest" or "2.5-flash-lite" in model_name:
+            return None
+        return types.ThinkingConfig(thinking_level=level)
+
+    def _reset_chat_session(self, model: Optional[str] = None, thinking_level: Optional[str] = None):
         """Initializes or resets a stateful chat session."""
-        self._current_model = model or DEFAULT_FLASH_MODEL
+        self._current_model = model or self._manual_model_override or DEFAULT_FLASH_MODEL
         logger.info(f"[AXL-Brain]: Cognitive Core ready | Active Model: {self._current_model}")
 
         config_kwargs: Dict[str, Any] = {
@@ -170,7 +222,7 @@ class GeminiBrain:
             "tools": REGISTERED_TOOLS,
             "temperature": 0.7,
         }
-        thinking_cfg = self._build_thinking_config(self._current_model)
+        thinking_cfg = self._build_thinking_config(self._current_model, thinking_level=thinking_level)
         if thinking_cfg is not None:
             config_kwargs["thinking_config"] = thinking_cfg
 
@@ -192,10 +244,12 @@ class GeminiBrain:
         return self._current_model
 
     def set_model(self, model_name: str):
-        """Dynamically switches the active Gemini model."""
-        if model_name != self._current_model:
-            logger.info(f"[AXL-Brain]: Model switched dynamically to: {model_name}")
-            self._reset_chat_session(model=model_name)
+        """Dynamically sets a manual model override (pass '' to re-enable auto routing)."""
+        self._manual_model_override = model_name or None
+        target_model = self._manual_model_override or DEFAULT_FLASH_MODEL
+        if target_model != self._current_model:
+            logger.info(f"[AXL-Brain]: Model switched dynamically to: {target_model}")
+            self._reset_chat_session(model=target_model)
 
     async def process_text_query(
         self,
@@ -251,15 +305,27 @@ class GeminiBrain:
 
         text_part = types.Part.from_text(text=meta_prompt)
 
-        models_to_try = [self._current_model]
-        for fallback in ["gemini-flash-lite-latest", "gemini-3.5-flash-lite"]:
+        if self._manual_model_override:
+            routed_model = self._manual_model_override
+            routed_level = DEFAULT_PRO_THINKING_LEVEL if routed_model == DEFAULT_PRO_MODEL else DEFAULT_THINKING_LEVEL
+            route_reason = "manual_override"
+        else:
+            routed_model, routed_level, route_reason = self.select_model_for_query(user_text)
+
+        logger.info(
+            f"[AXL-Brain]: Route -> Model: {routed_model} | Thinking: {routed_level or 'default'} | Reason: {route_reason}"
+        )
+
+        models_to_try = [routed_model]
+        for fallback in [DEFAULT_FLASH_MODEL, "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]:
             if fallback not in models_to_try:
                 models_to_try.append(fallback)
 
         last_error = None
         for model_name in models_to_try:
             try:
-                self._reset_chat_session(model=model_name)
+                cfg_level = routed_level if model_name == routed_model else DEFAULT_THINKING_LEVEL
+                self._reset_chat_session(model=model_name, thinking_level=cfg_level)
                 logger.info(f"[AXL-Brain]: Text ingestion started | Model: {model_name} | Query: '{user_text}'")
                 response = await self.active_chat.send_message([text_part])
 

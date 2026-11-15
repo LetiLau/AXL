@@ -413,6 +413,179 @@ def get_now_playing() -> str:
         return f"Errore nel recupero della riproduzione attuale: {exc}"
 
 
+_WMO_WEATHER_CODES: Dict[int, str] = {
+    0: "cielo sereno",
+    1: "prevalentemente sereno",
+    2: "parzialmente nuvoloso",
+    3: "coperto",
+    45: "nebbia",
+    48: "nebbia con brina",
+    51: "pioviggine leggera",
+    53: "pioviggine moderata",
+    55: "pioviggine intensa",
+    61: "pioggia debole",
+    63: "pioggia moderata",
+    65: "pioggia forte",
+    66: "pioggia gelata leggera",
+    67: "pioggia gelata forte",
+    71: "neve debole",
+    73: "neve moderata",
+    75: "neve forte",
+    77: "granuli di neve",
+    80: "rovesci leggeri",
+    81: "rovesci moderati",
+    82: "rovesci violenti",
+    85: "rovesci di neve leggeri",
+    86: "rovesci di neve forti",
+    95: "temporale",
+    96: "temporale con grandine leggera",
+    99: "temporale con grandine forte",
+}
+
+_SEARCH_GENAI_CLIENT: Any = None
+
+
+def _get_search_genai_client():
+    """Returns a lazily initialized Google GenAI client for web search grounding."""
+    global _SEARCH_GENAI_CLIENT
+    if _SEARCH_GENAI_CLIENT is None:
+        from google import genai
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not api_key or api_key.startswith("INSERISCI"):
+            return None
+        _SEARCH_GENAI_CLIENT = genai.Client(api_key=api_key)
+    return _SEARCH_GENAI_CLIENT
+
+
+def get_weather(city: str = "", days: int = 2) -> str:
+    """
+    Fetches live weather conditions and forecast using Open-Meteo (ECMWF/ICON European models, free and no API key required).
+
+    Args:
+        city: City name requested by the user (e.g. 'Milano', 'Roma'). If empty, falls back to AXL_DEFAULT_CITY in .env.
+        days: Number of forecast days to include (1 for today only, 2 for today + tomorrow, up to 7).
+    """
+    target_city = str(city or "").strip() or os.getenv("AXL_DEFAULT_CITY", "").strip()
+    if not target_city:
+        return (
+            "Non hai specificato la città e AXL_DEFAULT_CITY non è impostato in .env. "
+            "Chiedi ad esempio 'che tempo fa a Milano'."
+        )
+
+    forecast_days = max(1, min(int(days or 2), 7))
+    logger.info(f"[COMMAND: get_weather] City='{target_city}' | Days={forecast_days}")
+
+    try:
+        geo_resp = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": target_city, "count": 5, "language": "it", "format": "json"},
+            timeout=5.0,
+        )
+        geo_resp.raise_for_status()
+        results = geo_resp.json().get("results") or []
+        if not results:
+            return f"Non ho trovato la località '{target_city}' su Open-Meteo."
+
+        # Prefer Italian match when multiple homonymous cities exist worldwide
+        loc = next((r for r in results if str(r.get("country_code", "")).upper() == "IT"), results[0])
+        lat, lon = loc["latitude"], loc["longitude"]
+        place_label = loc.get("name", target_city)
+        if loc.get("admin1"):
+            place_label = f"{place_label} ({loc['admin1']})"
+
+        fc_resp = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": lat,
+                "longitude": lon,
+                "current": "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m",
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+                "timezone": "auto",
+                "forecast_days": forecast_days,
+            },
+            timeout=6.0,
+        )
+        fc_resp.raise_for_status()
+        fc = fc_resp.json()
+
+        cur = fc.get("current") or {}
+        cur_code = int(cur.get("weather_code", 0))
+        cur_desc = _WMO_WEATHER_CODES.get(cur_code, f"codice meteo {cur_code}")
+        summary = (
+            f"Meteo attuale a {place_label}: {cur_desc}, {cur.get('temperature_2m')}°C "
+            f"(percepiti {cur.get('apparent_temperature')}°C), umidità {cur.get('relative_humidity_2m')}%, "
+            f"vento {cur.get('wind_speed_10m')} km/h"
+        )
+        if float(cur.get("precipitation") or 0) > 0:
+            summary += f", precipitazioni {cur.get('precipitation')} mm"
+        summary += "."
+
+        daily = fc.get("daily") or {}
+        dates = daily.get("time") or []
+        codes = daily.get("weather_code") or []
+        tmaxs = daily.get("temperature_2m_max") or []
+        tmins = daily.get("temperature_2m_min") or []
+        probs = daily.get("precipitation_probability_max") or []
+
+        fc_parts: List[str] = []
+        for idx in range(min(forecast_days, len(dates))):
+            day_label = "Oggi" if idx == 0 else ("Domani" if idx == 1 else dates[idx])
+            d_desc = _WMO_WEATHER_CODES.get(int(codes[idx]), "variabile") if idx < len(codes) else "variabile"
+            t_min = tmins[idx] if idx < len(tmins) else "?"
+            t_max = tmaxs[idx] if idx < len(tmaxs) else "?"
+            rain_p = probs[idx] if idx < len(probs) and probs[idx] is not None else "?"
+            fc_parts.append(f"{day_label}: {d_desc}, min {t_min}°C / max {t_max}°C, prob. pioggia {rain_p}%")
+
+        if fc_parts:
+            summary += " Previsioni: " + " | ".join(fc_parts) + "."
+        return summary
+    except Exception as exc:
+        logger.warning(f"[get_weather] Open-Meteo error for '{target_city}': {exc}")
+        return f"Errore nel recupero del meteo per '{target_city}': {exc}"
+
+
+def web_search(query: str) -> str:
+    """
+    Searches Google online for up-to-date news, sports results, events, prices, or recent real-world facts.
+
+    Args:
+        query: Concise search query in natural language (e.g. 'ultime notizie Italia oggi', 'risultato partita Milan ieri').
+    """
+    clean_q = str(query or "").strip()
+    if not clean_q:
+        return "Query di ricerca vuota."
+
+    logger.info(f"[COMMAND: web_search] Query: '{clean_q}'")
+    client = _get_search_genai_client()
+    if client is None:
+        return "GEMINI_API_KEY non configurata: impossibile eseguire ricerche Google Search."
+
+    try:
+        from google.genai import types
+        search_model = (
+            os.getenv("GEMINI_SEARCH_MODEL", "").strip()
+            or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
+            or "gemini-3.5-flash-lite"
+        )
+        prompt = (
+            f"Search the web and answer concisely with accurate, up-to-date facts, dates, and numbers "
+            f"for the following query:\n{clean_q}"
+        )
+        resp = client.models.generate_content(
+            model=search_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.2,
+            ),
+        )
+        answer = (resp.text or "").strip()
+        return answer or f"Nessun risultato trovato online per '{clean_q}'."
+    except Exception as exc:
+        logger.warning(f"[web_search] Google Search grounding failed for '{clean_q}': {exc}")
+        return f"Ricerca online non riuscita per '{clean_q}': {exc}"
+
+
 def add_task(text: str) -> str:
     """
     Adds a new task to the user's to-do task list.
@@ -1885,6 +2058,8 @@ REGISTERED_TOOLS: List[Callable[..., Any]] = [
     play_music,
     list_music_devices,
     get_now_playing,
+    get_weather,
+    web_search,
     execute_slave_command,
     set_security_mode,
     set_mute_mode,

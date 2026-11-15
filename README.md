@@ -200,8 +200,13 @@ To configure your environment:
 ```env
 # Gemini API Configuration
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-flash-lite-latest
-GEMINI_PRO_MODEL=gemini-3.1-pro-preview
+GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_PRO_MODEL=gemini-4-hydrogen
+GEMINI_PRO_THINKING_LEVEL=high
+GEMINI_AUTO_ROUTING=true
+
+# Optional default city for 'che tempo fa' weather queries when no city is specified
+AXL_DEFAULT_CITY=
 
 # Security Mode: 'friendly', 'restrict', or 'paranoid'
 AXL_SECURITY_MODE=friendly
@@ -246,6 +251,8 @@ In Phase 3, A-X-L adopts a **Two-Tiered Hybrid Intent & STT Architecture** to ma
   - **Automatic Function Calling (AFC):** Registered tools in `master_server/src/commands.py`:
     - `play_music(query, target)`: Searches Spotify (`track`, `artist`, `album`, `playlist`) and starts or transfers playback via **Spotify Connect** (`spotify_controller.py`) onto any named Wi-Fi speaker (e.g. Sonos rooms `"Salotto"` / `"Sala"`, resolved automatically via **local SSDP/UPnP Sonos LAN discovery** + fuzzy matching), PC, or Android Kiosk/Bluetooth output.
     - `media_control(action, target, volume, repeat_mode)`, `list_music_devices()`, `get_now_playing()`: Playback controls (`play`, `pause`, `next`, `previous`, `restart`, `loop`/`repeat` for track or playlist/album, `volume_up`/`down`/`set_volume`, `transfer`), live speaker/Bluetooth discovery, and now-playing queries with direct Sonos LAN UPnP fallback.
+    - `get_weather(city, days)`: Live local & multi-day forecasts via **Open-Meteo** (European ECMWF/ICON models, zero API keys), falling back to `AXL_DEFAULT_CITY` when no city is specified.
+    - `web_search(query)`: Grounded real-time web lookup via Google Search for latest news, sports scores, events, and live information.
     - `add_task(text)`, `list_tasks()`, `complete_task(task_id)`: Local persistent JSON tasks and reminders.
     - `create_calendar_event(title, date_time)`: In-memory/persistent calendar with Android CalendarContract Intent dispatch.
     - `execute_slave_command(command, target)`: Remote system automation on slave nodes.
@@ -255,7 +262,7 @@ In Phase 3, A-X-L adopts a **Two-Tiered Hybrid Intent & STT Architecture** to ma
 - **Biometric Distrust Integration:** The speaker identity evaluated by CAM++ (`is_stranger` flag) is injected into the cognitive prompt:
   - If **Owner**: A-X-L behaves with loyal efficiency and executes commands.
   - If **Stranger**: A-X-L enters distrust mode, barking or sarcastically refusing to execute sensitive commands or access personal data.
-- **Dynamic Model Escalation & Switching:** Standard interactions run on ultra-low-latency flash models (`gemini-flash-lite-latest` / `gemini-3.5-flash`), with planned runtime model switching (`GeminiBrain.set_model`) to escalate to Pro models (`gemini-3.1-pro-preview`) via voice or UI when complex tasks are requested.
+- **Dynamic Model Escalation & Switching:** Everyday commands and quick queries run on `GEMINI_MODEL` (default `gemini-3.5-flash-lite`), while `GeminiBrain.select_model_for_query()` automatically escalates coding, math/exam reasoning, detailed explanations, or explicit *"usa hydrogen / ragiona bene"* prompts to `GEMINI_PRO_MODEL` (default `gemini-4-hydrogen` with `GEMINI_PRO_THINKING_LEVEL=high`). Supports manual switching via `GeminiBrain.set_model()`.
 - **Clean Terminal Telemetry & Model Awareness:** Terminal output is streamlined to eliminate dialogue duplication. The Master server centrally prints single authoritative dialogue events (`>>> [USER HEARD] <<<` and `>>> [A-X-L SPEAKS] <<<`), while the Cognitive Brain explicitly logs model readiness and invocation (`[AXL-Brain]: Cognitive Core ready | Active Model: ...`). Pre-trigger wake-word probes and third-party SDK chatter are silenced from the standard terminal stream.
 - **Hybrid Neural TTS Engine & Authentic Canine SFX (`tts_engine.py`):** 
   - Studio-grade speech synthesis combining Microsoft Edge Neural TTS (**Diego** for Italian with tuned `+10%` pacing and tight conversational cadence) with Piper ONNX (**Bryce** for English with Tony Stark/Jarvis persona). Includes on-device local Piper fallback (**Miro** / **Riccardo**), text normalization, and acoustic echo feedback prevention.
