@@ -110,7 +110,11 @@
     let isTelemetryActive = false;
     let telemetryTarget = "slave";
     let currentBubbleQuote = "";
-    let bubbleIdleInterval = null;
+    let currentBubbleCategory = "";
+    let lastBubbleChangeTime = 0;
+    let bubbleRotateInterval = null;
+    const BUBBLE_IDLE_ROTATE_MS = 15000;    // 15 seconds during normal online idle
+    const BUBBLE_OFFLINE_ROTATE_MS = 30000; // 1 minute when master server is offline (calm rotation)
     let telemetrySimInterval = null;
     let lastRealTelemetryTime = 0;
     let serverMiniTelemInterval = null;
@@ -509,6 +513,7 @@
             if (isTelemetryActive) {
                 ws.send(JSON.stringify({ type: "REQUEST_TELEMETRY", target: telemetryTarget }));
             }
+            ws.send(JSON.stringify({ type: "MUSIC_COMMAND", action: "refresh" }));
         };
 
         ws.onmessage = (event) => {
@@ -672,6 +677,22 @@
             case "MUTE_STATE":
                 resetInactivityTimer();
                 updateMuteUI(msg.muted);
+                break;
+
+            case "MUSIC_UPDATE":
+                // Background Spotify sync: do NOT reset inactivity timer unless track started playing freshly
+                if (msg.data) {
+                    updateMusicPlayerUI(msg.data);
+                }
+                break;
+
+            case "MUSIC_STATE":
+                resetInactivityTimer();
+                if (msg.action === "pause" || msg.action === "stop") {
+                    updateMusicPlayerUI({ playing: false });
+                } else if (msg.action === "loop" && msg.repeat_state) {
+                    updateMusicPlayerUI({ repeat_state: msg.repeat_state });
+                }
                 break;
 
             case "ANIMATION":
@@ -1532,20 +1553,19 @@
 
         askBtn.classList.remove("server-offline");
 
-        // When A-X-L is speaking, dynamically transform ASK button into an interactive red STOP button!
-        if (currentState === "SPEAKING") {
+        // When A-X-L is actively engaged (speaking, thinking/elaborating, or listening), transform into red STOP button!
+        if (currentState !== "IDLE") {
             askBtn.disabled = false;
             askBtn.classList.remove("disabled-muted", "listening");
             askBtn.classList.add("ask-stop");
             if (askBtnIcon) askBtnIcon.textContent = "⏹️";
             if (askBtnLabel) askBtnLabel.textContent = "STOP";
-            askBtn.title = "Interrompi la risposta vocale di A-X-L";
+            askBtn.title = "Interrompi e ritorna in Standby";
             return;
         }
 
         askBtn.classList.add(`ask-${securityMode}`);
-        const listening = currentState === "LISTENING";
-        askBtn.classList.toggle("listening", listening);
+        askBtn.classList.remove("listening", "ask-stop");
 
         // When microphone is muted, ASK is strictly disabled and unclickable
         if (isMuted) {
@@ -1555,35 +1575,43 @@
             if (askBtnLabel) askBtnLabel.textContent = "MIC MUTO";
             askBtn.title = "Microfono disattivato: sblocca prima il pulsante MUTE per abilitare le richieste vocali.";
         } else {
-            askBtn.disabled = currentState !== "IDLE";
+            askBtn.disabled = false;
             askBtn.classList.remove("disabled-muted");
-            if (askBtnIcon) askBtnIcon.textContent = listening ? "🎙️" : "💬";
-            if (askBtnLabel) askBtnLabel.textContent = listening ? "LISTENING..." : "ASK ME...";
-            askBtn.title = listening
-                ? "Ascolto in corso..."
-                : (securityMode === "friendly"
-                    ? "Fai una domanda senza dire la wake-word"
-                    : "Fai una domanda senza wake-word (verifica vocale ancora attiva)");
+            if (askBtnIcon) askBtnIcon.textContent = "💬";
+            if (askBtnLabel) askBtnLabel.textContent = "ASK ME...";
+            askBtn.title = (securityMode === "friendly"
+                ? "Fai una domanda senza dire la wake-word"
+                : "Fai una domanda senza wake-word (verifica vocale ancora attiva)");
         }
     }
+
+    let activeSimInterval = null;
 
     if (askBtn) {
         askBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
 
-            // If disconnected, clicking attempts immediate WebSocket reconnect
-            if (!isServerConnected) {
-                connectWebSocket();
-                return;
-            }
-
-            // If clicked while A-X-L is speaking, immediately abort vocal delivery!
-            if (currentState === "SPEAKING") {
+            // 1. If clicked while active (SPEAKING, THINKING / ELABORANDO, or LISTENING), immediately abort and return to IDLE Standby!
+            if (currentState !== "IDLE") {
+                if (activeSimInterval) {
+                    clearInterval(activeSimInterval);
+                    activeSimInterval = null;
+                }
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ type: "STOP_SPEECH" }));
                 }
-                setVisorState("IDLE");
+                setVisorState("IDLE", "STANDBY // PASSIVE SURVEILLANCE", "ACOUSTIC ARRAY: ACTIVE (16kHz PCM)");
+                if (userTranscript) userTranscript.textContent = "\"Hey A-X-L...\"";
+                if (axlReply) fitAxlReplyText("Pronto all'azione, capo. In ascolto sui sensori.");
+                targetMicLevel = 0.0;
+                currentMicLevel = 0.0;
+                return;
+            }
+
+            // 2. If disconnected, clicking attempts immediate WebSocket reconnect
+            if (!isServerConnected) {
+                connectWebSocket();
                 return;
             }
 
@@ -1594,18 +1622,23 @@
                 // UI Preview Simulation Fallback (when testing offline/standalone)
                 setVisorState("LISTENING");
                 let simTick = 0;
-                const simInterval = setInterval(() => {
+                activeSimInterval = setInterval(() => {
                     targetMicLevel = (simTick % 2 === 0) ? 0.8 : 0.2;
                     simTick++;
                     if (simTick > 7) {
-                        clearInterval(simInterval);
+                        clearInterval(activeSimInterval);
+                        activeSimInterval = null;
                         targetMicLevel = 0.0;
                         setVisorState("THINKING");
                         setTimeout(() => {
-                            setVisorState("SPEAKING");
-                            setTimeout(() => {
-                                setVisorState("IDLE");
-                            }, 2000);
+                            if (currentState === "THINKING") {
+                                setVisorState("SPEAKING");
+                                setTimeout(() => {
+                                    if (currentState === "SPEAKING") {
+                                        setVisorState("IDLE");
+                                    }
+                                }, 2000);
+                            }
                         }, 1800);
                     }
                 }, 350);
@@ -1997,28 +2030,31 @@
         //When the screen has low lum
         SUBDUED: [
             "Screen Low, conserving AMOLED pixels...",
+        ],
+        MUSIC: [
+            "Vibing to the beat... ♪",
+            "Acoustics locked on target!",
+            "This track actually slaps.",
+            "Cyber-ears calibrated to the rhythm.",
+            "Audio stream crisp & synced!"
+        ],
+        MUSIC_PAUSED: [
+            "Music paused. Ears back on guard.",
+            "Hit play whenever you're ready!",
+            "Standing by on the beat..."
         ]
     };
 
-    function updateSpeechBubble(forcedText) {
+    function updateSpeechBubble(forcedText, forceNewQuote = false) {
         if (!speechBubble || !bubbleText) return;
 
         // 1. If speaking, hide the bubble (per ToDo: not for speaking)
         if (currentState === "SPEAKING") {
             speechBubble.classList.add("bubble-speaking");
+            currentBubbleCategory = "SPEAKING";
             return;
         }
         speechBubble.classList.remove("bubble-speaking");
-
-        // Remove previous theme classes
-        speechBubble.classList.remove(
-            "bubble-offline",
-            "bubble-mute",
-            "bubble-alert",
-            "bubble-listening",
-            "bubble-thinking",
-            "bubble-idle"
-        );
 
         let category = "IDLE";
         let themeClass = "bubble-idle";
@@ -2053,41 +2089,83 @@
             category = "SUBDUED";
             themeClass = "bubble-idle";
         }
-
-        speechBubble.classList.add(themeClass);
-
-        let textToDisplay = forcedText;
-        if (!textToDisplay) {
-            const quotes = BUBBLE_QUOTES[category] || BUBBLE_QUOTES.IDLE;
-            let nextIndex = Math.floor(Math.random() * quotes.length);
-            if (quotes.length > 1 && quotes[nextIndex] === currentBubbleQuote) {
-                nextIndex = (nextIndex + 1) % quotes.length;
-            }
-            textToDisplay = quotes[nextIndex];
-            currentBubbleQuote = textToDisplay;
+        // 8. Check active Music Player widget (takes priority over IDLE even when telemetry is open)
+        else if (body.classList.contains("music-active")) {
+            category = currentMusicData && currentMusicData.playing ? "MUSIC" : "MUSIC_PAUSED";
+            themeClass = "bubble-idle";
         }
 
-        bubbleText.textContent = textToDisplay;
-        speechBubble.classList.remove("pop");
-        void speechBubble.offsetWidth; // trigger reflow for smooth pop
-        speechBubble.classList.add("pop");
+        // Apply theme classes
+        speechBubble.classList.remove(
+            "bubble-offline",
+            "bubble-mute",
+            "bubble-alert",
+            "bubble-listening",
+            "bubble-thinking",
+            "bubble-idle"
+        );
+        speechBubble.classList.add(themeClass);
+
+        // Decide if a new quote should be picked:
+        // - explicit forcedText passed
+        // - explicit forceNewQuote (click or periodic rotation timer)
+        // - state category changed (e.g. IDLE -> OFFLINE, OFFLINE -> IDLE, etc.)
+        // - first boot when currentBubbleQuote is empty
+        const categoryChanged = (category !== currentBubbleCategory);
+        const shouldChangeQuote = Boolean(forcedText || forceNewQuote || categoryChanged || !currentBubbleQuote);
+
+        currentBubbleCategory = category;
+
+        if (shouldChangeQuote) {
+            let textToDisplay = forcedText;
+            if (!textToDisplay) {
+                const quotes = BUBBLE_QUOTES[category] || BUBBLE_QUOTES.IDLE;
+                let nextIndex = Math.floor(Math.random() * quotes.length);
+                if (quotes.length > 1 && quotes[nextIndex] === currentBubbleQuote) {
+                    nextIndex = (nextIndex + 1) % quotes.length;
+                }
+                textToDisplay = quotes[nextIndex];
+            }
+
+            currentBubbleQuote = textToDisplay;
+            lastBubbleChangeTime = Date.now();
+            bubbleText.textContent = textToDisplay;
+
+            speechBubble.classList.remove("pop");
+            void speechBubble.offsetWidth; // trigger reflow for smooth pop
+            speechBubble.classList.add("pop");
+        }
     }
 
     if (speechBubble) {
         speechBubble.addEventListener("click", (e) => {
             e.stopPropagation();
-            updateSpeechBubble();
+            updateSpeechBubble(null, true);
         });
     }
 
-    function startBubbleIdleLoop() {
-        if (bubbleIdleInterval) clearInterval(bubbleIdleInterval);
-        bubbleIdleInterval = setInterval(() => {
-            if (currentState === "IDLE" && isServerConnected && !isMuted && !body.classList.contains("hud-subdued")) {
-                updateSpeechBubble();
+    function startBubbleRotationLoop() {
+        if (bubbleRotateInterval) clearInterval(bubbleRotateInterval);
+        bubbleRotateInterval = setInterval(() => {
+            const now = Date.now();
+
+            // 1. Master Server Offline: rotate calmly once every minute (60s)
+            if (!isServerConnected) {
+                if (now - lastBubbleChangeTime >= BUBBLE_OFFLINE_ROTATE_MS) {
+                    updateSpeechBubble(null, true);
+                }
+                return;
             }
-        }, 14000);
+
+            // 2. Normal Online Idle: rotate every 15s (if not muted, not subdued, not speaking)
+            if (currentState === "IDLE" && !isMuted && !body.classList.contains("hud-subdued")) {
+                if (now - lastBubbleChangeTime >= BUBBLE_IDLE_ROTATE_MS) {
+                    updateSpeechBubble(null, true);
+                }
+            }
+        }, 1000);
     }
+    const startBubbleIdleLoop = startBubbleRotationLoop;
 
     // ==========================================================================
     // 10. 60FPS PROCEDURAL VISOR HUD CANVAS RENDERER (Fallback/Overlay)
@@ -2251,7 +2329,238 @@
         requestAnimationFrame(stepAudioGlow);
     }
 
+    // ==========================================================================
+    // 12. ONE UI 9 x A-X-L SPOTIFY CONNECT MUSIC PLAYER ENGINE
+    // ==========================================================================
+    const musicPanel = document.getElementById("music-player-panel");
+    const musicReopenBadge = document.getElementById("music-reopen-badge");
+    const musicMiniLabel = document.getElementById("music-mini-label");
+    const musicCloseBtn = document.getElementById("music-close-btn");
+    const musicStatusPill = document.getElementById("music-status-pill");
+    const musicStatusText = document.getElementById("music-status-text");
+    const musicDevicePill = document.getElementById("music-device-pill");
+    const musicArtImg = document.getElementById("music-art-img");
+    const musicArtFallback = document.getElementById("music-art-fallback");
+    const musicTrackTitle = document.getElementById("music-track-title");
+    const musicTrackArtist = document.getElementById("music-track-artist");
+    const musicTrackAlbum = document.getElementById("music-track-album");
+    const musicSeekSlider = document.getElementById("music-seek-slider");
+    const musicTimeCur = document.getElementById("music-time-cur");
+    const musicTimeTot = document.getElementById("music-time-tot");
+    const musicBtnRestart = document.getElementById("music-btn-restart");
+    const musicBtnPrev = document.getElementById("music-btn-prev");
+    const musicBtnPlay = document.getElementById("music-btn-play");
+    const musicIconPlay = document.getElementById("music-icon-play");
+    const musicIconPause = document.getElementById("music-icon-pause");
+    const musicBtnNext = document.getElementById("music-btn-next");
+    const musicBtnLoop = document.getElementById("music-btn-loop");
+    const musicLoopBadge = document.getElementById("music-loop-badge");
+    const musicVolSlider = document.getElementById("music-vol-slider");
+    const musicVolPct = document.getElementById("music-vol-pct");
+
+    let currentMusicData = {
+        playing: false,
+        track: "",
+        track_uri: "",
+        artists: "",
+        album: "",
+        album_art: "",
+        device_name: "",
+        volume_percent: 50,
+        repeat_state: "off",
+        progress_ms: 0,
+        duration_ms: 0,
+        timestamp: Date.now(),
+    };
+    let musicMinimized = false;
+    let isSeekingMusic = false;
+    let isAdjustingMusicVol = false;
+
+    function formatMusicMs(ms) {
+        const totalSec = Math.max(0, Math.floor((ms || 0) / 1000));
+        const mins = Math.floor(totalSec / 60);
+        const secs = totalSec % 60;
+        return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+    }
+
+    function sendMusicCommand(payload) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify(Object.assign({ type: "MUSIC_COMMAND" }, payload)));
+    }
+
+    function renderMusicProgress(progressMs, durationMs) {
+        const dur = Math.max(0, Number(durationMs) || 0);
+        const cur = Math.max(0, Math.min(dur || 1, Number(progressMs) || 0));
+        const pct = dur > 0 ? Math.min(100, Math.max(0, (cur / dur) * 100)) : 0;
+
+        if (musicSeekSlider && !isSeekingMusic) {
+            musicSeekSlider.max = dur > 0 ? String(dur) : "1000";
+            musicSeekSlider.value = dur > 0 ? String(cur) : "0";
+            musicSeekSlider.style.setProperty("--slider-pct", `${pct.toFixed(2)}%`);
+        }
+        if (musicTimeCur && !isSeekingMusic) musicTimeCur.textContent = formatMusicMs(cur);
+        if (musicTimeTot) musicTimeTot.textContent = formatMusicMs(dur);
+    }
+
+    function updateMusicPlayerUI(patch) {
+        if (!musicPanel || !patch) return;
+        const prevTrackUri = currentMusicData.track_uri;
+        const prevPlaying = Boolean(currentMusicData.playing);
+        currentMusicData = Object.assign({}, currentMusicData, patch, {
+            timestamp: patch.timestamp || Date.now(),
+        });
+
+        const hasTrack = Boolean(currentMusicData.track);
+        // Auto-expand widget when a brand new track starts playing externally
+        if (currentMusicData.playing && currentMusicData.track_uri && currentMusicData.track_uri !== prevTrackUri) {
+            musicMinimized = false;
+        }
+
+        const wasMusicActive = body.classList.contains("music-active");
+        const showCard = hasTrack && !musicMinimized;
+        musicPanel.hidden = !showCard;
+        body.classList.toggle("music-active", showCard);
+
+        if (musicReopenBadge) {
+            musicReopenBadge.hidden = !(hasTrack && musicMinimized);
+            if (musicMiniLabel) {
+                musicMiniLabel.textContent = currentMusicData.playing ? "PLAYING" : "PAUSED";
+            }
+        }
+
+        if (!hasTrack) {
+            if (wasMusicActive) updateSpeechBubble();
+            return;
+        }
+
+        const isPlaying = Boolean(currentMusicData.playing);
+        if (wasMusicActive !== showCard || prevPlaying !== isPlaying) {
+            updateSpeechBubble();
+        }
+        if (musicStatusPill) {
+            musicStatusPill.classList.toggle("paused", !isPlaying);
+        }
+        if (musicStatusText) {
+            musicStatusText.textContent = isPlaying ? "LIVE" : "PAUSED";
+        }
+        if (musicDevicePill) {
+            musicDevicePill.textContent = currentMusicData.device_name ? `🔊 ${currentMusicData.device_name}` : "🔊 Spotify";
+        }
+        if (musicTrackTitle) musicTrackTitle.textContent = currentMusicData.track || "Brano sconosciuto";
+        if (musicTrackArtist) musicTrackArtist.textContent = currentMusicData.artists || "Spotify Connect";
+        if (musicTrackAlbum) musicTrackAlbum.textContent = currentMusicData.album || "";
+
+        if (musicArtImg && musicArtFallback) {
+            if (currentMusicData.album_art) {
+                if (musicArtImg.getAttribute("src") !== currentMusicData.album_art) {
+                    musicArtImg.src = currentMusicData.album_art;
+                }
+                musicArtImg.hidden = false;
+                musicArtFallback.hidden = true;
+            } else {
+                musicArtImg.hidden = true;
+                musicArtFallback.hidden = false;
+            }
+        }
+
+        if (musicIconPlay && musicIconPause) {
+            musicIconPlay.hidden = isPlaying;
+            musicIconPause.hidden = !isPlaying;
+            musicIconPlay.style.display = isPlaying ? "none" : "block";
+            musicIconPause.style.display = isPlaying ? "block" : "none";
+        }
+
+        const rep = (currentMusicData.repeat_state || "off").toLowerCase();
+        if (musicBtnLoop) {
+            musicBtnLoop.classList.toggle("active", rep === "context" || rep === "track");
+        }
+        if (musicLoopBadge) {
+            musicLoopBadge.hidden = rep !== "track";
+        }
+
+        if (typeof currentMusicData.volume_percent === "number" && musicVolSlider && !isAdjustingMusicVol) {
+            const v = Math.max(0, Math.min(100, currentMusicData.volume_percent));
+            musicVolSlider.value = String(v);
+            musicVolSlider.style.setProperty("--slider-pct", `${v}%`);
+            if (musicVolPct) musicVolPct.textContent = `${v}%`;
+        }
+
+        renderMusicProgress(currentMusicData.progress_ms, currentMusicData.duration_ms);
+    }
+
+    function initMusicPlayerControls() {
+        if (musicCloseBtn) {
+            musicCloseBtn.addEventListener("click", () => {
+                musicMinimized = true;
+                updateMusicPlayerUI({});
+            });
+        }
+        if (musicReopenBadge) {
+            musicReopenBadge.addEventListener("click", () => {
+                musicMinimized = false;
+                updateMusicPlayerUI({});
+                sendMusicCommand({ action: "refresh" });
+            });
+        }
+        if (musicBtnPlay) {
+            musicBtnPlay.addEventListener("click", () => sendMusicCommand({ action: "toggle" }));
+        }
+        if (musicBtnNext) {
+            musicBtnNext.addEventListener("click", () => sendMusicCommand({ action: "next" }));
+        }
+        if (musicBtnPrev) {
+            musicBtnPrev.addEventListener("click", () => sendMusicCommand({ action: "previous" }));
+        }
+        if (musicBtnRestart) {
+            musicBtnRestart.addEventListener("click", () => sendMusicCommand({ action: "restart" }));
+        }
+        if (musicBtnLoop) {
+            musicBtnLoop.addEventListener("click", () => sendMusicCommand({ action: "loop", repeat_mode: "toggle" }));
+        }
+        if (musicSeekSlider) {
+            musicSeekSlider.addEventListener("input", () => {
+                isSeekingMusic = true;
+                const val = Number(musicSeekSlider.value) || 0;
+                const dur = Number(musicSeekSlider.max) || 1;
+                musicSeekSlider.style.setProperty("--slider-pct", `${Math.min(100, (val / dur) * 100).toFixed(2)}%`);
+                if (musicTimeCur) musicTimeCur.textContent = formatMusicMs(val);
+            });
+            musicSeekSlider.addEventListener("change", () => {
+                const targetMs = Math.max(0, Math.floor(Number(musicSeekSlider.value) || 0));
+                isSeekingMusic = false;
+                currentMusicData.progress_ms = targetMs;
+                currentMusicData.timestamp = Date.now();
+                sendMusicCommand({ action: "seek", position_ms: targetMs });
+            });
+        }
+        if (musicVolSlider) {
+            musicVolSlider.addEventListener("input", () => {
+                isAdjustingMusicVol = true;
+                const v = Math.max(0, Math.min(100, Number(musicVolSlider.value) || 0));
+                musicVolSlider.style.setProperty("--slider-pct", `${v}%`);
+                if (musicVolPct) musicVolPct.textContent = `${v}%`;
+            });
+            musicVolSlider.addEventListener("change", () => {
+                const v = Math.max(0, Math.min(100, Math.floor(Number(musicVolSlider.value) || 0)));
+                isAdjustingMusicVol = false;
+                sendMusicCommand({ action: "set_volume", volume: v });
+            });
+        }
+
+        // Smooth 1-second local progress bar interpolation between server polls
+        setInterval(() => {
+            if (!currentMusicData.playing || !currentMusicData.track || isSeekingMusic) return;
+            const dur = Number(currentMusicData.duration_ms) || 0;
+            if (dur <= 0) return;
+            const now = Date.now();
+            const delta = Math.max(0, now - (currentMusicData.timestamp || now));
+            const estProgress = Math.min(dur, (Number(currentMusicData.progress_ms) || 0) + delta);
+            renderMusicProgress(estProgress, dur);
+        }, 500);
+    }
+
     // Start everything
+    initMusicPlayerControls();
     connectWebSocket();
     initVideoAvatar();
     renderVisor();
@@ -2261,6 +2570,6 @@
     syncModePopupUI();
     updateMiniTelemVisibility();
     updateSpeechBubble();
-    startBubbleIdleLoop();
+    startBubbleRotationLoop();
 
 })();

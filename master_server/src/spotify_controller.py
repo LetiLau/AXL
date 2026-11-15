@@ -1152,8 +1152,9 @@ class SpotifyController:
         target: Optional[str] = None,
         volume: Optional[int] = None,
         repeat_mode: Optional[str] = None,
+        position_ms: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Controls playback (play, pause, next, previous, restart, loop/repeat, volume) on Spotify Connect or Sonos LAN."""
+        """Controls playback (play, pause, next, previous, restart, seek, loop/repeat, volume) on Spotify Connect or Sonos LAN."""
         act = (action or "").lower().strip()
         sonos_speakers = self.discover_sonos_speakers()
         devices = self.get_spotify_devices()
@@ -1179,6 +1180,12 @@ class SpotifyController:
             resp = self._api_request("PUT", "/me/player/seek", params=seek_params)
             if resp.status_code in (200, 202, 204):
                 return {"ok": True, "message": f"Brano riavviato dall'inizio su {dev_label}."}
+        elif act == "seek" and position_ms is not None:
+            seek_params = dict(params)
+            seek_params["position_ms"] = max(0, int(position_ms))
+            resp = self._api_request("PUT", "/me/player/seek", params=seek_params)
+            if resp.status_code in (200, 202, 204):
+                return {"ok": True, "message": f"Posizione aggiornata su {dev_label}."}
         elif act in ("loop", "repeat", "loop_track", "loop_context", "loop_playlist", "loop_off"):
             if act == "loop_track":
                 resolved_repeat = "track"
@@ -1296,13 +1303,19 @@ class SpotifyController:
 
         data = resp.json()
         item = data.get("item") or {}
+        album = item.get("album") or {}
+        images = album.get("images") or []
+        album_art = images[0].get("url", "") if images else ""
         device = data.get("device") or {}
         artists = ", ".join(a.get("name", "") for a in item.get("artists", []))
         return {
             "playing": bool(data.get("is_playing")),
             "track": item.get("name", ""),
+            "track_uri": item.get("uri", ""),
             "artists": artists,
-            "album": (item.get("album") or {}).get("name", ""),
+            "album": album.get("name", ""),
+            "album_art": album_art,
+            "device_id": device.get("id", ""),
             "device_name": device.get("name", ""),
             "device_type": device.get("type", ""),
             "volume_percent": device.get("volume_percent"),
@@ -1310,6 +1323,7 @@ class SpotifyController:
             "shuffle_state": bool(data.get("shuffle_state", False)),
             "progress_ms": data.get("progress_ms", 0),
             "duration_ms": item.get("duration_ms", 0),
+            "timestamp": int(time.time() * 1000),
         }
 
 

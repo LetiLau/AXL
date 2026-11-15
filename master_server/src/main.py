@@ -108,11 +108,15 @@ class StreamManager:
         self.enrollment_target: Optional[str] = None
         self.enrollment_queue: asyncio.Queue = asyncio.Queue()
         self._enrollment_task: Optional[asyncio.Task] = None
+        self._active_command_task: Optional[asyncio.Task] = None
+        self._active_brain_task: Optional[asyncio.Task] = None
         self.telemetry_active: bool = False
         self.telemetry_target: str = "fedora"
         self.last_kiosk_telemetry: Optional[dict] = None
         self._telemetry_task: Optional[asyncio.Task] = None
         self._server_heartbeat_task: Optional[asyncio.Task] = None
+        self._music_poll_task: Optional[asyncio.Task] = None
+        self.last_music_state: Optional[dict] = None
         self._lock = asyncio.Lock()
 
     def initialize_pipeline(self):
@@ -142,6 +146,7 @@ class StreamManager:
 
         if ptype == "MUSIC_STATE":
             await self.broadcast_ui(payload)
+            asyncio.create_task(self.push_music_snapshot(delay=0.35, force=True))
             return
 
         if ptype == "SECURITY_MODE":
@@ -307,6 +312,57 @@ class StreamManager:
         finally:
             logger.info("[SERVER HEARTBEAT] Stopped Master Server background telemetry feed.")
 
+    async def push_music_snapshot(self, delay: float = 0.0, force: bool = False):
+        """Fetches the current Spotify playback state and broadcasts MUSIC_UPDATE to connected UI clients."""
+        if delay > 0:
+            await asyncio.sleep(delay)
+        if not spotify_controller.is_configured() or not spotify_controller.is_authenticated():
+            return
+        try:
+            pb = await asyncio.to_thread(spotify_controller.get_current_playback)
+            prev = self.last_music_state or {}
+            changed = (
+                force
+                or not self.last_music_state
+                or pb.get("playing") != prev.get("playing")
+                or pb.get("track_uri") != prev.get("track_uri")
+                or pb.get("track") != prev.get("track")
+                or pb.get("device_name") != prev.get("device_name")
+                or pb.get("repeat_state") != prev.get("repeat_state")
+                or pb.get("shuffle_state") != prev.get("shuffle_state")
+                or pb.get("volume_percent") != prev.get("volume_percent")
+            )
+            # Detect external timeline jump/seek on another device or periodic drift sync (>5s)
+            if not changed and pb.get("playing"):
+                elapsed = (pb.get("timestamp", 0) - prev.get("timestamp", 0))
+                expected_prog = (prev.get("progress_ms") or 0) + max(0, elapsed)
+                if abs((pb.get("progress_ms") or 0) - expected_prog) > 3500 or elapsed >= 5000:
+                    changed = True
+
+            if changed:
+                self.last_music_state = pb
+                if self.ui_clients:
+                    await self.broadcast_ui({
+                        "type": "MUSIC_UPDATE",
+                        "data": pb,
+                    })
+        except Exception as exc:
+            logger.debug(f"[MUSIC SYNC] Snapshot fetch error: {exc}")
+
+    async def _music_poll_loop(self):
+        """Background poller that keeps all Visor HUDs synced with external speaker/device Spotify playback."""
+        logger.info("[MUSIC SYNC] Started background Spotify playback poller.")
+        try:
+            while True:
+                if self.ui_clients and spotify_controller.is_configured() and spotify_controller.is_authenticated():
+                    await self.push_music_snapshot(force=False)
+                is_active = bool((self.last_music_state or {}).get("playing") or (self.last_music_state or {}).get("track"))
+                await asyncio.sleep(2.5 if is_active else 5.0)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            logger.info("[MUSIC SYNC] Stopped background Spotify playback poller.")
+
     async def register_ui(self, websocket: WebSocket, is_kiosk: bool = False, is_kiosk_service: bool = False):
         """Registers a connected Web UI or Kiosk background service client and sends initial state sync."""
         await websocket.accept()
@@ -361,6 +417,17 @@ class StreamManager:
 
         if self._server_heartbeat_task is None or self._server_heartbeat_task.done():
             self._server_heartbeat_task = asyncio.create_task(self._server_heartbeat_loop())
+
+        if self.last_music_state:
+            try:
+                await websocket.send_json({
+                    "type": "MUSIC_UPDATE",
+                    "data": self.last_music_state,
+                })
+            except Exception:
+                pass
+        if self._music_poll_task is None or self._music_poll_task.done():
+            self._music_poll_task = asyncio.create_task(self._music_poll_loop())
 
     async def unregister_ui(self, websocket: WebSocket):
         """Detaches a Web UI client cleanly and frees its node slot."""
@@ -460,6 +527,7 @@ class StreamManager:
         Non-blocking background handler for captured utterances.
         Encapsulates PCM into in-memory WAV and evaluates speaker identity.
         """
+        self.stop_speech_requested = False
         duration_sec = len(pcm_samples) / 16000.0
         logger.info(
             f"[UTTERANCE DISPATCH] Processing {len(pcm_samples)} samples ({duration_sec:.2f}s) | Trigger: {reason}"
@@ -589,8 +657,12 @@ class StreamManager:
             vocal_reply = fast_path_result.get("reply", "")
             logger.info(f"[LOCAL FAST PATH] Executed: {fast_path_result.get('type')} ({lang.upper()}) -> '{vocal_reply}'")
         elif self.brain:
+            if self.stop_speech_requested:
+                logger.info("[COMMAND ABORT] Processing aborted before brain query by user STOP.")
+                return ""
+
             # 2. Tier-2 Cognitive Brain (Cloud Gemini via Text-Only Ingestion + Tool AFC)
-            brain_task = asyncio.create_task(
+            self._active_brain_task = brain_task = asyncio.create_task(
                 self.brain.process_text_query(
                     user_text=transcript,
                     is_stranger=is_stranger,
@@ -605,7 +677,7 @@ class StreamManager:
             thinking_timeout = float(os.getenv("AXL_THINKING_TIMEOUT", "2.0"))
             done, _ = await asyncio.wait([brain_task], timeout=thinking_timeout)
 
-            if not done:
+            if not done and not self.stop_speech_requested:
                 # Processing exceeds timeout: emit witty canine thinking phrase in subtitles & voice
                 thinking_phrase = get_random_thinking_phrase(lang=lang)
                 logger.info(
@@ -625,14 +697,25 @@ class StreamManager:
                     await self.speak_text(thinking_phrase, lang=lang)
 
                 # If brain is still working after thinking phrase was spoken, maintain THINKING state on Visor
-                if not brain_task.done():
+                if not self.stop_speech_requested and not brain_task.done():
                     await self.broadcast_ui({
                         "type": "STATE_CHANGE",
                         "state": "THINKING",
                         "label": "ELABORAZIONE COGNITIVA...",
                     })
 
-            result = await brain_task
+            try:
+                result = await brain_task
+            except asyncio.CancelledError:
+                logger.info("[COGNITIVE CORE] Brain query cancelled by user STOP.")
+                return ""
+            finally:
+                self._active_brain_task = None
+
+            if self.stop_speech_requested:
+                logger.info("[COMMAND ABORT] Brain result dropped because user requested STOP.")
+                return ""
+
             vocal_reply = ensure_dog_sound(result.get("text_response", ""))
 
         logger.info(f">>> [A-X-L SPEAKS ({lang.upper()})]: \"{vocal_reply}\" <<<")
@@ -713,6 +796,10 @@ class StreamManager:
                     f"from speaker '{identity}' in '{sec_mode}' mode."
                 )
 
+        if self.stop_speech_requested:
+            logger.info("[COMMAND ABORT] Dialogue delivery skipped due to user STOP.")
+            return ""
+
         # 4. Broadcast dialogue subtitles to connected HUD visors
         await self.broadcast_ui({
             "type": "TRANSCRIPT",
@@ -721,7 +808,7 @@ class StreamManager:
         })
 
         # 5. Neural Text-To-Speech Synthesis & Streaming via WebSocket
-        if vocal_reply and self.tts and self.active_client:
+        if vocal_reply and self.tts and self.active_client and not self.stop_speech_requested:
             logger.info(f"[TTS STREAM] Synthesizing and streaming response to client [{lang.upper()}]...")
             await self.speak_text(vocal_reply, lang=lang)
             if not self.stop_speech_requested:
@@ -735,10 +822,9 @@ class StreamManager:
         Crucially maintains is_speaking = True and UI state = SPEAKING for the full
         duration of the actual audio playback so the STOP button remains active.
         """
-        if not text or not self.tts or not self.active_client:
+        if not text or not self.tts or not self.active_client or self.stop_speech_requested:
             return False
         self.is_speaking = True
-        self.stop_speech_requested = False
         await self.broadcast_ui({
             "type": "STATE_CHANGE",
             "state": "SPEAKING",
@@ -790,12 +876,12 @@ class StreamManager:
             return False
         finally:
             self.is_speaking = False
-            self.stop_speech_requested = False
-            await asyncio.sleep(0.15)
-            await self.broadcast_ui({
-                "type": "STATE_CHANGE",
-                "state": "IDLE",
-            })
+            if not self.stop_speech_requested:
+                await asyncio.sleep(0.15)
+                await self.broadcast_ui({
+                    "type": "STATE_CHANGE",
+                    "state": "IDLE",
+                })
 
     def start_voice_enrollment(self, profile_name: str):
         """Starts an asynchronous interactive voice calibration session."""
@@ -1094,10 +1180,11 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                         await stream_manager.broadcast_ui({
                             "type": "STATE_CHANGE",
                             "state": "THINKING",
+                            "label": "ELABORAZIONE COGNITIVA...",
                         })
 
                         # Delegate execution asynchronously: WebSocket loop remains unblocked
-                        asyncio.create_task(
+                        stream_manager._active_command_task = asyncio.create_task(
                             stream_manager.handle_completed_command(
                                 command_audio, ev["trigger_reason"]
                             )
@@ -1192,12 +1279,18 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                     if stream_manager.tts and stream_manager.active_client:
                         asyncio.create_task(stream_manager.speak_text(mute_reply))
                 elif mtype == "STOP_SPEECH":
-                    logger.info("[STOP BUTTON] User requested immediate vocal/enrollment abort.")
+                    logger.info("[STOP BUTTON] User requested immediate vocal/command abort.")
                     stream_manager.stop_speech_requested = True
                     stream_manager.is_speaking = False
                     stream_manager.is_enrolling = False
                     if stream_manager._enrollment_task and not stream_manager._enrollment_task.done():
                         stream_manager._enrollment_task.cancel()
+                    if stream_manager._active_brain_task and not stream_manager._active_brain_task.done():
+                        stream_manager._active_brain_task.cancel()
+                        stream_manager._active_brain_task = None
+                    if stream_manager._active_command_task and not stream_manager._active_command_task.done():
+                        stream_manager._active_command_task.cancel()
+                        stream_manager._active_command_task = None
                     if stream_manager.pipeline:
                         stream_manager.pipeline.reset()
                     stream_manager.audio_buffer.clear()
@@ -1209,9 +1302,16 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                     await stream_manager.broadcast_ui({
                         "type": "STATE_CHANGE",
                         "state": "IDLE",
-                        "label": "SURVEILLANCE // PASSIVE IDLE",
+                        "label": "STANDBY // PASSIVE SURVEILLANCE",
+                        "sub": "ACOUSTIC ARRAY: ACTIVE (16kHz PCM)",
+                    })
+                    await stream_manager.broadcast_ui({
+                        "type": "TRANSCRIPT",
+                        "user_text": "Hey A-X-L...",
+                        "axl_text": "Pronto all'azione, capo. In ascolto sui sensori.",
                     })
                 elif mtype == "ASK_START":
+                    stream_manager.stop_speech_requested = False
                     # Push-to-ask: skips the wake-word. Speaker verification still applies afterwards.
                     if stream_manager.is_speaking:
                         logger.info("[ASK BUTTON] Ignored (A-X-L is speaking).")
@@ -1227,6 +1327,31 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         })
                     else:
                         logger.info("[ASK BUTTON] Ignored: pipeline busy.")
+                elif mtype == "MUSIC_COMMAND":
+                    action = str(msg.get("action", "")).lower().strip()
+                    if action == "refresh":
+                        await stream_manager.push_music_snapshot(force=True)
+                    elif spotify_controller.is_configured() and spotify_controller.is_authenticated():
+                        if action == "toggle":
+                            is_playing = bool((stream_manager.last_music_state or {}).get("playing"))
+                            action = "pause" if is_playing else "play"
+                        target_dev = str(msg.get("target", "") or "").strip()
+                        vol_val = msg.get("volume")
+                        rep_mode = str(msg.get("repeat_mode", "") or "").strip()
+                        pos_ms = msg.get("position_ms")
+                        try:
+                            res = await asyncio.to_thread(
+                                spotify_controller.control_playback,
+                                action,
+                                target_dev or None,
+                                int(vol_val) if vol_val is not None else None,
+                                rep_mode or None,
+                                int(pos_ms) if pos_ms is not None else None,
+                            )
+                            logger.info(f"[UI MUSIC CMD] action='{action}' ok={res.get('ok')} -> {res.get('message')}")
+                        except Exception as exc:
+                            logger.warning(f"[UI MUSIC CMD] Failed '{action}': {exc}")
+                        await stream_manager.push_music_snapshot(delay=0.25, force=True)
                 elif mtype in ("REQUEST_SERVER_TELEMETRY", "REQUEST_TELEMETRY"):
                     req_target = msg.get("target", "server" if mtype == "REQUEST_SERVER_TELEMETRY" else stream_manager.telemetry_target)
                     req_norm = str(req_target).lower().strip()
