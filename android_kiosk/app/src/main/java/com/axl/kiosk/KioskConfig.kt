@@ -51,6 +51,7 @@ object KioskConfig {
     fun getControlWsUrl(context: Context): String {
         val host = getHost(context)
         val port = getPort(context)
-        return "ws://$host:$port/ws/ui"
+        // Identify background service socket separately from browser Visor tabs
+        return "ws://$host:$port/ws/ui?client=kiosk_service"
     }
 }

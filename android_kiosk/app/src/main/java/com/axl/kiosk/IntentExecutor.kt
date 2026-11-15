@@ -31,7 +31,9 @@ object IntentExecutor {
                 }
                 "open_spotify" -> {
                     val query = commandJson.optString("query", "")
-                    openSpotify(context, query)
+                    val uri = commandJson.optString("uri", "")
+                    val autoPlay = commandJson.optBoolean("auto_play", false)
+                    openSpotify(context, query, uri, autoPlay)
                     true
                 }
                 "open_app" -> {
@@ -94,20 +96,58 @@ object IntentExecutor {
         Log.i(TAG, "Dispatched media key code: $keyCode ($command)")
     }
 
-    private fun openSpotify(context: Context, query: String) {
-        val intent = if (query.isNotBlank()) {
-            Intent(Intent.ACTION_VIEW, Uri.parse("spotify:search:$query")).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+    private fun openSpotify(context: Context, query: String, uri: String = "", autoPlay: Boolean = false) {
+        val spotifyPkg = "com.spotify.music"
+        val intent = when {
+            uri.isNotBlank() -> {
+                Intent(Intent.ACTION_VIEW, Uri.parse(uri)).apply {
+                    setPackage(spotifyPkg)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
             }
-        } else {
-            context.packageManager.getLaunchIntentForPackage("com.spotify.music")?.apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            } ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com")).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            autoPlay && query.isNotBlank() -> {
+                // Ask Android/Spotify directly to search and start playback locally
+                Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                    setPackage(spotifyPkg)
+                    putExtra(android.app.SearchManager.QUERY, query)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+            }
+            query.isNotBlank() -> {
+                Intent(Intent.ACTION_VIEW, Uri.parse("spotify:search:${Uri.encode(query)}")).apply {
+                    setPackage(spotifyPkg)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+            }
+            else -> {
+                context.packageManager.getLaunchIntentForPackage(spotifyPkg)?.apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                } ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com")).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
             }
         }
-        context.startActivity(intent)
-        Log.i(TAG, "Launched Spotify (query: '$query')")
+
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Primary Spotify intent failed (${e.message}), trying generic fallback.")
+            val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(
+                if (uri.isNotBlank()) uri else "https://open.spotify.com"
+            )).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(fallback)
+        }
+
+        if (autoPlay && uri.isNotBlank()) {
+            // Dispatch a delayed media play key event in case Spotify opens paused on the URI
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                sendMediaKeyEvent(context, "play")
+            }, 1500L)
+        }
+
+        Log.i(TAG, "Launched Spotify (query: '$query', uri: '$uri', autoPlay: $autoPlay)")
     }
 
     private fun openAppByPackage(context: Context, packageName: String) {

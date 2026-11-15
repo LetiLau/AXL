@@ -14,7 +14,8 @@ from typing import Any, Optional
 
 from task_manager import task_manager
 from tts_engine import detect_language
-from commands import get_random_dog_sound
+from commands import get_random_dog_sound, play_music, media_control, list_music_devices, get_now_playing
+from spotify_controller import spotify_controller
 
 logger = logging.getLogger("AXL-Console")
 
@@ -195,7 +196,11 @@ class ConsoleManager:
             elif cmd_name in ["/calendar", "/cal", "/calendario"]:
                 await self._handle_calendar_command(args_str)
 
-            # 9. AUDIO LINK
+            # 9. SPOTIFY & WI-FI SPEAKERS
+            elif cmd_name in ["/spotify", "/music", "/musica"]:
+                await self._handle_spotify_command(args_str)
+
+            # 10. AUDIO LINK
             elif cmd_name == "/audio":
                 subcmd = args_str.lower().strip()
                 if subcmd in ["status", "info", "stato"]:
@@ -433,6 +438,74 @@ class ConsoleManager:
         else:
             print("[Console] Usage: /calendar <add <title> [datetime] | list [--all] | remove <id>>")
 
+    async def _handle_spotify_command(self, args_str: str):
+        """Admin command handler for inspecting and controlling Spotify Connect and Sonos speakers."""
+        subparts = args_str.split(maxsplit=1)
+        sub = subparts[0].lower() if subparts else "status"
+        arg = subparts[1].strip() if len(subparts) > 1 else ""
+
+        if sub in ["status", "stato"]:
+            cfg = spotify_controller.is_configured()
+            auth = spotify_controller.is_authenticated()
+            print(f"[Spotify] Configured (.env): {cfg} | Authenticated: {auth} | Redirect URI: {spotify_controller.redirect_uri}")
+            if cfg and not auth:
+                print("[Spotify] Open http://127.0.0.1:8000/spotify/login on the Master PC to authorize.")
+            if auth:
+                print(f"[Spotify] {await asyncio.to_thread(get_now_playing)}")
+        elif sub in ["devices", "speakers", "ls", "list", "dispositivi"]:
+            res = await asyncio.to_thread(list_music_devices)
+            print(f"[Spotify Devices] {res}")
+        elif sub in ["now", "current", "playing"]:
+            res = await asyncio.to_thread(get_now_playing)
+            print(f"[Spotify Now] {res}")
+        elif sub in ["play", "riproduci"]:
+            if not arg:
+                res = await asyncio.to_thread(media_control, "play")
+                print(f"[Spotify] {res}")
+                return
+            target = ""
+            query = arg
+            if " --on " in arg:
+                query, target = arg.split(" --on ", 1)
+            res = await asyncio.to_thread(play_music, query.strip(), target.strip())
+            print(f"[Spotify] {res}")
+        elif sub in ["transfer", "move", "sposta"]:
+            if not arg:
+                print("[Console] Usage: /spotify transfer <speaker_name>")
+                return
+            res = await asyncio.to_thread(play_music, "", arg)
+            print(f"[Spotify] {res}")
+        elif sub in ["pause", "stop", "pausa", "next", "prev", "previous", "resume", "restart", "rewind"]:
+            action_name = "previous" if sub == "prev" else ("pause" if sub == "pausa" else sub)
+            res = await asyncio.to_thread(media_control, action_name, arg)
+            print(f"[Spotify] {res}")
+        elif sub in ["loop", "repeat", "ripeti"]:
+            lparts = arg.split(maxsplit=1) if arg else []
+            first = lparts[0].lower().strip() if lparts else ""
+            if first in ["track", "song", "canzone", "brano", "context", "playlist", "album", "off", "toggle", "cycle"]:
+                rep_mode = first
+                tgt = lparts[1].strip() if len(lparts) > 1 else ""
+            else:
+                rep_mode = "toggle"
+                tgt = arg
+            res = await asyncio.to_thread(media_control, "loop", tgt, None, rep_mode)
+            print(f"[Spotify] {res}")
+        elif sub in ["vol", "volume"]:
+            vparts = arg.split(maxsplit=1)
+            if not vparts:
+                print("[Console] Usage: /spotify vol <0-100> [speaker_name]")
+                return
+            try:
+                vol = int(vparts[0])
+            except ValueError:
+                print("[Console] Volume must be an integer between 0 and 100.")
+                return
+            tgt = vparts[1].strip() if len(vparts) > 1 else ""
+            res = await asyncio.to_thread(media_control, "set_volume", tgt, vol)
+            print(f"[Spotify] {res}")
+        else:
+            print("[Console] Usage: /spotify <status | devices | now | play <query> [--on <speaker>] | transfer <speaker> | pause | resume | next | prev | restart | loop [track|context|off|toggle] [speaker] | vol <0-100> [speaker]>")
+
     def _print_status(self):
         sec_mode = self.stream_manager.verifier.security_mode if self.stream_manager.verifier else "unknown"
         profiles = list(self.stream_manager.verifier.enrolled_profiles.keys()) if self.stream_manager.verifier else []
@@ -463,6 +536,7 @@ class ConsoleManager:
         print(" /mode <mode>             : Sets security mode (friendly | restrict | paranoid)")
         print(" /mute / /unmute          : Disables or re-enables microphone audio listening (/muto)")
         print(" /telem <target|off>      : Toggles telemetry HUD on Visor (server | slave | kiosk | off)")
+        print(" /spotify <subcmd>        : Spotify Connect & Sonos control (status | devices | play <q> [--on <spk>] | pause | next | prev | loop [track|context|off] | vol <0-100>)")
         print(" /audio <status|kick>     : Inspects or disconnects the active audio stream client")
         print(" /status                  : Shows system health, connected screens, and biometric profiles")
         print(" /stop                    : Stops A-X-L vocal speech immediately (/halt, /zitto)")

@@ -19,7 +19,7 @@ import httpx
 import psutil
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 import numpy as np
 import uvicorn
 
@@ -28,6 +28,7 @@ from audio_utils import pcm_to_wav_bytes
 from brain_gemini import GeminiBrain
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
+from spotify_controller import spotify_controller
 from tts_engine import PiperTTSEngine, detect_language
 from stt_engine import STTEngine
 from telemetry_utils import collect_system_telemetry
@@ -133,16 +134,14 @@ class StreamManager:
         logger.info("A-X-L Full Pipeline (Acoustic + Biometrics + STT + Brain + TTS + Telemetry Bridge) Ready.")
 
     async def handle_telemetry_event(self, payload: dict):
-        """Processes telemetry activation, security mode changes, or mute state triggered by voice commands or slave."""
+        """Processes telemetry activation, intents, security mode changes, or mute state triggered by commands."""
         ptype = payload.get("type")
         if ptype == "INTENT":
-            # Forward intent to active Android Kiosk client if connected
-            if self.active_client:
-                try:
-                    await self.active_client.send_text(json.dumps(payload))
-                    logger.info(f"[INTENT DISPATCH] Dispatched intent to kiosk: {payload.get('action')}")
-                except Exception as e:
-                    logger.warning(f"[INTENT DISPATCH] Failed forwarding to kiosk: {e}")
+            await self.dispatch_kiosk_intent(payload)
+            return
+
+        if ptype == "MUSIC_STATE":
+            await self.broadcast_ui(payload)
             return
 
         if ptype == "SECURITY_MODE":
@@ -308,12 +307,15 @@ class StreamManager:
         finally:
             logger.info("[SERVER HEARTBEAT] Stopped Master Server background telemetry feed.")
 
-    async def register_ui(self, websocket: WebSocket, is_kiosk: bool = False):
-        """Registers a connected Web UI client and sends initial state synchronization with assigned node tag."""
+    async def register_ui(self, websocket: WebSocket, is_kiosk: bool = False, is_kiosk_service: bool = False):
+        """Registers a connected Web UI or Kiosk background service client and sends initial state sync."""
         await websocket.accept()
         self.ui_clients.add(websocket)
 
-        if is_kiosk:
+        if is_kiosk_service:
+            node_tag = "KIOSK-SVC"
+            node_num = None
+        elif is_kiosk:
             node_tag = "KIOSK"
             node_num = None
         else:
@@ -325,12 +327,14 @@ class StreamManager:
 
         self.ui_client_info[websocket] = {
             "is_kiosk": is_kiosk,
+            "is_kiosk_service": is_kiosk_service,
             "node_num": node_num,
             "node_tag": node_tag,
         }
 
         logger.info(
-            f"UI client attached: [{node_tag}] (is_kiosk={is_kiosk}). Active UI clients: {len(self.ui_clients)}"
+            f"UI client attached: [{node_tag}] (is_kiosk={is_kiosk}, service={is_kiosk_service}). "
+            f"Active UI clients: {len(self.ui_clients)}"
         )
         sec_mode = self.verifier.security_mode if self.verifier else "friendly"
         state = self.pipeline.state if self.pipeline else "IDLE"
@@ -362,12 +366,47 @@ class StreamManager:
         """Detaches a Web UI client cleanly and frees its node slot."""
         self.ui_clients.discard(websocket)
         info = self.ui_client_info.pop(websocket, None)
-        if info and not info.get("is_kiosk"):
+        if info and not info.get("is_kiosk") and not info.get("is_kiosk_service"):
             num = info.get("node_num")
             if num is not None:
                 self._assigned_browser_nodes.discard(num)
         node_tag = info.get("node_tag", "UNKNOWN") if info else "UNKNOWN"
         logger.info(f"UI client [{node_tag}] detached. Active UI clients: {len(self.ui_clients)}")
+
+    async def dispatch_kiosk_intent(self, payload: dict):
+        """
+        Sends an Android Intent payload to connected Kiosk service clients over /ws/ui.
+        Falls back to Kiosk WebView UI clients or active audio client if no dedicated service link is attached.
+        """
+        action_name = payload.get("action", "unknown")
+        service_targets = [
+            ws for ws in list(self.ui_clients)
+            if self.ui_client_info.get(ws, {}).get("is_kiosk_service")
+        ]
+        targets = service_targets or [
+            ws for ws in list(self.ui_clients)
+            if self.ui_client_info.get(ws, {}).get("is_kiosk")
+        ]
+        if targets:
+            sent = 0
+            for ws in targets:
+                try:
+                    await ws.send_json(payload)
+                    sent += 1
+                except Exception as exc:
+                    logger.warning(f"[INTENT DISPATCH] Failed sending '{action_name}' to kiosk WS: {exc}")
+            if sent > 0:
+                logger.info(f"[INTENT DISPATCH] Dispatched '{action_name}' to {sent} kiosk link(s).")
+                return
+
+        if self.active_client:
+            try:
+                await self.active_client.send_text(json.dumps(payload))
+                logger.info(f"[INTENT DISPATCH] Fallback dispatched '{action_name}' to audio client.")
+            except Exception as exc:
+                logger.warning(f"[INTENT DISPATCH] Failed forwarding '{action_name}' to audio client: {exc}")
+        else:
+            logger.warning(f"[INTENT DISPATCH] No connected Android Kiosk to receive '{action_name}'.")
 
     async def broadcast_ui(self, message: dict):
         """Dispatches an asynchronous state event to all connected Web UI clients."""
@@ -1085,11 +1124,12 @@ async def audio_websocket_endpoint(websocket: WebSocket):
 
 @app.websocket("/ws/ui")
 async def ui_websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint serving real-time HUD telemetry and state transitions."""
+    """WebSocket endpoint serving real-time HUD telemetry, state transitions, and Kiosk intents."""
     client_param = websocket.query_params.get("client", "").lower().strip()
     ua = websocket.headers.get("user-agent", "").lower()
-    is_kiosk = ("axl-kiosk" in ua) or (client_param == "kiosk")
-    await stream_manager.register_ui(websocket, is_kiosk=is_kiosk)
+    is_kiosk_service = (client_param == "kiosk_service") or ("axl-kiosk-service" in ua)
+    is_kiosk = ("axl-kiosk" in ua) or (client_param == "kiosk") or is_kiosk_service
+    await stream_manager.register_ui(websocket, is_kiosk=is_kiosk, is_kiosk_service=is_kiosk_service)
     try:
         while True:
             # Accept incoming control signals from UI (e.g. toggle telemetry, target switch)
@@ -1103,6 +1143,7 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                     await stream_manager.set_telemetry_mode(enabled, target=target)
                 elif mtype == "KIOSK_TELEMETRY":
                     stream_manager.last_kiosk_telemetry = msg
+                    spotify_controller.update_kiosk_audio_outputs(msg.get("audio_outputs"))
                     if stream_manager.telemetry_active and stream_manager.telemetry_target == "kiosk":
                         await stream_manager.broadcast_ui({
                             "type": "TELEMETRY_UPDATE",
@@ -1268,6 +1309,83 @@ async def disable_ui_cache(request: Request, call_next):
 WEB_UI_DIR = BASE_DIR / "web_ui"
 if WEB_UI_DIR.exists():
     app.mount("/ui", StaticFiles(directory=str(WEB_UI_DIR), html=True), name="ui")
+
+
+@app.get("/spotify/login")
+async def spotify_login():
+    """Redirects the user to Spotify OAuth2 authorization to link Spotify Connect."""
+    if not spotify_controller.is_configured():
+        return HTMLResponse(
+            status_code=400,
+            content=(
+                "<html><body style='background:#0b1016;color:#d6f5ff;font-family:monospace;padding:32px;'>"
+                "<h2>A-X-L // Spotify Connect Setup Required</h2>"
+                "<p>Set <code>SPOTIFY_CLIENT_ID</code> and <code>SPOTIFY_CLIENT_SECRET</code> in "
+                "<code>master_server/.env</code> first, then restart the server and reopen "
+                "<code>http://127.0.0.1:8000/spotify/login</code>.</p>"
+                f"<p>Expected Redirect URI in Spotify Developer Dashboard: <code>{spotify_controller.redirect_uri}</code></p>"
+                "</body></html>"
+            ),
+        )
+    return RedirectResponse(url=spotify_controller.get_authorize_url())
+
+
+@app.get("/spotify/callback")
+async def spotify_callback(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    """Handles Spotify OAuth2 callback, exchanges code for tokens, and stores refresh token locally."""
+    if error:
+        return HTMLResponse(
+            status_code=400,
+            content=(
+                "<html><body style='background:#0b1016;color:#ff6b81;font-family:monospace;padding:32px;'>"
+                f"<h2>A-X-L // Spotify Authorization Error</h2><p>{error}</p></body></html>"
+            ),
+        )
+    if not code or not spotify_controller.validate_oauth_state(state):
+        return HTMLResponse(
+            status_code=400,
+            content=(
+                "<html><body style='background:#0b1016;color:#ff6b81;font-family:monospace;padding:32px;'>"
+                "<h2>A-X-L // Invalid or expired OAuth state</h2>"
+                "<p>Please retry from <a href='/spotify/login' style='color:#00e5ff;'>/spotify/login</a>.</p>"
+                "</body></html>"
+            ),
+        )
+    try:
+        await asyncio.to_thread(spotify_controller.exchange_code, code)
+        return HTMLResponse(
+            content=(
+                "<html><body style='background:#0b1016;color:#00e5ff;font-family:monospace;padding:32px;'>"
+                "<h2>A-X-L // Spotify Connect Linked Successfully</h2>"
+                "<p>Your refresh token has been stored locally in <code>master_server/data/spotify_token.json</code>.</p>"
+                "<p>You can close this tab and ask A-X-L to play music on your Sonos or Wi-Fi/Bluetooth speakers.</p>"
+                "</body></html>"
+            ),
+        )
+    except Exception as exc:
+        logger.error(f"Spotify callback token exchange failed: {exc}")
+        return HTMLResponse(
+            status_code=500,
+            content=(
+                "<html><body style='background:#0b1016;color:#ff6b81;font-family:monospace;padding:32px;'>"
+                f"<h2>A-X-L // Spotify Token Exchange Failed</h2><p>{exc}</p></body></html>"
+            ),
+        )
+
+
+@app.get("/spotify/status")
+async def spotify_status():
+    """Returns Spotify Connect authentication status and discovered speakers."""
+    info = await asyncio.to_thread(spotify_controller.list_available_speakers)
+    return {
+        "configured": spotify_controller.is_configured(),
+        "authenticated": spotify_controller.is_authenticated(),
+        "redirect_uri": spotify_controller.redirect_uri,
+        "spotify_devices": info.get("spotify_devices", []),
+        "sonos_lan": info.get("sonos_lan", []),
+        "kiosk_audio_outputs": info.get("kiosk_audio_outputs", []),
+        "spotify_error": info.get("spotify_error"),
+    }
 
 
 @app.get("/")

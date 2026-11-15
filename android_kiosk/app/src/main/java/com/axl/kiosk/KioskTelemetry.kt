@@ -4,8 +4,11 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
@@ -79,6 +82,41 @@ object KioskTelemetry {
         payload.put("cpu_cores", Runtime.getRuntime().availableProcessors())
         payload.put("soc_name", "Exynos 1280")
 
+        // 5. Connected Audio Output Routes (Bluetooth A2DP / Wired / USB) without extra permissions
+        payload.put("audio_outputs", collectAudioOutputs(context))
+
         return payload
+    }
+
+    private fun collectAudioOutputs(context: Context): JSONArray {
+        val outputs = JSONArray()
+        val seen = HashSet<String>()
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return outputs
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            for (dev in devices) {
+                val typeLabel = when (dev.type) {
+                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "bluetooth_a2dp"
+                    AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "bluetooth_sco"
+                    AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER -> "bluetooth_le"
+                    AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired_aux"
+                    AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET -> "usb_audio"
+                    else -> continue
+                }
+                val name = dev.productName?.toString()?.trim().orEmpty().ifEmpty { typeLabel }
+                val dedupeKey = "$typeLabel:$name"
+                if (seen.add(dedupeKey)) {
+                    outputs.put(
+                        JSONObject().apply {
+                            put("name", name)
+                            put("type", typeLabel)
+                        }
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            // Ignore audio device inspection errors on restricted profiles
+        }
+        return outputs
     }
 }

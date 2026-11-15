@@ -243,7 +243,17 @@ Usa questa scaletta passo-passo nella nuova chat per costruire il sistema modulo
 16. [ ] **Gestione A33**: volume, sveglie?, timer e relative ui se necessarie
 
 -------------------
-17. [ ] **Musica**: altoparlanti wifi. usa spotify e si connette ad altoparlanti presenti sulla sua stessa rete wifi o disponibili col bluetooth (oppure gestisce la musica su altri dispositivi. semrpe grazie a spotify)
+17. [x] **Musica su altoparlanti Wi-Fi (Sonos), Bluetooth & Spotify Connect (`spotify_controller.py`):**
+    * **Integrazione Spotify Connect (Spotify Web API) su Master Server:**
+      - Modulo dedicato `master_server/src/spotify_controller.py` con OAuth2 completo, credenziali private lette da `master_server/.env` (`SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/spotify/callback`) e `refresh_token` salvato in `master_server/data/spotify_token.json` (ignorato da `.gitignore`).
+      - Endpoint FastAPI integrati `/spotify/login`, `/spotify/callback` e `/spotify/status` per collegamento una tantum dal browser del PC Master, più comando admin da console `/spotify <status|devices|now|play|transfer|pause|resume|next|prev|vol>`.
+      - **Scoperta Locale Sonos su Wi-Fi (UPnP/SSDP puro Python senza dipendenze extra):** rileva automaticamente gli speaker Sonos presenti sulla LAN (`roomName`, coppie stereo e coordinatori di gruppo tramite `ZoneGroupTopology`), permettendo di associare correttamente comandi come *"...su Sonos"* anche quando su Spotify i dispositivi compaiono con il nome stanza (es. `"Salotto"` / `"Sala"`), con fallback UPnP locale per play/pausa/skip/volume.
+      - **Comandi Vocali & Fuzzy Matching Dispositivi:** `play_music(query, target)`, `media_control(action, target, volume, repeat_mode)`, `list_music_devices()` e `get_now_playing()` supportano avvio brani/artisti/album/playlist su speaker specifici (*"metti i Queen su Sonos"*, *"metti jazz in salotto"*), spostamento riproduzione (*"sposta la musica su Sonos"*), `loop`/`repeat` (`track` per brano singolo, `context` per playlist/album, `off`, `toggle`), `restart` dall'inizio e regolazione volume/next/prev/pause (anche predisposti per i futuri pulsanti UI).
+    * **Allineamento Intent Android Kiosk & Rilevamento Uscite Bluetooth:**
+      - Risolto il disallineamento tra `main.py` e `AudioStreamService.kt`: il servizio in background del Kiosk si identifica su `/ws/ui?client=kiosk_service` senza occupare slot `NODE-XX` del Visore e riceve correttamente tutti gli `INTENT` tramite `dispatch_kiosk_intent`.
+      - Aggiornato `IntentExecutor.kt` per supportare URI diretti (`spotify:track:...`, `spotify:playlist:...`) e `auto_play` locale sul Galaxy A33 / cassa Bluetooth collegata quando Spotify sul telefono va risvegliato.
+      - Esteso `KioskTelemetry.kt` per segnalare automaticamente al Master le uscite audio Bluetooth/cablaggio connesse al Galaxy A33 tramite `AudioManager.getDevices`.
+    * *(Prossimo step UI sul branch)*: Widget grafico del player musicale stile One UI 9 + A-X-L nel pannello `#music-player-panel` del Visore.
 
 ### Tramite Wi-Fi con **Spotify Connect (Spotify Web API)** — *Soluzione ideale*
 Spotify integra nativamente il protocollo **Spotify Connect**, accessibile via software (ad esempio tramite la libreria Python `spotipy` sul Master Server):

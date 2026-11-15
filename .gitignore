@@ -12,6 +12,8 @@ ENV/
 # Secrets & Environment variables
 .env
 *.env
+master_server/data/spotify_token.json
+*.spotify_cache
 
 # OS specific files
 .DS_Store

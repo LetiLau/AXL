@@ -114,9 +114,9 @@ The Android companion application is built as a pure Kotlin Thin-Client Kiosk:
 - **Architecture:** Pure Kotlin (Zero NDK/JNI overhead). Employs `AudioRecord` (16kHz 16-bit Mono PCM) and `AudioTrack` paired with `OkHttp` WebSockets for ultra-low latency bidirectional audio transport with the Master Server.
 - **Key Modules:**
   - `MainActivity.kt`: Immersive sticky fullscreen kiosk WebView hosting the Master HUD (`/ui`) with OLED burn-in protection. Integrates pure HTML/JS HUD quick controls via JavascriptInterface (`window.AXLKiosk` for reload, IP config dialog, and clean exit), eliminating native floating buttons.
-  - `AudioStreamService.kt`: Persistent Foreground Service orchestrating raw PCM capture and Piper TTS audio playback. Supports `ACTION_STOP` intent broadcast to cleanly release microphone hardware locks on app exit.
-  - `IntentExecutor.kt`: Native Android Intent bridge (Media/Volume control, Spotify launch, alarms, smart appliance app dispatch).
-  - `KioskTelemetry.kt`: Hardware health monitor streaming battery level, battery charging state, battery temperature (°C) and RAM usage directly into A-X-L's HUD.
+  - `AudioStreamService.kt`: Persistent Foreground Service orchestrating raw PCM capture, Piper TTS audio playback, and a dedicated `?client=kiosk_service` control WebSocket link (`/ws/ui`) for reliable native Intent delivery. Supports `ACTION_STOP` intent broadcast to cleanly release microphone hardware locks on app exit.
+  - `IntentExecutor.kt`: Native Android Intent bridge (Media/Volume control, Spotify URI/search auto-play launch, alarms, calendar events, smart appliance app dispatch).
+  - `KioskTelemetry.kt`: Hardware health monitor streaming battery level, battery charging state, battery temperature (°C), RAM usage, Wi-Fi RSSI, and connected Bluetooth/wired audio output routes directly into A-X-L's telemetry.
 
 #### Technical Mechanism
 ##### WakeWord and command detection
@@ -213,7 +213,21 @@ AXL_SPEAKER_THRESHOLD=0.48
 # OpenWakeWord Wake-Word Detection Threshold
 # Calibrated to minimize false positives during conversational Italian speech (default: 0.48)
 AXL_WAKEWORD_THRESHOLD=0.48
+
+# Spotify Connect Web API (Requires Spotify Premium + free app on developer.spotify.com)
+SPOTIFY_CLIENT_ID=your_spotify_client_id_here
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/spotify/callback
+SPOTIFY_MARKET=IT
+# Optional comma-separated speaker aliases (e.g. sonos=Salotto)
+SPOTIFY_DEVICE_ALIASES=
 ```
+
+3. **One-Time Spotify Connect Linking (Optional, for Wi-Fi / Sonos / Multi-Device Music):**
+   - Create a free app on the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) (check **Web API**).
+   - Add `http://127.0.0.1:8000/spotify/callback` as a **Redirect URI** (loopback `127.0.0.1` only needs to be opened once on the Master PC; it is independent of your LAN/hotspot IP).
+   - Put `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in `master_server/.env`, start the Master Server (`python src/main.py`), and visit `http://127.0.0.1:8000/spotify/login` once in a browser on the Master PC.
+   - The refresh token is saved locally in `master_server/data/spotify_token.json` (excluded from Git via `.gitignore`) and auto-refreshes afterwards.
 
 #### Phase 3: Cognitive Brain, Local STT & Dynamic Tools (`stt_engine.py`, `brain_gemini.py` & `commands.py`)
 In Phase 3, A-X-L adopts a **Two-Tiered Hybrid Intent & STT Architecture** to maximize responsiveness and minimize cloud API latency:
@@ -230,7 +244,8 @@ In Phase 3, A-X-L adopts a **Two-Tiered Hybrid Intent & STT Architecture** to ma
   - Complex conversational queries, questions, and ambiguous intents bypass the fast-path and are forwarded to **Gemini Flash-Lite** as pure text queries.
   - **Zero Audio Latency & Quota Protection:** Sending pre-transcribed text rather than raw binary audio WAVs eliminates cloud audio tokenization delays, reduces bandwidth, and completely avoids 429 quota exhaustion.
   - **Automatic Function Calling (AFC):** Registered tools in `master_server/src/commands.py`:
-    - `play_music(query, target)`: Extracted song/artist intent dispatched directly to Spotify on the Galaxy A33 kiosk.
+    - `play_music(query, target)`: Searches Spotify (`track`, `artist`, `album`, `playlist`) and starts or transfers playback via **Spotify Connect** (`spotify_controller.py`) onto any named Wi-Fi speaker (e.g. Sonos rooms `"Salotto"` / `"Sala"`, resolved automatically via **local SSDP/UPnP Sonos LAN discovery** + fuzzy matching), PC, or Android Kiosk/Bluetooth output.
+    - `media_control(action, target, volume, repeat_mode)`, `list_music_devices()`, `get_now_playing()`: Playback controls (`play`, `pause`, `next`, `previous`, `restart`, `loop`/`repeat` for track or playlist/album, `volume_up`/`down`/`set_volume`, `transfer`), live speaker/Bluetooth discovery, and now-playing queries with direct Sonos LAN UPnP fallback.
     - `add_task(text)`, `list_tasks()`, `complete_task(task_id)`: Local persistent JSON tasks and reminders.
     - `create_calendar_event(title, date_time)`: In-memory/persistent calendar with Android CalendarContract Intent dispatch.
     - `execute_slave_command(command, target)`: Remote system automation on slave nodes.

@@ -21,6 +21,7 @@ Chi digita in questa console ha accesso fisico o via SSH alla macchina Master (T
 | **Modalità Sicurezza** | `/mode`, `/modalita`, `/security`, `/sicurezza` | `/mode friendly` (o `amichevole`)<br>`/mode restrict` (o `restrittiva`)<br>`/mode paranoid` (o `paranoica`) |
 | **Muto / Ascolto** | `/mute`, `/muto` / `/unmute`, `/smuta` | `/mute` *(disattiva microfoni)*<br>`/unmute` *(riattiva microfoni)* |
 | **Telemetria Visore** | `/telem`, `/telemetry`, `/telemetria` | `/telem server`<br>`/telem slave`<br>`/telem kiosk`<br>`/telem off` |
+| **Spotify & Speaker** | `/spotify`, `/music`, `/musica` | `/spotify status`<br>`/spotify devices`<br>`/spotify now`<br>`/spotify play Queen --on sonos`<br>`/spotify transfer salotto`<br>`/spotify pause` / `next` / `prev` / `restart`<br>`/spotify loop [track\|context\|off\|toggle]`<br>`/spotify vol 40 sonos` |
 | **Client Audio** | `/audio` | `/audio status` *(mostra sorgente PCM attiva)*<br>`/audio kick` *(disconnette client audio)* |
 | **Stato Sistema** | `/status`, `/info`, `/stato` | `/status` *(ispezione runtime e nodi connessi)* |
 | **Stop Voce** | `/stop`, `/halt`, `/zitto`, `/taci` | `/stop` *(interrompe l'altoparlante all'istante)* |

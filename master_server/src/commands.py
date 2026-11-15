@@ -17,6 +17,7 @@ import requests
 from telemetry_utils import collect_system_telemetry
 from task_manager import task_manager
 from tts_engine import detect_language
+from spotify_controller import spotify_controller
 
 logger = logging.getLogger("AXL-Commands")
 
@@ -201,41 +202,212 @@ def get_system_status() -> str:
     return f"A-X-L Status: Operational. Host timestamp: {now_str}. Master server active."
 
 
-def media_control(action: str, target: str = "local") -> str:
+def media_control(
+    action: str,
+    target: str = "",
+    volume: Optional[int] = None,
+    repeat_mode: str = "",
+) -> str:
     """
-    Controls media playback or system audio volume.
-    
+    Controls music/media playback or speaker volume across Spotify Connect, Sonos Wi-Fi speakers, or Android Kiosk.
+
     Args:
-        action: Requested action: 'play', 'pause', 'stop', 'next', 'previous', 'volume_up', 'volume_down', 'mute'.
-        target: Target playback device ('local', 'fedora', 'android').
+        action: Requested action: 'play', 'resume', 'pause', 'stop', 'next', 'previous', 'restart', 'loop', 'repeat', 'loop_track', 'loop_context', 'loop_off', 'volume_up', 'volume_down', 'set_volume', 'mute', 'transfer'.
+        target: Target playback device or speaker room name (e.g. 'sonos', 'salotto', 'sala', 'kiosk', 'pc', or empty for active device).
+        volume: Optional volume percentage (0-100) when action is 'set_volume'.
+        repeat_mode: Optional repeat/loop mode when action is 'loop' or 'repeat': 'track' (loop current song), 'context' (loop playlist/album), 'off' (disable loop), or 'toggle' (cycle like Spotify's repeat button).
     """
-    logger.info(f"[COMMAND: media_control] Action: '{action}' | Target: '{target}'")
+    logger.info(
+        f"[COMMAND: media_control] Action: '{action}' | Target: '{target}' | Volume: {volume} | Repeat: '{repeat_mode}'"
+    )
+    act = str(action or "").lower().strip()
+    clean_target = str(target or "").strip()
+    clean_repeat = str(repeat_mode or "").strip()
+
+    if act == "transfer" and clean_target:
+        if spotify_controller.is_configured() and spotify_controller.is_authenticated():
+            try:
+                res = spotify_controller.transfer_playback(clean_target, play=True)
+                notify_telemetry({
+                    "type": "MUSIC_STATE",
+                    "action": "transfer",
+                    "ok": res.get("ok", False),
+                    "device_name": res.get("device_name", clean_target),
+                })
+                return res["message"]
+            except Exception as exc:
+                logger.warning(f"[media_control] Spotify transfer failed: {exc}")
+
+    if spotify_controller.is_configured() and spotify_controller.is_authenticated():
+        try:
+            res = spotify_controller.control_playback(
+                action=act,
+                target=clean_target or None,
+                volume=volume,
+                repeat_mode=clean_repeat or None,
+            )
+            if res.get("ok"):
+                event_payload: Dict[str, Any] = {
+                    "type": "MUSIC_STATE",
+                    "action": act,
+                    "ok": True,
+                    "device_name": res.get("device_name", clean_target),
+                }
+                if "repeat_state" in res:
+                    event_payload["repeat_state"] = res["repeat_state"]
+                notify_telemetry(event_payload)
+                return res["message"]
+        except Exception as exc:
+            logger.warning(f"[media_control] Spotify Connect control error: {exc}")
+
+    # Fallback: try direct local Sonos UPnP control if target mentions Sonos/room
+    sonos_list = spotify_controller.discover_sonos_speakers()
+    norm_t = spotify_controller._normalize_target_text(clean_target)
+    if sonos_list and (not norm_t or "sonos" in norm_t or any(norm_t in (s.get("room_name", "").lower()) for s in sonos_list)):
+        norm_rep = spotify_controller._normalize_repeat_mode(clean_repeat) if clean_repeat else None
+        if spotify_controller._try_sonos_upnp_fallback(norm_t, sonos_list, act, volume=volume, repeat_mode=norm_rep):
+            return f"Comando '{act}' eseguito direttamente su Sonos via rete locale."
+
+    # Fallback: dispatch Android Kiosk media/volume intent
+    if act == "set_volume" and volume is not None:
+        notify_telemetry({
+            "type": "INTENT",
+            "action": "set_volume",
+            "volume": int(volume),
+        })
+        return f"Volume Kiosk impostato al {int(volume)}%."
+
     notify_telemetry({
         "type": "INTENT",
         "action": "media_control",
-        "command": action,
-        "target": target,
+        "command": act,
+        "target": clean_target or "local",
     })
-    return f"Media command '{action}' dispatched to target '{target}'."
+    return f"Comando multimediale '{act}' inviato a '{clean_target or 'local'}'."
 
 
-def play_music(query: str, target: str = "kiosk") -> str:
+def play_music(query: str = "", target: str = "") -> str:
     """
-    Searches and plays music, artists, albums, or playlists on Spotify.
-    Invoke this tool whenever the user asks to play music, a song, an artist, or a playlist.
-    
+    Searches and plays music, artists, albums, or playlists on Spotify across Wi-Fi speakers (e.g. Sonos),
+    Bluetooth speakers, PC, or Android Kiosk. Also transfers active playback if query is empty and target is given.
+
     Args:
-        query: Song name, artist, album, genre, or playlist (e.g. 'Queen Bohemian Rhapsody', 'Lazza 100 Messaggi', 'musica rilassante').
-        target: Target playback device ('kiosk' for Galaxy A33 smartphone, 'slave' for remote PC). Default is 'kiosk'.
+        query: Song name, artist, album, genre, or playlist (e.g. 'Queen Bohemian Rhapsody', 'Lazza', 'playlist jazz'). Leave empty when just transferring current music to another speaker.
+        target: Target speaker or device name spoken by the user (e.g. 'sonos', 'salotto', 'sala', 'kiosk', 'telefono', 'pc', 'bluetooth'). Leave empty for active/default device.
     """
-    logger.info(f"[COMMAND: play_music] Query: '{query}' | Target: '{target}'")
-    notify_telemetry({
-        "type": "INTENT",
-        "action": "open_spotify",
-        "query": query,
-        "target": target,
-    })
-    return f"Ho avviato la ricerca musicale di '{query}' su Spotify per {target}."
+    clean_query = str(query or "").strip()
+    clean_target = str(target or "").strip()
+    logger.info(f"[COMMAND: play_music] Query: '{clean_query}' | Target: '{clean_target}'")
+
+    # Check if Spotify Web API is configured and linked
+    if not spotify_controller.is_configured():
+        if clean_target.lower() in ("", "kiosk", "android", "telefono", "cellulare", "a33"):
+            notify_telemetry({
+                "type": "INTENT",
+                "action": "open_spotify",
+                "query": clean_query,
+                "target": "kiosk",
+            })
+            return (
+                "Le credenziali Spotify Web API non sono ancora configurate in .env, "
+                "quindi ho aperto la ricerca Spotify direttamente sul Kiosk."
+            )
+        return (
+            "Per avviare musica su speaker Wi-Fi come Sonos, configura SPOTIFY_CLIENT_ID e SPOTIFY_CLIENT_SECRET "
+            "nel file master_server/.env e autorizza l'account su /spotify/login."
+        )
+
+    if not spotify_controller.is_authenticated():
+        return (
+            "Spotify è configurato ma non ancora collegato: apri http://127.0.0.1:8000/spotify/login "
+            "sul PC Master per autorizzare il tuo account."
+        )
+
+    try:
+        if not clean_query and clean_target:
+            res = spotify_controller.transfer_playback(clean_target, play=True)
+        else:
+            res = spotify_controller.play_on_device(
+                query=clean_query,
+                target=clean_target or None,
+                dispatch_kiosk_intent=notify_telemetry,
+            )
+
+        if res.get("ok"):
+            item = res.get("item") or {}
+            notify_telemetry({
+                "type": "MUSIC_STATE",
+                "action": "play",
+                "ok": True,
+                "device_name": res.get("device_name", clean_target),
+                "track": item.get("name", clean_query),
+                "artist": item.get("subtitle", ""),
+                "kind": item.get("kind", "track"),
+            })
+        return res.get("message", "Comando Spotify eseguito.")
+    except Exception as exc:
+        logger.error(f"[COMMAND: play_music] Error: {exc}", exc_info=True)
+        return f"Errore durante l'esecuzione su Spotify: {exc}"
+
+
+def list_music_devices() -> str:
+    """
+    Lists all available music playback devices and speakers (Spotify Connect Wi-Fi speakers,
+    discovered Sonos rooms on LAN, PC, Android Kiosk, and Bluetooth audio outputs connected to the Kiosk).
+    """
+    logger.info("[COMMAND: list_music_devices] Querying Spotify Connect & Sonos LAN speakers...")
+    info = spotify_controller.list_available_speakers()
+    parts: List[str] = []
+
+    sp_devs = info.get("spotify_devices", [])
+    if sp_devs:
+        dev_strs = []
+        for d in sp_devs:
+            active_tag = " [ATTIVO]" if d.get("is_active") else ""
+            dev_strs.append(f"{d.get('name')} ({d.get('type')}){active_tag}")
+        parts.append("Dispositivi Spotify Connect: " + ", ".join(dev_strs))
+    elif info.get("spotify_error"):
+        parts.append(f"Spotify Connect: {info['spotify_error']}")
+    else:
+        parts.append("Dispositivi Spotify Connect: nessuno attivo (apri Spotify su un dispositivo o avvia un brano)")
+
+    sonos = info.get("sonos_lan", [])
+    if sonos:
+        visible_sonos = [s for s in sonos if s.get("visible", True)] or sonos
+        sonos_strs = []
+        for s in visible_sonos:
+            grp = s.get("group_rooms") or []
+            grp_str = f" (gruppo: {' + '.join(grp)})" if len(grp) > 1 else ""
+            sonos_strs.append(f"{s.get('room_name')} [{s.get('model_name')}]{grp_str}")
+        parts.append("Speaker Sonos rilevati su Wi-Fi: " + ", ".join(sonos_strs))
+
+    kiosk_bt = info.get("kiosk_audio_outputs", [])
+    if kiosk_bt:
+        bt_strs = [f"{o.get('name')} ({o.get('type')})" for o in kiosk_bt]
+        parts.append("Uscite audio Kiosk: " + ", ".join(bt_strs))
+
+    if not parts:
+        return "Nessuno speaker o dispositivo Spotify rilevato al momento sulla rete."
+    return " | ".join(parts)
+
+
+def get_now_playing() -> str:
+    """
+    Returns the track currently playing on Spotify and which speaker/device it is playing on.
+    """
+    logger.info("[COMMAND: get_now_playing] Querying active Spotify playback...")
+    if not spotify_controller.is_configured() or not spotify_controller.is_authenticated():
+        return "Spotify Web API non è ancora collegato."
+    try:
+        pb = spotify_controller.get_current_playback()
+        if not pb.get("track"):
+            return pb.get("message", "Nessun brano in riproduzione su Spotify.")
+        state_str = "In riproduzione" if pb.get("playing") else "In pausa"
+        artists = f" di {pb['artists']}" if pb.get("artists") else ""
+        dev = f" su {pb['device_name']}" if pb.get("device_name") else ""
+        return f"{state_str}: '{pb['track']}'{artists}{dev}."
+    except Exception as exc:
+        return f"Errore nel recupero della riproduzione attuale: {exc}"
 
 
 def add_task(text: str) -> str:
@@ -1708,6 +1880,8 @@ REGISTERED_TOOLS: List[Callable[..., Any]] = [
     toggle_telemetry_hud,
     media_control,
     play_music,
+    list_music_devices,
+    get_now_playing,
     execute_slave_command,
     set_security_mode,
     set_mute_mode,
