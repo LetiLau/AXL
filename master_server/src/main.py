@@ -1,9 +1,13 @@
 import asyncio
+import errno
 import json
 import logging
 import math
 import os
 import random
+import shutil
+import socket
+import subprocess
 import time
 import wave
 from contextlib import asynccontextmanager
@@ -1655,11 +1659,51 @@ async def root():
     return RedirectResponse(url="/ui/")
 
 
+def _is_port_available(port: int) -> bool:
+    """Checks if TCP port on 0.0.0.0 can be bound."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("0.0.0.0", port))
+            return True
+        except OSError as exc:
+            if exc.errno == errno.EADDRINUSE:
+                return False
+            raise
+
+
+def _ensure_port_free(port: int = 8000) -> None:
+    """Releases a stale process holding the server port before starting uvicorn."""
+    if _is_port_available(port):
+        return
+
+    logger.warning(f"[STARTUP] Port {port} is already in use. Terminating stale process...")
+    fuser_bin = shutil.which("fuser")
+    if fuser_bin:
+        subprocess.run([fuser_bin, "-k", f"{port}/tcp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        current_pid = os.getpid()
+        for conn in psutil.net_connections(kind="inet"):
+            if conn.laddr and conn.laddr.port == port and conn.pid and conn.pid != current_pid:
+                try:
+                    psutil.Process(conn.pid).kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+    for _ in range(10):
+        if _is_port_available(port):
+            logger.info(f"[STARTUP] Port {port} released successfully.")
+            return
+        time.sleep(0.15)
+
+
 if __name__ == "__main__":
+    _ensure_port_free(8000)
     uvicorn.run(
-        "main:app", 
-        host="0.0.0.0", 
-        port=8000, 
-        reload=False, 
-        workers=1
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+        workers=1,
+        timeout_graceful_shutdown=3,
     )

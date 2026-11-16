@@ -4,9 +4,11 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
@@ -19,6 +21,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -280,12 +283,19 @@ class MainActivity : AppCompatActivity() {
     private fun showIpConfigDialog() {
         val currentHost = KioskConfig.getHost(this)
         val currentPort = KioskConfig.getPort(this)
+        val currentName = KioskConfig.findSavedHostName(this, currentHost, currentPort) ?: ""
 
+        val scrollView = ScrollView(this)
         val inputLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(50, 20, 50, 10)
         }
+        scrollView.addView(inputLayout)
 
+        val etName = EditText(this).apply {
+            hint = "Nome profilo (opzionale, es. Casa, Hotspot)"
+            setText(currentName)
+        }
         val etHost = EditText(this).apply {
             hint = "Indirizzo IP Master (es. 192.168.1.100)"
             setText(currentHost)
@@ -296,18 +306,101 @@ class MainActivity : AppCompatActivity() {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
         }
 
+        val savedSectionLabel = TextView(this).apply {
+            text = "Host salvati (tocca per compilare):"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 12)
+        }
+        val savedHostsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, 16)
+        }
+
+        fun renderSavedHosts() {
+            savedHostsContainer.removeAllViews()
+            val savedHosts = KioskConfig.getSavedHosts(this)
+            val hasHosts = savedHosts.isNotEmpty()
+            savedSectionLabel.visibility = if (hasHosts) View.VISIBLE else View.GONE
+            savedHostsContainer.visibility = if (hasHosts) View.VISIBLE else View.GONE
+
+            for (saved in savedHosts) {
+                val isActive = saved.host == currentHost && saved.port == currentPort
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(16, 10, 8, 10)
+                    setBackgroundColor(
+                        if (isActive) Color.argb(35, 0, 210, 255) else Color.argb(18, 128, 128, 128)
+                    )
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        bottomMargin = 10
+                    }
+                }
+
+                val tvEntry = TextView(this).apply {
+                    val prefix = if (isActive) "✓ " else ""
+                    text = "$prefix${saved.name}  •  ${saved.host}:${saved.port}"
+                    textSize = 14f
+                    if (isActive) setTypeface(null, Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1f
+                    )
+                    setOnClickListener {
+                        etName.setText(saved.name)
+                        etHost.setText(saved.host)
+                        etPort.setText(saved.port.toString())
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Selezionato: ${saved.name}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+
+                val btnDelete = TextView(this).apply {
+                    text = "✕"
+                    textSize = 16f
+                    setTextColor(Color.parseColor("#FF5252"))
+                    setPadding(24, 8, 16, 8)
+                    setOnClickListener {
+                        KioskConfig.deleteSavedHost(this@MainActivity, saved.host, saved.port)
+                        renderSavedHosts()
+                    }
+                }
+
+                row.addView(tvEntry)
+                row.addView(btnDelete)
+                savedHostsContainer.addView(row)
+            }
+        }
+
+        renderSavedHosts()
+
+        inputLayout.addView(savedSectionLabel)
+        inputLayout.addView(savedHostsContainer)
+        inputLayout.addView(etName)
         inputLayout.addView(etHost)
         inputLayout.addView(etPort)
 
         AlertDialog.Builder(this)
             .setTitle("Configura Master Server")
             .setMessage("Inserisci l'indirizzo IP del PC su cui gira il Master di A-X-L:")
-            .setView(inputLayout)
+            .setView(scrollView)
             .setPositiveButton("Salva e Connetti") { _, _ ->
+                val newName = etName.text.toString().trim()
                 val newHost = etHost.text.toString().trim()
                 val newPort = etPort.text.toString().toIntOrNull() ?: 8000
                 if (newHost.isNotBlank()) {
                     KioskConfig.saveServerAddress(this, newHost, newPort)
+                    if (newName.isNotBlank()) {
+                        KioskConfig.saveHostProfile(this, newName, newHost, newPort)
+                    }
                     Toast.makeText(this, "IP impostato: $newHost:$newPort", Toast.LENGTH_SHORT).show()
                     loadVisorUi()
                     reconnectAudioService()
