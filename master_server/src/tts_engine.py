@@ -9,6 +9,8 @@ All audio is streamed incrementally in real-time as uniform 16kHz 16-bit Mono PC
 """
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import re
@@ -133,13 +135,17 @@ class PiperTTSEngine:
     def __init__(self, models_dir: Path, sfx_dir: Optional[Path] = None):
         self.models_dir = models_dir
         self.sfx_dir = sfx_dir or (models_dir.parent / "assets" / "sfx")
+        self.static_cache_dir = models_dir.parent / "assets" / "tts_cache"
+        self.runtime_cache_dir = models_dir.parent / "data" / "tts_cache"
         self.voices: Dict[str, PiperVoice] = {}
         self.pocket_model = None
         self.pocket_state = None
         self.sfx_cache: Dict[str, bytes] = {}
+        self.voice_cache: Dict[str, bytes] = {}
         self.sample_rate = 16000
         self._load_local_voices()
         self._load_sfx()
+        self._load_voice_cache()
 
     def _load_sfx(self):
         """Pre-loads 16kHz PCM16 Mono sound effects from assets/sfx/ into memory."""
@@ -340,7 +346,7 @@ class PiperTTSEngine:
 
     async def _synthesize_edge_tts(self, text: str, voice_name: str = "it-IT-DiegoNeural") -> Optional[bytes]:
         """
-        Optional cloud synthesis via Microsoft Edge neural TTS (used only by /sayDiego and /askDiego).
+        Cloud synthesis via Microsoft Edge neural TTS (primary Italian voice).
         Converts MP3 output to 16kHz PCM16 Mono via ffmpeg.
         """
         if not HAS_EDGE_TTS or edge_tts is None:
@@ -409,6 +415,68 @@ class PiperTTSEngine:
 
         return raw_pcm
 
+    @staticmethod
+    def _cache_key(clean_text: str, target_lang: str) -> str:
+        """Stable hash key for pre-generated and runtime cached TTS segments."""
+        return hashlib.sha256(f"{target_lang}:{clean_text}".encode("utf-8")).hexdigest()[:16]
+
+    def _load_voice_cache(self):
+        """Pre-loads 16kHz PCM16 Mono cached phrases from assets/tts_cache and data/tts_cache."""
+        loaded = 0
+
+        # 1. Static pre-generated cache (human-readable filenames mapped via manifest.json)
+        manifest_path = self.static_cache_dir / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                for filename, meta in manifest.items():
+                    if len(self.voice_cache) >= 300:
+                        break
+                    text = meta["text"] if isinstance(meta, dict) else str(meta)
+                    lang = meta.get("lang", "it") if isinstance(meta, dict) else "it"
+                    wav_path = self.static_cache_dir / filename
+                    if not wav_path.exists():
+                        continue
+                    with wave.open(str(wav_path), "rb") as wf:
+                        if wf.getnchannels() == 1 and wf.getsampwidth() == 2 and wf.getframerate() == 16000:
+                            key = self._cache_key(text, lang)
+                            self.voice_cache[key] = wf.readframes(wf.getnframes())
+                            loaded += 1
+            except Exception as exc:
+                logger.warning(f"Failed to load static TTS manifest {manifest_path}: {exc}")
+
+        # 2. Runtime disk cache (hash-named WAVs)
+        if self.runtime_cache_dir.exists():
+            for wav_path in self.runtime_cache_dir.glob("*.wav"):
+                if len(self.voice_cache) >= 300:
+                    break
+                try:
+                    with wave.open(str(wav_path), "rb") as wf:
+                        if wf.getnchannels() == 1 and wf.getsampwidth() == 2 and wf.getframerate() == 16000:
+                            self.voice_cache[wav_path.stem] = wf.readframes(wf.getnframes())
+                            loaded += 1
+                except Exception as exc:
+                    logger.warning(f"Failed to load cached TTS asset {wav_path}: {exc}")
+
+        if loaded:
+            logger.info(f"Loaded {loaded} cached TTS phrase(s) into RAM.")
+
+    def _save_runtime_cache(self, key: str, pcm: bytes):
+        """Persists a synthesized 16kHz PCM16 Mono phrase to data/tts_cache for instant reuse."""
+        if not pcm or len(self.voice_cache) >= 300:
+            return
+        self.voice_cache[key] = pcm
+        try:
+            self.runtime_cache_dir.mkdir(parents=True, exist_ok=True)
+            wav_path = self.runtime_cache_dir / f"{key}.wav"
+            with wave.open(str(wav_path), "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(16000)
+                wf.writeframes(pcm)
+        except Exception as exc:
+            logger.debug(f"Could not write runtime TTS cache {key}: {exc}")
+
     async def _synthesize_voice_segment(
         self,
         clean_text: str,
@@ -416,17 +484,26 @@ class PiperTTSEngine:
     ) -> bytes:
         """
         Synthesizes a single text segment:
+        - First checks in-memory/disk cache (pre-generated static phrases + runtime cache).
         - Italian: Diego Neural (Edge-TTS) primary, with automatic fallback to local Pocket TTS (giovanni).
         - English: Local Piper ONNX (Bryce), with Edge-TTS fallback if missing.
         """
         if not clean_text:
             return b""
 
+        cache_key = self._cache_key(clean_text, target_lang)
+        cached = self.voice_cache.get(cache_key)
+        if cached:
+            return cached
+
         if target_lang == "it":
             speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name="it-IT-DiegoNeural")
-            if not speech_pcm:
-                logger.info("[TTS FALLBACK] Diego unavailable; synthesizing Italian via local Pocket TTS (giovanni)...")
-                speech_pcm = await asyncio.to_thread(self._synthesize_pocket_local, clean_text)
+            if speech_pcm:
+                if len(clean_text) <= 220:
+                    await asyncio.to_thread(self._save_runtime_cache, cache_key, speech_pcm)
+                return speech_pcm
+            logger.info("[TTS FALLBACK] Diego unavailable; synthesizing Italian via local Pocket TTS (giovanni)...")
+            speech_pcm = await asyncio.to_thread(self._synthesize_pocket_local, clean_text)
             return speech_pcm or b""
         else:
             if "en" in self.voices:

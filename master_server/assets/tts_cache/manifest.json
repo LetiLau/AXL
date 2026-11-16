@@ -1,0 +1,118 @@
+{
+  "unmute_denied_full.wav": {
+    "lang": "it",
+    "text": "Accesso negato. Solo persone autorizzate possono riattivare il microfono."
+  },
+  "access_denied.wav": {
+    "lang": "it",
+    "text": "Accesso negato."
+  },
+  "unmute_denied_reason.wav": {
+    "lang": "it",
+    "text": "Solo persone autorizzate possono riattivare il microfono."
+  },
+  "unmute_confirmed_full.wav": {
+    "lang": "it",
+    "text": "Ricevuto, microfoni riattivati. Sono di nuovo in ascolto."
+  },
+  "unmute_confirmed.wav": {
+    "lang": "it",
+    "text": "Ricevuto, microfoni riattivati."
+  },
+  "listening_again.wav": {
+    "lang": "it",
+    "text": "Sono di nuovo in ascolto."
+  },
+  "mute_denied_full.wav": {
+    "lang": "it",
+    "text": "Accesso negato. Solo persone autorizzate possono disattivare il microfono."
+  },
+  "mute_denied_reason.wav": {
+    "lang": "it",
+    "text": "Solo persone autorizzate possono disattivare il microfono."
+  },
+  "mute_confirmed_full.wav": {
+    "lang": "it",
+    "text": "Ricevuto, vado in muto. Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
+  },
+  "mute_confirmed.wav": {
+    "lang": "it",
+    "text": "Ricevuto, vado in muto."
+  },
+  "mute_visor_reminder.wav": {
+    "lang": "it",
+    "text": "Ricordati che puoi riattivarmi solo premendo il pulsante sul visore."
+  },
+  "security_mode_friendly.wav": {
+    "lang": "it",
+    "text": "Modalità di sicurezza impostata su FRIENDLY."
+  },
+  "security_mode_restrict.wav": {
+    "lang": "it",
+    "text": "Modalità di sicurezza impostata su RESTRICT."
+  },
+  "security_mode_paranoid.wav": {
+    "lang": "it",
+    "text": "Modalità di sicurezza impostata su PARANOID."
+  },
+  "security_mode_denied_friendly_full.wav": {
+    "lang": "it",
+    "text": "Accesso negato. Non sei autorizzato a modificare il livello di sicurezza in modalità FRIENDLY."
+  },
+  "security_mode_denied_friendly_reason.wav": {
+    "lang": "it",
+    "text": "Non sei autorizzato a modificare il livello di sicurezza in modalità FRIENDLY."
+  },
+  "security_mode_denied_restrict_full.wav": {
+    "lang": "it",
+    "text": "Accesso negato. Non sei autorizzato a modificare il livello di sicurezza in modalità RESTRICT."
+  },
+  "security_mode_denied_restrict_reason.wav": {
+    "lang": "it",
+    "text": "Non sei autorizzato a modificare il livello di sicurezza in modalità RESTRICT."
+  },
+  "security_mode_denied_paranoid_full.wav": {
+    "lang": "it",
+    "text": "Accesso negato. Non sei autorizzato a modificare il livello di sicurezza in modalità PARANOID."
+  },
+  "security_mode_denied_paranoid_reason.wav": {
+    "lang": "it",
+    "text": "Non sei autorizzato a modificare il livello di sicurezza in modalità PARANOID."
+  },
+  "telemetry_closed.wav": {
+    "lang": "it",
+    "text": "Schermata telemetria chiusa."
+  },
+  "telemetry_server_shown.wav": {
+    "lang": "it",
+    "text": "Telemetria del server proiettata sul visore."
+  },
+  "telemetry_kiosk_shown.wav": {
+    "lang": "it",
+    "text": "Telemetria del kiosk proiettata sul visore."
+  },
+  "telemetry_slave_shown.wav": {
+    "lang": "it",
+    "text": "Telemetria del computer slave proiettata sul visore."
+  },
+  "voice_enroll_started_full.wav": {
+    "lang": "it",
+    "text": "Sessione di calibrazione vocale avviata per owner. Guarda il visore."
+  },
+  "voice_enroll_started.wav": {
+    "lang": "it",
+    "text": "Sessione di calibrazione vocale avviata per owner."
+  },
+  "look_at_visor.wav": {
+    "lang": "it",
+    "text": "Guarda il visore."
+  },
+  "voice_enroll_denied_full.wav": {
+    "lang": "it",
+    "text": "Accesso negato. Non puoi ricalibrare i profili vocali."
+  },
+  "voice_enroll_denied_reason.wav": {
+    "lang": "it",
+    "text": "Non puoi ricalibrare i profili vocali."
+  }
+}
