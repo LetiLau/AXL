@@ -1613,8 +1613,6 @@
                     ws.send(JSON.stringify({ type: "STOP_SPEECH" }));
                 }
                 setVisorState("IDLE", "STANDBY // PASSIVE SURVEILLANCE", "ACOUSTIC ARRAY: ACTIVE (16kHz PCM)");
-                if (userTranscript) userTranscript.textContent = "\"Hey A-X-L...\"";
-                if (axlReply) fitAxlReplyText("Pronto all'azione, capo. In ascolto sui sensori.");
                 targetMicLevel = 0.0;
                 currentMicLevel = 0.0;
                 return;

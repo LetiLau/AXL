@@ -19,10 +19,10 @@ google-genai>=0.1.1
 requests>=2.31.0
 cryptography>=42.0.0
 
-# Local-First & Optional Cloud Neural TTS Engines
-kokoro-onnx>=0.6.0
-piper-tts>=1.2.0
+# Hybrid Neural TTS Engines (Edge-TTS Diego + Local Pocket-TTS Giovanni fallback + Piper Bryce EN)
 edge-tts>=7.0.0
+piper-tts>=1.2.0
+pocket-tts>=4.0.0
 
 # Development & Mocking (Audio Loopback test)
 sounddevice>=0.4.6

@@ -742,7 +742,6 @@ class StreamManager:
         sec_mode: Optional[str] = None,
         sim_score: float = 1.0,
         lang: Optional[str] = None,
-        use_diego: bool = False,
     ) -> str:
         """
         Executes a user command string through the complete two-tiered cognitive pipeline:
@@ -946,18 +945,13 @@ class StreamManager:
         # 5. Neural Text-To-Speech Synthesis & Streaming via WebSocket
         if vocal_reply and self.tts and self.active_client and not self.stop_speech_requested:
             logger.info(f"[TTS STREAM] Synthesizing and streaming response to client [{lang.upper()}]...")
-            await self.speak_text(vocal_reply, lang=lang, use_diego=use_diego)
+            await self.speak_text(vocal_reply, lang=lang)
             if not self.stop_speech_requested:
                 logger.info("[TTS STREAM] Vocal response fully delivered.")
 
         return vocal_reply
 
-    async def speak_text(
-        self,
-        text: str,
-        lang: Optional[str] = None,
-        use_diego: bool = False,
-    ) -> bool:
+    async def speak_text(self, text: str, lang: Optional[str] = None) -> bool:
         """
         Synthesizes and streams a vocal response to the active client.
         Crucially maintains is_speaking = True and UI state = SPEAKING for the full
@@ -976,12 +970,7 @@ class StreamManager:
             playback_start_time: Optional[float] = None
             bytes_sent = 0
 
-            async for chunk in self.tts.synthesize_stream(
-                text,
-                chunk_size=chunk_size,
-                lang=lang,
-                use_diego=use_diego,
-            ):
+            async for chunk in self.tts.synthesize_stream(text, chunk_size=chunk_size, lang=lang):
                 if self.stop_speech_requested:
                     logger.info("[TTS STREAM] Speech transmission interrupted by user STOP.")
                     return False
@@ -1456,11 +1445,6 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         "state": "IDLE",
                         "label": "STANDBY // PASSIVE SURVEILLANCE",
                         "sub": "ACOUSTIC ARRAY: ACTIVE (16kHz PCM)",
-                    })
-                    await stream_manager.broadcast_ui({
-                        "type": "TRANSCRIPT",
-                        "user_text": "Hey A-X-L...",
-                        "axl_text": "Pronto all'azione, capo. In ascolto sui sensori.",
                     })
                 elif mtype == "ASK_START":
                     stream_manager.stop_speech_requested = False

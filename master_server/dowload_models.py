@@ -29,13 +29,6 @@ MODEL_TARGETS = {
     "en_US-bryce-medium.onnx.json": (
         "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/en_US-bryce-medium.onnx.json"
     ),
-    # 4. Italian Local Neural TTS (Kokoro-82M ONNX - im_nicola)
-    "kokoro-v1.0.int8.onnx": (
-        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx"
-    ),
-    "voices-v1.0.bin": (
-        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
-    ),
 }
 
 

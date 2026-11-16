@@ -1,14 +1,16 @@
 """
-A-X-L Local-First Neural TTS Engine.
-- Italian (default): 100% local Kokoro-82M ONNX (im_nicola) — natural human prosody on CPU.
+A-X-L Hybrid Neural TTS Engine.
+- Italian (Primary): Microsoft Edge Neural TTS (it-IT-DiegoNeural, +10% rate) with real-time
+  sentence-by-sentence streaming.
+- Italian (Offline Fallback): Local Pocket TTS (giovanni) on CPU if Diego fails or is offline.
 - English: 100% local Piper ONNX (Bryce - en_US-bryce-medium, Jarvis persona).
-- Optional Cloud Override (/sayDiego, /askDiego): Microsoft Edge Neural TTS (it-IT-DiegoNeural).
 - Authentic Canine SFX Pre-roll (Bark, Growl, Pant).
 All audio is streamed incrementally in real-time as uniform 16kHz 16-bit Mono PCM.
 """
 
 import asyncio
 import logging
+import os
 import re
 import subprocess
 import wave
@@ -20,11 +22,11 @@ from scipy import signal
 from piper.voice import PiperVoice, SynthesisConfig
 
 try:
-    from kokoro_onnx import Kokoro
-    HAS_KOKORO = True
+    from pocket_tts import TTSModel as PocketTTSModel
+    HAS_POCKET_TTS = True
 except ImportError:
-    Kokoro = None  # type: ignore[assignment,misc]
-    HAS_KOKORO = False
+    PocketTTSModel = None  # type: ignore[assignment,misc]
+    HAS_POCKET_TTS = False
 
 try:
     import edge_tts
@@ -104,10 +106,10 @@ def detect_language(text: str) -> str:
 
 class PiperTTSEngine:
     """
-    Local-first neural TTS engine delivering natural speech:
-    - Kokoro-82M ONNX (im_nicola) for Italian
-    - Piper ONNX (en_US-bryce-medium) for English
-    - Optional Edge-TTS (it-IT-DiegoNeural) for explicit /sayDiego & /askDiego commands
+    Hybrid neural TTS engine delivering natural speech:
+    - Diego (it-IT-DiegoNeural via Edge-TTS) as primary Italian voice, streamed per-sentence
+    - Pocket TTS (giovanni) as local CPU offline fallback for Italian
+    - Bryce (en_US-bryce-medium via Piper ONNX) for English
     - Authentic Canine SFX Pre-roll (Bark, Growl, Pant)
     """
 
@@ -132,7 +134,8 @@ class PiperTTSEngine:
         self.models_dir = models_dir
         self.sfx_dir = sfx_dir or (models_dir.parent / "assets" / "sfx")
         self.voices: Dict[str, PiperVoice] = {}
-        self.kokoro: Optional[Kokoro] = None
+        self.pocket_model = None
+        self.pocket_state = None
         self.sfx_cache: Dict[str, bytes] = {}
         self.sample_rate = 16000
         self._load_local_voices()
@@ -235,7 +238,7 @@ class PiperTTSEngine:
         return merged
 
     def _load_local_voices(self):
-        """Pre-loads local Kokoro (Italian) and Piper (English) ONNX models into memory."""
+        """Pre-loads local Piper (English) and Pocket TTS (Italian fallback) models into memory."""
         # 1. English: Bryce (Jarvis persona via Piper ONNX)
         bryce_path = self.models_dir / "en_US-bryce-medium.onnx"
         if bryce_path.exists():
@@ -248,23 +251,29 @@ class PiperTTSEngine:
         else:
             logger.warning(f"English Piper model not found at {bryce_path}")
 
-        # 2. Italian: Kokoro-82M ONNX (im_nicola)
-        kokoro_model = self.models_dir / "kokoro-v1.0.int8.onnx"
-        if not kokoro_model.exists():
-            kokoro_model = self.models_dir / "kokoro-v1.0.onnx"
-        kokoro_voices = self.models_dir / "voices-v1.0.bin"
-
-        if HAS_KOKORO and kokoro_model.exists() and kokoro_voices.exists():
-            logger.info(f"Loading Italian Kokoro ONNX model: {kokoro_model.name}")
+        # 2. Italian Offline Fallback: Pocket TTS (giovanni)
+        if HAS_POCKET_TTS and PocketTTSModel is not None:
+            logger.info("Loading Italian offline fallback model: Pocket TTS (giovanni)...")
             try:
-                self.kokoro = Kokoro(str(kokoro_model), str(kokoro_voices))
-                logger.info("Italian Kokoro voice (im_nicola) initialized.")
+                import huggingface_hub.constants as hf_constants
+                prev_hf_offline = hf_constants.HF_HUB_OFFLINE
+                hf_constants.HF_HUB_OFFLINE = True
+                try:
+                    self.pocket_model = PocketTTSModel.load_model(language="italian")
+                    self.pocket_state = self.pocket_model.get_state_for_audio_prompt("giovanni")
+                except Exception:
+                    hf_constants.HF_HUB_OFFLINE = prev_hf_offline
+                    self.pocket_model = PocketTTSModel.load_model(language="italian")
+                    self.pocket_state = self.pocket_model.get_state_for_audio_prompt("giovanni")
+                finally:
+                    hf_constants.HF_HUB_OFFLINE = prev_hf_offline
+                logger.info("Italian Pocket TTS fallback (giovanni) initialized.")
             except Exception as exc:
-                logger.error(f"Failed to load Kokoro ONNX model: {exc}", exc_info=True)
+                logger.warning(f"Failed to initialize Pocket TTS fallback: {exc}")
+                self.pocket_model = None
+                self.pocket_state = None
         else:
-            logger.warning(
-                f"Kokoro ONNX model/voices not found ({kokoro_model.name}, {kokoro_voices.name}) or kokoro_onnx missing."
-            )
+            logger.warning("pocket-tts package not installed; Italian offline fallback unavailable.")
 
     @staticmethod
     def _detect_language(text: str) -> str:
@@ -296,24 +305,29 @@ class PiperTTSEngine:
         parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", text) if p.strip()]
         return parts or ([text] if text else [])
 
-    def _synthesize_kokoro_local(self, text: str, voice_name: str = "im_nicola", lang: str = "it") -> bytes:
+    def _synthesize_pocket_local(self, text: str) -> bytes:
         """
-        Synchronous local synthesis via Kokoro-82M ONNX (24kHz float32 -> 16kHz PCM16 Mono).
+        Synchronous local synthesis via Pocket TTS (giovanni, 24kHz float32 -> 16kHz PCM16 Mono).
         """
-        if not self.kokoro:
-            logger.error("Kokoro ONNX model not loaded.")
+        if self.pocket_model is None or self.pocket_state is None:
+            logger.error("Pocket TTS fallback model not loaded.")
             return b""
 
         try:
-            samples, sr = self.kokoro.create(text, voice=voice_name, speed=1.0, lang=lang)
+            audio_tensor = self.pocket_model.generate_audio(
+                self.pocket_state,
+                text,
+                copy_state=True,
+            )
+            samples_f = audio_tensor.detach().cpu().numpy().astype(np.float32)
+            sr = getattr(self.pocket_model, "sample_rate", 24000)
         except Exception as exc:
-            logger.error(f"Kokoro synthesis error: {exc}", exc_info=True)
+            logger.error(f"Pocket TTS synthesis error: {exc}", exc_info=True)
             return b""
 
-        if samples is None or len(samples) == 0:
+        if samples_f.size == 0:
             return b""
 
-        samples_f = np.asarray(samples, dtype=np.float32)
         if sr == 24000:
             samples_16k = signal.resample_poly(samples_f, 2, 3)
         elif sr != 16000:
@@ -399,41 +413,36 @@ class PiperTTSEngine:
         self,
         clean_text: str,
         target_lang: str,
-        use_diego: bool = False,
     ) -> bytes:
         """
         Synthesizes a single text segment:
-        - If use_diego=True: uses Microsoft Edge Neural TTS (it-IT-DiegoNeural) with local fallback.
-        - Default (100% local): Kokoro ONNX (im_nicola) for Italian, Piper ONNX (Bryce) for English.
+        - Italian: Diego Neural (Edge-TTS) primary, with automatic fallback to local Pocket TTS (giovanni).
+        - English: Local Piper ONNX (Bryce), with Edge-TTS fallback if missing.
         """
         if not clean_text:
             return b""
 
-        if use_diego:
-            diego_voice = "it-IT-DiegoNeural" if target_lang == "it" else "en-US-ChristopherNeural"
-            speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name=diego_voice)
-            if speech_pcm:
-                return speech_pcm
-
-        if target_lang == "en":
-            return await asyncio.to_thread(self._synthesize_piper_local, clean_text, "en")
-
-        if self.kokoro is not None:
-            return await asyncio.to_thread(self._synthesize_kokoro_local, clean_text, "im_nicola", "it")
-
-        return await asyncio.to_thread(self._synthesize_piper_local, clean_text, "en")
+        if target_lang == "it":
+            speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name="it-IT-DiegoNeural")
+            if not speech_pcm:
+                logger.info("[TTS FALLBACK] Diego unavailable; synthesizing Italian via local Pocket TTS (giovanni)...")
+                speech_pcm = await asyncio.to_thread(self._synthesize_pocket_local, clean_text)
+            return speech_pcm or b""
+        else:
+            if "en" in self.voices:
+                return await asyncio.to_thread(self._synthesize_piper_local, clean_text, "en")
+            speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name="en-US-ChristopherNeural")
+            return speech_pcm or b""
 
     async def synthesize_bytes(
         self,
         text: str,
         lang: Optional[str] = None,
-        use_diego: bool = False,
     ) -> bytes:
         """
         Synthesizes complete 16kHz PCM16 Mono bytes for the given text.
         Extracts canine cues (*bark*, *growl*, *grrr-woof*) and sequences authentic audio SFX inline.
-        Uses Kokoro ONNX (im_nicola) for Italian and Piper ONNX (Bryce) for English,
-        or Diego Neural when use_diego=True.
+        Uses Diego Neural for Italian (with Pocket TTS Giovanni fallback) and Piper Bryce for English.
         """
         segments = self._parse_segments(text)
         if not segments:
@@ -456,7 +465,6 @@ class PiperTTSEngine:
                 self._synthesize_voice_segment(
                     self._normalize_text(segments[i][1]),
                     target_lang,
-                    use_diego=use_diego,
                 )
                 for i in text_indices
             )
@@ -493,7 +501,6 @@ class PiperTTSEngine:
         text: str,
         chunk_size: int = 1280,  # 1280 bytes = 640 samples = 40ms @ 16kHz
         lang: Optional[str] = None,
-        use_diego: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """
         Incrementally synthesizes and yields 16kHz PCM16 Mono chunks sentence-by-sentence
@@ -540,7 +547,7 @@ class PiperTTSEngine:
         for idx, (item_kind, payload) in enumerate(items):
             if item_kind == "tts":
                 pending_tasks[idx] = asyncio.create_task(
-                    self._synthesize_voice_segment(str(payload), target_lang, use_diego=use_diego)
+                    self._synthesize_voice_segment(str(payload), target_lang)
                 )
                 break
 
@@ -551,9 +558,7 @@ class PiperTTSEngine:
                 else:
                     task = pending_tasks.pop(idx, None)
                     if task is None:
-                        pcm_bytes = await self._synthesize_voice_segment(
-                            str(payload), target_lang, use_diego=use_diego
-                        )
+                        pcm_bytes = await self._synthesize_voice_segment(str(payload), target_lang)
                     else:
                         pcm_bytes = await task
 
@@ -561,9 +566,7 @@ class PiperTTSEngine:
                     for next_idx in range(idx + 1, len(items)):
                         if items[next_idx][0] == "tts" and next_idx not in pending_tasks:
                             pending_tasks[next_idx] = asyncio.create_task(
-                                self._synthesize_voice_segment(
-                                    str(items[next_idx][1]), target_lang, use_diego=use_diego
-                                )
+                                self._synthesize_voice_segment(str(items[next_idx][1]), target_lang)
                             )
                             break
 
