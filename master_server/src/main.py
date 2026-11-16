@@ -742,6 +742,7 @@ class StreamManager:
         sec_mode: Optional[str] = None,
         sim_score: float = 1.0,
         lang: Optional[str] = None,
+        use_diego: bool = False,
     ) -> str:
         """
         Executes a user command string through the complete two-tiered cognitive pipeline:
@@ -945,13 +946,18 @@ class StreamManager:
         # 5. Neural Text-To-Speech Synthesis & Streaming via WebSocket
         if vocal_reply and self.tts and self.active_client and not self.stop_speech_requested:
             logger.info(f"[TTS STREAM] Synthesizing and streaming response to client [{lang.upper()}]...")
-            await self.speak_text(vocal_reply, lang=lang)
+            await self.speak_text(vocal_reply, lang=lang, use_diego=use_diego)
             if not self.stop_speech_requested:
                 logger.info("[TTS STREAM] Vocal response fully delivered.")
 
         return vocal_reply
 
-    async def speak_text(self, text: str, lang: Optional[str] = None) -> bool:
+    async def speak_text(
+        self,
+        text: str,
+        lang: Optional[str] = None,
+        use_diego: bool = False,
+    ) -> bool:
         """
         Synthesizes and streams a vocal response to the active client.
         Crucially maintains is_speaking = True and UI state = SPEAKING for the full
@@ -966,23 +972,24 @@ class StreamManager:
             "label": "VOCAL TRANSMISSION // STREAMING PCM",
         })
         try:
-            pcm_bytes = await self.tts.synthesize_bytes(text, lang=lang)
-            if not pcm_bytes:
-                return False
-
-            total_duration_sec = len(pcm_bytes) / 32000.0
-            logger.info(f"[TTS STREAM] Total vocal response duration: {total_duration_sec:.2f}s ({len(pcm_bytes)} bytes)")
-
             chunk_size = 1280  # 40ms @ 16kHz 16-bit Mono
-            playback_start_time = time.monotonic()
+            playback_start_time: Optional[float] = None
             bytes_sent = 0
-            total_bytes = len(pcm_bytes)
 
-            for offset in range(0, total_bytes, chunk_size):
+            async for chunk in self.tts.synthesize_stream(
+                text,
+                chunk_size=chunk_size,
+                lang=lang,
+                use_diego=use_diego,
+            ):
                 if self.stop_speech_requested:
                     logger.info("[TTS STREAM] Speech transmission interrupted by user STOP.")
                     return False
-                chunk = pcm_bytes[offset : offset + chunk_size]
+                if not chunk:
+                    continue
+                if playback_start_time is None:
+                    playback_start_time = time.monotonic()
+
                 if self.active_client:
                     await self.active_client.send_bytes(chunk)
                 bytes_sent += len(chunk)
@@ -993,6 +1000,12 @@ class StreamManager:
                 lead_time = sent_audio_time - elapsed
                 if lead_time > 0.35:
                     await asyncio.sleep(lead_time - 0.20)
+
+            if bytes_sent == 0 or playback_start_time is None:
+                return False
+
+            total_duration_sec = bytes_sent / 32000.0
+            logger.info(f"[TTS STREAM] Total vocal response duration: {total_duration_sec:.2f}s ({bytes_sent} bytes)")
 
             # Audio chunks have been completely transmitted over the network.
             # Keep is_speaking = True until the physical speaker finishes playback!

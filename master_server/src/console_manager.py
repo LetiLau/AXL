@@ -106,10 +106,16 @@ class ConsoleManager:
             elif cmd_name in ["/speak", "/say", "/answer", "/parla", "/rispondi"]:
                 await self._handle_speak_command(args_str)
 
+            # 2b. SPEAK WITH DIEGO NEURAL (Explicit cloud Edge-TTS override)
+            elif cmd_name in ["/saydiego", "/speakdiego"]:
+                await self._handle_speak_command(args_str, use_diego=True)
+
             # 3. ASK A-X-L (Unified Two-Tier Processing: Fast Path -> Gemini Fallback)
-            elif cmd_name in ["/ask", "/query", "/q", "/chiedi", "/domanda"]:
+            elif cmd_name in ["/ask", "/query", "/q", "/chiedi", "/domanda", "/askdiego"]:
+                use_diego = cmd_name == "/askdiego"
                 if not args_str:
-                    print("[Console] Usage: /ask <query for A-X-L>")
+                    usage_cmd = "/askDiego" if use_diego else "/ask"
+                    print(f"[Console] Usage: {usage_cmd} <query for A-X-L>")
                     return
                 print(f"[Console -> A-X-L]: \"{args_str}\"")
                 sec_mode = self.stream_manager.verifier.security_mode if self.stream_manager.verifier else "friendly"
@@ -121,6 +127,7 @@ class ConsoleManager:
                     sec_mode=sec_mode,
                     sim_score=1.0,
                     lang=cmd_lang,
+                    use_diego=use_diego,
                 )
                 print(f"[A-X-L Reply]: {reply}")
 
@@ -238,9 +245,10 @@ class ConsoleManager:
         except Exception as exc:
             print(f"[Console Error]: {exc}")
 
-    async def _handle_speak_command(self, args_str: str):
+    async def _handle_speak_command(self, args_str: str, use_diego: bool = False):
         if not args_str:
-            print("[Console] Usage: /speak [--en|--it] <text to speak>")
+            usage_cmd = "/sayDiego" if use_diego else "/speak"
+            print(f"[Console] Usage: {usage_cmd} [--en|--it] <text to speak>")
             return
 
         lang_override = None
@@ -255,7 +263,10 @@ class ConsoleManager:
             text_to_speak = text_to_speak.split(maxsplit=1)[1]
 
         detected = lang_override or self.stream_manager.tts._detect_language(text_to_speak)
-        lang_label = "Italian (Diego)" if detected == "it" else "English (Bryce/Christopher)"
+        if use_diego:
+            lang_label = "Italian (Diego Neural)" if detected == "it" else "English (Christopher Neural)"
+        else:
+            lang_label = "Italian (Kokoro Nicola)" if detected == "it" else "English (Piper Bryce)"
         print(f"[Console] Vocalizing [{lang_label}]: \"{text_to_speak}\"...")
 
         await self.stream_manager.broadcast_ui({
@@ -263,7 +274,7 @@ class ConsoleManager:
             "user_text": "[Admin Console]",
             "axl_text": text_to_speak,
         })
-        success = await self.stream_manager.speak_text(text_to_speak, lang=lang_override)
+        success = await self.stream_manager.speak_text(text_to_speak, lang=lang_override, use_diego=use_diego)
         if success:
             print("[Console] Audio streamed successfully to client.")
         else:
@@ -573,8 +584,10 @@ class ConsoleManager:
     def _print_help(self):
         print("\n--- ADMIN CONSOLE COMMANDS (Minecraft-style) ---")
         print(" /speak <text>            : Synthesizes TTS and plays on audio client (/say, /answer, /parla)")
-        print("                            (Auto-detects Italian or English; use --en or --it to force)")
+        print("                            (Auto-detects Italian [Kokoro] or English [Piper Bryce]; use --en or --it)")
+        print(" /sayDiego <text>         : Synthesizes TTS using Diego Neural (Edge-TTS cloud)")
         print(" /ask <query>             : Queries Gemini Brain as Admin and speaks the answer (/q, /chiedi)")
+        print(" /askDiego <query>        : Queries Gemini Brain and speaks using Diego Neural")
         print(" /stranger_test [query]   : Simulates unauthorized stranger input in RESTRICT/PARANOID mode (/stranger)")
         print(" /tasks [add|list|done|rm]: Manages to-do task list (/tasks add buy milk, /tasks done 1)")
         print(" /calendar [add|list|rm]  : Manages events & dispatches Intent to Android/Google Calendar")

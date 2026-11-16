@@ -394,3 +394,9 @@ Spotify integra nativamente il protocollo **Spotify Connect**, accessibile via s
     - **Camuffamento UI:** Sullo schermo del Visore NON compare alcuna scritta o indicatore di sentinella/sorveglianza; la UI mostra semplicemente lo stato di **MIC MUTO** (icona microfono disattivato), simulando che A-X-L sia solo a riposo/disattivato.
     - **Zero Feedback Sonoro:** Nessun beep, abbaio o suono di scatto; silenzio radio totale.
     - **Disattivazione Protetta in Due Passaggi:** Poiché a schermo non c'è traccia della modalità segreta, per disattivarla l'Owner deve prima toccare manualmente il bottone "MIC" per riattivare l'ascolto, e poi pronunciare il comando vocale di disattivazione (confermato dalla verifica biometrica vocale dell'Owner).
+- [ ] **Nota Futura — Upgrade TTS Locale Alta Qualità (se `master_server` migrerà su PC con GPU NVIDIA):**
+  - Sul vecchio ThinkPad (sola CPU Haswell i5) i modelli neurali grandi sarebbero troppo lenti (diversi secondi a frase); se in futuro il progetto avrà vita longeva su una macchina con GPU dedicata, si potranno sostituire Kokoro/Piper con modelli locali di qualità pari a Diego Neural (con supporto anche a *voice cloning* da pochi secondi di audio):
+    - **Chatterbox Multilingual** (Resemble AI) — VRAM minima consigliata: ~4–6 GB (FP16).
+    - **Fish Speech / OpenAudio** — VRAM minima consigliata: ~4–6 GB (FP16 / quantizzato).
+    - **Coqui XTTS-v2** — VRAM minima consigliata: ~4 GB (FP16, ~2–3 GB in streaming leggero).
+    - **F5-TTS** (con checkpoint/fine-tuning italiano) — VRAM minima consigliata: ~4–6 GB.
