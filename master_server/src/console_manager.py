@@ -290,10 +290,8 @@ class ConsoleManager:
             "user_text": "[Admin Console]",
             "axl_text": text_to_speak,
         })
-        success = await self.stream_manager.speak_text(text_to_speak, lang=lang_override)
-        if success:
-            print("[Console] Audio streamed successfully to client.")
-        else:
+        success = await self.stream_manager.speak_text(text_to_speak, lang=detected)
+        if not success:
             print("[Console] Notice: No audio client connected or synthesis failed.")
 
     async def _handle_stranger_test_command(self, args_str: str):

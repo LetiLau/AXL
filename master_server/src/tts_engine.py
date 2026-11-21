@@ -77,10 +77,25 @@ IT_EXCLUSIVE_TOKENS = {
 }
 
 
-def detect_language(text: str) -> str:
+def get_default_language() -> str:
+    """
+    Returns the unified default language ('it' or 'en') configured via AXL_DEFAULT_LANGUAGE
+    (falling back to AXL_STT_LANGUAGE if set to 'it'/'en', else 'it').
+    """
+    raw = os.getenv("AXL_DEFAULT_LANGUAGE", "").strip().lower()
+    if raw in ("it", "en"):
+        return raw
+    stt_raw = os.getenv("AXL_STT_LANGUAGE", "").strip().lower()
+    if stt_raw in ("it", "en"):
+        return stt_raw
+    return "it"
+
+
+def detect_language(text: str, default_lang: Optional[str] = None) -> str:
     """Determines if the utterance is in English ('en') or Italian ('it')."""
+    fallback = default_lang if default_lang in ("it", "en") else get_default_language()
     if not text:
-        return "it"
+        return fallback
     cleaned = text.lower()
     cleaned = re.sub(r"\b(hey\s+)?(jarvis|axl)\b", "", cleaned).strip()
 
@@ -102,7 +117,7 @@ def detect_language(text: str) -> str:
         return "en"
     elif it_count > en_count:
         return "it"
-    return "en" if any(w in EN_EXCLUSIVE_TOKENS for w in words) else "it"
+    return "en" if any(w in EN_EXCLUSIVE_TOKENS for w in words) else fallback
 
 
 class PiperTTSEngine:
@@ -657,7 +672,7 @@ class PiperTTSEngine:
             if kind == "sfx":
                 pcm = self.sfx_cache.get(val)
                 if pcm:
-                    logger.info(f"[TTS SFX] Inserting canine audio SFX inline: '{val}' ({len(pcm)} bytes)")
+                    logger.debug(f"[TTS SFX] Inserting canine audio SFX inline: '{val}' ({len(pcm)} bytes)")
                     audio_sequence.append(pcm)
             elif kind == "text":
                 pcm = voice_map.get(i, b"")
@@ -690,7 +705,7 @@ class PiperTTSEngine:
 
         text_indices = [i for i, (kind, _) in enumerate(segments) if kind == "text"]
         full_text = " ".join(segments[i][1] for i in text_indices)
-        target_lang = lang or (self._detect_language(full_text) if full_text else "it")
+        target_lang = lang or (self._detect_language(full_text) if full_text else get_default_language())
 
         # Build ordered playback items: ('sfx', pcm) or ('tts', sentence_text)
         # Insert 100ms silence gap between segment transitions (e.g. SFX <-> speech)
@@ -704,7 +719,7 @@ class PiperTTSEngine:
                 if pcm:
                     if has_previous_segment:
                         items.append(("pcm", silence_gap))
-                    logger.info(f"[TTS SFX] Inserting canine audio SFX inline: '{val}' ({len(pcm)} bytes)")
+                    logger.debug(f"[TTS SFX] Inserting canine audio SFX inline: '{val}' ({len(pcm)} bytes)")
                     items.append(("pcm", pcm))
                     has_previous_segment = True
             elif kind == "text":

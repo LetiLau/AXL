@@ -66,6 +66,7 @@ logging.getLogger("google_genai").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("websockets").setLevel(logging.WARNING)
+logging.getLogger("faster_whisper").setLevel(logging.WARNING)
 
 THINKING_PHRASES_IT = [
     "*pant* Sto elaborando, dammi un secondo...",
@@ -114,6 +115,7 @@ class StreamManager:
         self._enrollment_task: Optional[asyncio.Task] = None
         self._active_command_task: Optional[asyncio.Task] = None
         self._active_brain_task: Optional[asyncio.Task] = None
+        self._command_generation: int = 0
         self.telemetry_active: bool = False
         self.telemetry_target: str = "fedora"
         self.last_kiosk_telemetry: Optional[dict] = None
@@ -125,6 +127,18 @@ class StreamManager:
         self._duck_state: Optional[dict] = None
         self._duck_safety_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+
+    def cancel_active_commands(self, reason: str = "superseded"):
+        """Cancels any in-flight command/brain tasks and invalidates stale turns."""
+        self._command_generation += 1
+        if self._active_brain_task and not self._active_brain_task.done():
+            self._active_brain_task.cancel()
+            self._active_brain_task = None
+            logger.debug(f"[TASK CANCEL] Cancelled previous brain task ({reason}).")
+        if self._active_command_task and not self._active_command_task.done():
+            self._active_command_task.cancel()
+            self._active_command_task = None
+            logger.debug(f"[TASK CANCEL] Cancelled previous command task ({reason}).")
 
     def initialize_pipeline(self):
         logger.info("Initializing neural DSP, wake-word, speaker verification, STT, Gemini brain, and Piper TTS...")
@@ -667,14 +681,15 @@ class StreamManager:
         Encapsulates PCM into in-memory WAV and evaluates speaker identity.
         """
         self.stop_speech_requested = False
+        my_gen = self._command_generation
         duration_sec = len(pcm_samples) / 16000.0
-        logger.info(
+        logger.debug(
             f"[UTTERANCE DISPATCH] Processing {len(pcm_samples)} samples ({duration_sec:.2f}s) | Trigger: {reason}"
         )
 
         # 1. Non-blocking In-Memory WAV packaging
         wav_bytes = pcm_to_wav_bytes(pcm_samples, sample_rate=16000)
-        logger.info(f"[WAV PACKAGING] In-memory WAV generated: {len(wav_bytes)} bytes (0 disk I/O)")
+        logger.debug(f"[WAV PACKAGING] In-memory WAV generated: {len(wav_bytes)} bytes (0 disk I/O)")
 
         # Save last captured utterance for easy acoustic debugging (ignored by git)
         try:
@@ -692,11 +707,11 @@ class StreamManager:
         sec_mode = self.verifier.security_mode if self.verifier else "friendly"
         if is_authorized:
             logger.info(
-                f">>> [AUTH GRANTED] Identity: {identity.upper()} | Score: {sim_score:.3f} | Mode: {sec_mode} <<<"
+                f">>> [AUTH GRANTED] Identity: {identity.upper()} | Score: {sim_score:.3f} | Mode: {sec_mode} | Audio: {duration_sec:.2f}s ({reason}) <<<"
             )
         else:
             logger.warning(
-                f">>> [AUTH REJECTED] Identity: {identity.upper()} | Score: {sim_score:.3f} | Mode: {sec_mode} <<<"
+                f">>> [AUTH REJECTED] Identity: {identity.upper()} | Score: {sim_score:.3f} | Mode: {sec_mode} | Audio: {duration_sec:.2f}s ({reason}) <<<"
             )
 
         # Set biometric authorization context for tool invocation (AFC)
@@ -720,8 +735,12 @@ class StreamManager:
         if self.stt:
             transcript = await self.stt.transcribe(pcm_samples)
 
+        if my_gen != self._command_generation or self.stop_speech_requested:
+            logger.debug("[COMMAND ABORT] Utterance dropped after STT (superseded or stopped).")
+            return
+
         if not transcript or not transcript.strip():
-            logger.info("[STT SILENCE] No audible speech detected in utterance.")
+            logger.debug("[STT SILENCE] No audible speech detected in utterance.")
             transcript = "[Suono/Rumore ambientale]"
             await self.broadcast_ui({
                 "type": "TRANSCRIPT",
@@ -729,7 +748,7 @@ class StreamManager:
                 "axl_text": "",
             })
         else:
-            logger.info(f">>> [USER HEARD]: \"{transcript}\" <<<")
+            logger.debug(f">>> [USER HEARD]: \"{transcript}\" <<<")
             await self.process_text_command(
                 transcript=transcript,
                 identity=identity,
@@ -756,6 +775,8 @@ class StreamManager:
         """
         if not transcript or not transcript.strip():
             return ""
+
+        my_gen = self._command_generation
 
         if lang is None:
             lang = detect_language(transcript)
@@ -816,13 +837,12 @@ class StreamManager:
             thinking_timeout = float(os.getenv("AXL_THINKING_TIMEOUT", "2.0"))
             done, _ = await asyncio.wait([brain_task], timeout=thinking_timeout)
 
-            if not done and not self.stop_speech_requested:
+            if not done and not self.stop_speech_requested and my_gen == self._command_generation:
                 # Processing exceeds timeout: emit witty canine thinking phrase in subtitles & voice
                 thinking_phrase = get_random_thinking_phrase(lang=lang)
                 logger.info(
                     f"[THINKING FEEDBACK] Query processing exceeded {thinking_timeout}s. Emitting filler ({lang.upper()}): '{thinking_phrase}'"
                 )
-                print(f"[A-X-L Thinking]: {thinking_phrase}")
 
                 # Broadcast subtitle update to Visor HUD
                 await self.broadcast_ui({
@@ -832,11 +852,11 @@ class StreamManager:
                 })
 
                 # Speak the thinking phrase aloud if active client is listening
-                if self.tts and self.active_client and not self.stop_speech_requested:
+                if self.tts and self.active_client and not self.stop_speech_requested and my_gen == self._command_generation:
                     await self.speak_text(thinking_phrase, lang=lang)
 
                 # If brain is still working after thinking phrase was spoken, maintain THINKING state on Visor
-                if not self.stop_speech_requested and not brain_task.done():
+                if not self.stop_speech_requested and my_gen == self._command_generation and not brain_task.done():
                     await self.broadcast_ui({
                         "type": "STATE_CHANGE",
                         "state": "THINKING",
@@ -846,13 +866,14 @@ class StreamManager:
             try:
                 result = await brain_task
             except asyncio.CancelledError:
-                logger.info("[COGNITIVE CORE] Brain query cancelled by user STOP.")
+                logger.info("[COGNITIVE CORE] Brain query cancelled.")
                 return ""
             finally:
-                self._active_brain_task = None
+                if self._active_brain_task is brain_task:
+                    self._active_brain_task = None
 
-            if self.stop_speech_requested:
-                logger.info("[COMMAND ABORT] Brain result dropped because user requested STOP.")
+            if self.stop_speech_requested or my_gen != self._command_generation:
+                logger.info("[COMMAND ABORT] Stale/aborted brain result dropped.")
                 return ""
 
             vocal_reply = ensure_dog_sound(result.get("text_response", ""))
@@ -948,10 +969,7 @@ class StreamManager:
 
         # 5. Neural Text-To-Speech Synthesis & Streaming via WebSocket
         if vocal_reply and self.tts and self.active_client and not self.stop_speech_requested:
-            logger.info(f"[TTS STREAM] Synthesizing and streaming response to client [{lang.upper()}]...")
             await self.speak_text(vocal_reply, lang=lang)
-            if not self.stop_speech_requested:
-                logger.info("[TTS STREAM] Vocal response fully delivered.")
 
         return vocal_reply
 
@@ -998,7 +1016,6 @@ class StreamManager:
                 return False
 
             total_duration_sec = bytes_sent / 32000.0
-            logger.info(f"[TTS STREAM] Total vocal response duration: {total_duration_sec:.2f}s ({bytes_sent} bytes)")
 
             # Audio chunks have been completely transmitted over the network.
             # Keep is_speaking = True until the physical speaker finishes playback!
@@ -1010,7 +1027,9 @@ class StreamManager:
                 await asyncio.sleep(min(0.1, remaining))
 
             if not self.stop_speech_requested:
-                logger.info(f"[TTS STREAM] Vocal response playback fully completed ({total_duration_sec:.2f}s).")
+                logger.info(
+                    f"[TTS STREAM] Delivered [{(lang or 'auto').upper()}] response ({total_duration_sec:.2f}s, {bytes_sent} bytes)."
+                )
             return not self.stop_speech_requested
         except Exception as exc:
             logger.error(f"[TTS STREAM ERROR] Failed sending audio: {exc}")
@@ -1305,8 +1324,9 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                         logger.debug(f"[PROBE] Model: {ev['model']} | Score: {ev['score']:.3f}")
 
                     elif ev_type == "WAKEWORD_TRIGGER":
+                        stream_manager.cancel_active_commands("wakeword_trigger")
                         logger.info(
-                            f"\n>>> [WAKEWORD ACTIVATED] Triggered! Model: {ev['model']} | Score: {ev['score']:.3f} <<<\n"
+                            f">>> [WAKEWORD ACTIVATED] Model: {ev['model']} | Score: {ev['score']:.3f} <<<"
                         )
                         await stream_manager.broadcast_ui({
                             "type": "STATE_CHANGE",
@@ -1315,6 +1335,7 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                         })
 
                     elif ev_type == "COMMAND_COMPLETE":
+                        stream_manager.cancel_active_commands("new_command")
                         num_samples = ev["total_samples"]
                         command_audio = stream_manager.audio_buffer.get_last_samples(num_samples)
 
@@ -1334,7 +1355,8 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                     elif ev_type == "SILENCE_RESET":
                         silence_time = ev.get("silence_sec", 0.0)
                         reason = ev.get("reason", "unknown")
-                        logger.info(
+                        log_fn = logger.debug if reason == "silence_eos" else logger.info
+                        log_fn(
                             f"[PIPELINE] Reset to IDLE | Silence: {silence_time:.2f}s | Reason: {reason}"
                         )
                         await stream_manager.broadcast_ui({
@@ -1430,12 +1452,7 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                     stream_manager.is_enrolling = False
                     if stream_manager._enrollment_task and not stream_manager._enrollment_task.done():
                         stream_manager._enrollment_task.cancel()
-                    if stream_manager._active_brain_task and not stream_manager._active_brain_task.done():
-                        stream_manager._active_brain_task.cancel()
-                        stream_manager._active_brain_task = None
-                    if stream_manager._active_command_task and not stream_manager._active_command_task.done():
-                        stream_manager._active_command_task.cancel()
-                        stream_manager._active_command_task = None
+                    stream_manager.cancel_active_commands("stop_button")
                     if stream_manager.pipeline:
                         stream_manager.pipeline.reset()
                     stream_manager.audio_buffer.clear()
@@ -1460,6 +1477,7 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                     elif not stream_manager.active_client or not stream_manager.pipeline:
                         logger.warning("[ASK BUTTON] Ignored: no audio source connected.")
                     elif stream_manager.pipeline.force_listen():
+                        stream_manager.cancel_active_commands("ask_button")
                         logger.info("[ASK BUTTON] Listening started without wake-word.")
                         await stream_manager.broadcast_ui({
                             "type": "STATE_CHANGE",

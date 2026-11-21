@@ -12,12 +12,14 @@ from typing import Optional, Union
 
 import numpy as np
 
+from tts_engine import get_default_language
+
 logger = logging.getLogger("AXL-STT")
 
 DEFAULT_MODEL_SIZE = os.getenv("AXL_STT_MODEL", "base")
 DEFAULT_DEVICE = os.getenv("AXL_STT_DEVICE", "cpu")
 DEFAULT_COMPUTE_TYPE = os.getenv("AXL_STT_COMPUTE_TYPE", "int8")
-DEFAULT_LANGUAGE = os.getenv("AXL_STT_LANGUAGE", "it")
+DEFAULT_LANGUAGE = os.getenv("AXL_STT_LANGUAGE", "").strip().lower() or get_default_language()
 DEFAULT_CPU_THREADS = int(os.getenv("AXL_STT_CPU_THREADS", "4"))
 INITIAL_PROMPT = (
     "A-X-L, Hey Jarvis, timer, sveglia, metti un timer di 5 minuti, "
@@ -101,12 +103,17 @@ class STTEngine:
             probs_map = dict(all_probs)
             it_prob = probs_map.get("it", 0.0)
             en_prob = probs_map.get("en", 0.0)
-            chosen = "en" if en_prob > it_prob else "it"
+            default_lang = get_default_language()
+            if it_prob == en_prob:
+                chosen = default_lang
+            else:
+                chosen = "en" if en_prob > it_prob else "it"
             logger.debug(f"[STT LANG] Auto-detected '{chosen}' (it={it_prob:.2f}, en={en_prob:.2f})")
             return chosen
         except Exception as exc:
-            logger.warning(f"[STT LANG] Language detection failed ({exc}), defaulting to 'it'.")
-            return "it"
+            default_lang = get_default_language()
+            logger.warning(f"[STT LANG] Language detection failed ({exc}), defaulting to '{default_lang}'.")
+            return default_lang
 
     def _transcribe_sync(self, audio_data: np.ndarray) -> str:
         """

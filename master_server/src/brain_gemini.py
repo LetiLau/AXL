@@ -3,6 +3,7 @@ A-X-L Cognitive Brain powered by Google Gemini API.
 Automatic Function Calling, Dynamic Model Routing, and Biometric Distrust Protocol.
 """
 
+import asyncio
 import datetime
 import logging
 import os
@@ -50,6 +51,8 @@ SMART_MODELS_SET = {
     "gemini-3.1-pro-preview",
 }
 MODEL_COOLDOWN_SECONDS = float(os.getenv("GEMINI_MODEL_COOLDOWN_SEC", "60"))
+FAST_REQUEST_TIMEOUT_SEC = float(os.getenv("GEMINI_FAST_TIMEOUT_SEC", "15"))
+SMART_REQUEST_TIMEOUT_SEC = float(os.getenv("GEMINI_SMART_TIMEOUT_SEC", "25"))
 
 # Compiled regex rules for zero-cost Easy vs Deep/Coding/Exam model escalation
 _FORCE_PRO_RE = re.compile(
@@ -239,7 +242,7 @@ class GeminiBrain:
     def _reset_chat_session(self, model: Optional[str] = None, thinking_level: Optional[str] = None):
         """Initializes or resets a stateful chat session."""
         self._current_model = model or self._manual_model_override or DEFAULT_FLASH_MODEL
-        logger.info(f"[AXL-Brain]: Cognitive Core ready | Active Model: {self._current_model}")
+        logger.debug(f"Cognitive Core ready | Active Model: {self._current_model}")
 
         config_kwargs: Dict[str, Any] = {
             "system_instruction": SYSTEM_PROMPT_TEMPLATE,
@@ -272,7 +275,7 @@ class GeminiBrain:
         self._manual_model_override = model_name or None
         target_model = self._manual_model_override or DEFAULT_FLASH_MODEL
         if target_model != self._current_model:
-            logger.info(f"[AXL-Brain]: Model switched dynamically to: {target_model}")
+            logger.info(f"Model switched dynamically to: {target_model}")
             self._reset_chat_session(model=target_model)
 
     async def process_text_query(
@@ -339,7 +342,7 @@ class GeminiBrain:
             lane = "smart" if routed_model in SMART_MODELS_SET and route_reason != "auto_routing_disabled" else "fast"
 
         logger.info(
-            f"[AXL-Brain]: Route -> Lane: {lane.upper()} | Model: {routed_model} | Thinking: {routed_level or 'default'} | Reason: {route_reason}"
+            f"Route -> Lane: {lane.upper()} | Model: {routed_model} | Thinking: {routed_level or 'default'} | Reason: {route_reason} | Query: '{user_text}'"
         )
 
         lane_fallbacks = SMART_LANE_FALLBACKS if lane == "smart" else FAST_LANE_FALLBACKS
@@ -358,12 +361,16 @@ class GeminiBrain:
             )
             last_error = RuntimeError(f"All models in {lane} lane are in cooldown due to rate/quota limits.")
 
-        for model_name in models_to_try:
+        req_timeout = SMART_REQUEST_TIMEOUT_SEC if lane == "smart" else FAST_REQUEST_TIMEOUT_SEC
+        for idx, model_name in enumerate(models_to_try):
             try:
                 cfg_level = routed_level if lane == "smart" else DEFAULT_THINKING_LEVEL
                 self._reset_chat_session(model=model_name, thinking_level=cfg_level)
-                logger.info(f"[AXL-Brain]: Text ingestion started | Model: {model_name} | Query: '{user_text}'")
-                response = await self.active_chat.send_message([text_part])
+                logger.debug(f"Text ingestion started | Model: {model_name} | Query: '{user_text}'")
+                response = await asyncio.wait_for(
+                    self.active_chat.send_message([text_part]),
+                    timeout=req_timeout,
+                )
 
                 raw_output = response.text.strip() if response.text else ""
                 logger.debug(f"[BRAIN RAW OUTPUT] Model: {model_name} | Raw: {raw_output}")
@@ -401,14 +408,26 @@ class GeminiBrain:
                     "is_stranger": is_stranger,
                     "model_used": model_name,
                 }
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError as exc:
+                last_error = exc
+                self._model_cooldowns[model_name] = time.monotonic() + MODEL_COOLDOWN_SECONDS
+                next_model = models_to_try[idx + 1] if idx + 1 < len(models_to_try) else None
+                next_msg = f"falling back to '{next_model}'." if next_model else f"no remaining models in '{lane}' lane."
+                logger.warning(
+                    f"[BRAIN TIMEOUT] '{model_name}' timed out after {req_timeout:.0f}s (cooldown {MODEL_COOLDOWN_SECONDS:.0f}s) -> {next_msg}"
+                )
+                continue
             except Exception as exc:
                 last_error = exc
                 err_str = str(exc)
                 if "429" in err_str or "503" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                     self._model_cooldowns[model_name] = time.monotonic() + MODEL_COOLDOWN_SECONDS
+                    next_model = models_to_try[idx + 1] if idx + 1 < len(models_to_try) else None
+                    next_msg = f"falling back to '{next_model}'." if next_model else f"no remaining models in '{lane}' lane."
                     logger.warning(
-                        f"[BRAIN FAILOVER] Model '{model_name}' hit quota/rate limit (429/503). "
-                        f"Cooldown {MODEL_COOLDOWN_SECONDS:.0f}s; trying next model in '{lane}' lane..."
+                        f"[BRAIN FAILOVER] '{model_name}' hit 429/503 (cooldown {MODEL_COOLDOWN_SECONDS:.0f}s) -> {next_msg}"
                     )
                     continue
                 else:
