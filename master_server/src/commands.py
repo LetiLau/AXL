@@ -1779,6 +1779,14 @@ def detect_clock_date_intent(text: str) -> Optional[str]:
     has_time = any(re.search(p, lower) for p in time_patterns)
     has_date = any(re.search(p, lower) for p in date_patterns)
 
+    # If the user asks for the time in a specific city/country (e.g. "in new york", "a tokyo"),
+    # delegate to Gemini instead of returning local system time.
+    if has_time and re.search(
+        r"\b(?:in|at|a|ad)\s+(?!the\s+moment\b|this\s+moment\b|casa\b|questo\s+momento\b|questo\s+istante\b)[a-zàèéìòù]{2,}",
+        lower,
+    ):
+        has_time = False
+
     if has_time and has_date:
         return "both"
     elif has_time:

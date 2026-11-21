@@ -1,20 +1,24 @@
 """
 A-X-L Hybrid Neural TTS Engine.
-- Italian (Primary): Microsoft Edge Neural TTS (it-IT-DiegoNeural, +10% rate) with real-time
-  sentence-by-sentence streaming.
-- Italian (Offline Fallback): Local Pocket TTS (giovanni) on CPU if Diego fails or is offline.
-- English: 100% local Piper ONNX (Bryce - en_US-bryce-medium, Jarvis persona).
+- Primary (Italian & English): Microsoft Edge Neural TTS (it-IT-DiegoNeural, +10% rate)
+  with real-time sentence-by-sentence streaming for consistent voice identity.
+- Italian Offline Fallback: Local Pocket TTS (giovanni) on CPU if Diego fails or is offline.
+- English Offline Fallback: Local Piper ONNX (Bryce - en_US-bryce-medium) if Diego fails or is offline.
 - Authentic Canine SFX Pre-roll (Bark, Growl, Pant).
 All audio is streamed incrementally in real-time as uniform 16kHz 16-bit Mono PCM.
 """
 
 import asyncio
+import gc
 import hashlib
+import importlib.util
 import json
 import logging
 import os
 import re
 import subprocess
+import threading
+import time
 import wave
 from pathlib import Path
 from typing import AsyncGenerator, Dict, List, Optional, Tuple
@@ -23,12 +27,7 @@ import numpy as np
 from scipy import signal
 from piper.voice import PiperVoice, SynthesisConfig
 
-try:
-    from pocket_tts import TTSModel as PocketTTSModel
-    HAS_POCKET_TTS = True
-except ImportError:
-    PocketTTSModel = None  # type: ignore[assignment,misc]
-    HAS_POCKET_TTS = False
+HAS_POCKET_TTS = importlib.util.find_spec("pocket_tts") is not None
 
 try:
     import edge_tts
@@ -109,9 +108,9 @@ def detect_language(text: str) -> str:
 class PiperTTSEngine:
     """
     Hybrid neural TTS engine delivering natural speech:
-    - Diego (it-IT-DiegoNeural via Edge-TTS) as primary Italian voice, streamed per-sentence
+    - Diego (it-IT-DiegoNeural via Edge-TTS) as primary voice for both Italian and English
     - Pocket TTS (giovanni) as local CPU offline fallback for Italian
-    - Bryce (en_US-bryce-medium via Piper ONNX) for English
+    - Bryce (en_US-bryce-medium via Piper ONNX) as local CPU offline fallback for English
     - Authentic Canine SFX Pre-roll (Bark, Growl, Pant)
     """
 
@@ -140,6 +139,10 @@ class PiperTTSEngine:
         self.voices: Dict[str, PiperVoice] = {}
         self.pocket_model = None
         self.pocket_state = None
+        self._pocket_lock = threading.Lock()
+        self._diego_success_streak = 0
+        self._last_pocket_used = 0.0
+        self._pocket_ttl_sec = 300.0
         self.sfx_cache: Dict[str, bytes] = {}
         self.voice_cache: Dict[str, bytes] = {}
         self.sample_rate = 16000
@@ -257,11 +260,25 @@ class PiperTTSEngine:
         else:
             logger.warning(f"English Piper model not found at {bryce_path}")
 
-        # 2. Italian Offline Fallback: Pocket TTS (giovanni)
-        if HAS_POCKET_TTS and PocketTTSModel is not None:
-            logger.info("Loading Italian offline fallback model: Pocket TTS (giovanni)...")
+        # 2. Italian Offline Fallback: Pocket TTS (giovanni) is lazy-loaded on demand
+        if not HAS_POCKET_TTS:
+            logger.warning("pocket-tts package not installed; Italian offline fallback unavailable.")
+
+    def _ensure_pocket_loaded(self) -> bool:
+        """Lazy-loads Pocket TTS (giovanni) on CPU only when offline fallback is actually needed."""
+        if not HAS_POCKET_TTS:
+            return False
+        if self.pocket_model is not None and self.pocket_state is not None:
+            return True
+
+        with self._pocket_lock:
+            if self.pocket_model is not None and self.pocket_state is not None:
+                return True
+            logger.info("[TTS FALLBACK] Lazy-loading Pocket TTS (giovanni) on CPU...")
             try:
+                from pocket_tts import TTSModel as PocketTTSModel
                 import huggingface_hub.constants as hf_constants
+
                 prev_hf_offline = hf_constants.HF_HUB_OFFLINE
                 hf_constants.HF_HUB_OFFLINE = True
                 try:
@@ -273,13 +290,28 @@ class PiperTTSEngine:
                     self.pocket_state = self.pocket_model.get_state_for_audio_prompt("giovanni")
                 finally:
                     hf_constants.HF_HUB_OFFLINE = prev_hf_offline
+                self._last_pocket_used = time.monotonic()
                 logger.info("Italian Pocket TTS fallback (giovanni) initialized.")
+                return True
             except Exception as exc:
                 logger.warning(f"Failed to initialize Pocket TTS fallback: {exc}")
                 self.pocket_model = None
                 self.pocket_state = None
-        else:
-            logger.warning("pocket-tts package not installed; Italian offline fallback unavailable.")
+                return False
+
+    def _maybe_unload_pocket(self):
+        """Frees Pocket TTS weights from RAM once Diego has recovered and is stable."""
+        self._diego_success_streak += 1
+        if self.pocket_model is None:
+            return
+        idle_after_recovery = (time.monotonic() - self._last_pocket_used) >= self._pocket_ttl_sec
+        if self._diego_success_streak >= 3 or idle_after_recovery:
+            with self._pocket_lock:
+                if self.pocket_model is not None:
+                    self.pocket_model = None
+                    self.pocket_state = None
+                    gc.collect()
+                    logger.info("[TTS] Diego recovered; unloaded Pocket TTS fallback from RAM.")
 
     @staticmethod
     def _detect_language(text: str) -> str:
@@ -287,7 +319,7 @@ class PiperTTSEngine:
         return detect_language(text)
 
     @staticmethod
-    def _normalize_text(text: str) -> str:
+    def _normalize_text(text: str, lang: str = "it") -> str:
         """
         Cleans markdown formatting and adjusts punctuation to shorten
         inter-phrase dead silences for smooth, snappy speech delivery.
@@ -295,15 +327,74 @@ class PiperTTSEngine:
         # Remove markdown decorations
         cleaned = re.sub(r"[*_`#~]", "", text)
         cleaned = re.sub(r"http\S+", "", cleaned)
-        cleaned = cleaned.replace("%", " percento")
+        cleaned = cleaned.replace("%", " percent" if lang == "en" else " percento")
 
         # Shorten unnatural inter-sentence pauses without breaking sentence boundaries:
         cleaned = re.sub(r"\.{2,}", "...", cleaned)
-        # Convert semicolons and colons to commas to avoid long dead pauses
-        cleaned = re.sub(r"[;:]\s*", ", ", cleaned)
+        # Convert semicolons and colons (not inside HH:MM times) to commas to avoid long dead pauses
+        cleaned = re.sub(r";\s*|(?<!\d):\s*|:(?!\d)\s*", ", ", cleaned)
         # Collapse multiple whitespaces
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         return cleaned
+
+    @staticmethod
+    def _int_to_english(n: int) -> str:
+        """Converts an integer (0..999999) into English words."""
+        ones = [
+            "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+            "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+            "seventeen", "eighteen", "nineteen",
+        ]
+        tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+        if n < 0:
+            return "minus " + PiperTTSEngine._int_to_english(-n)
+        if n < 20:
+            return ones[n]
+        if n < 100:
+            return tens[n // 10] + ("" if n % 10 == 0 else "-" + ones[n % 10])
+        if n < 1000:
+            rem = n % 100
+            return ones[n // 100] + " hundred" + ("" if rem == 0 else " " + PiperTTSEngine._int_to_english(rem))
+        if n < 1_000_000:
+            rem = n % 1000
+            return PiperTTSEngine._int_to_english(n // 1000) + " thousand" + (
+                "" if rem == 0 else " " + PiperTTSEngine._int_to_english(rem)
+            )
+        return str(n)
+
+    @classmethod
+    def _english_numbers_to_words(cls, text: str) -> str:
+        """
+        Spells out times (HH:MM), decimals, and integers in English words so an
+        Italian TTS voice (Diego) pronounces them in English instead of Italian.
+        """
+        def _repl_time(m: re.Match) -> str:
+            hh = int(m.group(1))
+            mm = int(m.group(2))
+            if hh > 23 or mm > 59:
+                return m.group(0)
+            hh_w = cls._int_to_english(hh)
+            if mm == 0:
+                return f"{hh_w} o'clock" if 1 <= hh <= 12 else f"{hh_w} hundred"
+            if mm < 10:
+                return f"{hh_w} oh {cls._int_to_english(mm)}"
+            return f"{hh_w} {cls._int_to_english(mm)}"
+
+        def _repl_decimal(m: re.Match) -> str:
+            whole = cls._int_to_english(int(m.group(1)))
+            frac = " ".join(cls._int_to_english(int(d)) for d in m.group(2))
+            return f"{whole} point {frac}"
+
+        def _repl_int(m: re.Match) -> str:
+            val = int(m.group(0))
+            if val > 999999:
+                return m.group(0)
+            return cls._int_to_english(val)
+
+        out = re.sub(r"\b(\d{1,2}):(\d{2})\b", _repl_time, text)
+        out = re.sub(r"\b(\d+)\.(\d+)\b", _repl_decimal, out)
+        out = re.sub(r"\b\d+\b", _repl_int, out)
+        return out
 
     @staticmethod
     def _split_sentences(text: str) -> List[str]:
@@ -315,9 +406,10 @@ class PiperTTSEngine:
         """
         Synchronous local synthesis via Pocket TTS (giovanni, 24kHz float32 -> 16kHz PCM16 Mono).
         """
-        if self.pocket_model is None or self.pocket_state is None:
+        if not self._ensure_pocket_loaded():
             logger.error("Pocket TTS fallback model not loaded.")
             return b""
+        self._last_pocket_used = time.monotonic()
 
         try:
             audio_tensor = self.pocket_model.generate_audio(
@@ -486,31 +578,39 @@ class PiperTTSEngine:
         """
         Synthesizes a single text segment:
         - First checks in-memory/disk cache (pre-generated static phrases + runtime cache).
-        - Italian: Diego Neural (Edge-TTS) primary, with automatic fallback to local Pocket TTS (giovanni).
-        - English: Local Piper ONNX (Bryce), with Edge-TTS fallback if missing.
+        - Primary (IT & EN): Diego Neural (Edge-TTS, it-IT-DiegoNeural).
+        - Offline fallback: Pocket TTS (giovanni) for Italian, Piper ONNX (Bryce) for English.
         """
         if not clean_text:
             return b""
 
-        if target_lang == "it":
-            cache_key = self._cache_key(clean_text, target_lang, voice_id="edge:it-IT-DiegoNeural")
-            cached = self.voice_cache.get(cache_key)
-            if cached:
-                return cached
+        diego_voice_id = "edge:it-IT-DiegoNeural"
+        cache_key = self._cache_key(clean_text, target_lang, voice_id=diego_voice_id)
+        cached = self.voice_cache.get(cache_key)
+        if cached:
+            return cached
 
-            speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name="it-IT-DiegoNeural")
-            if speech_pcm:
-                if len(clean_text) <= 220:
-                    await asyncio.to_thread(self._save_runtime_cache, cache_key, speech_pcm)
-                return speech_pcm
-            logger.info("[TTS FALLBACK] Diego unavailable; synthesizing Italian via local Pocket TTS (giovanni)...")
+        diego_text = self._english_numbers_to_words(clean_text) if target_lang == "en" else clean_text
+        speech_pcm = await self._synthesize_edge_tts(diego_text, voice_name="it-IT-DiegoNeural")
+        if speech_pcm:
+            self._maybe_unload_pocket()
+            if len(clean_text) <= 220:
+                await asyncio.to_thread(self._save_runtime_cache, cache_key, speech_pcm)
+            return speech_pcm
+
+        self._diego_success_streak = 0
+        if target_lang == "it":
+            logger.warning("[TTS FALLBACK] Diego unavailable; synthesizing Italian via local Pocket TTS (giovanni).")
             speech_pcm = await asyncio.to_thread(self._synthesize_pocket_local, clean_text)
             return speech_pcm or b""
-        else:
-            if "en" in self.voices:
-                return await asyncio.to_thread(self._synthesize_piper_local, clean_text, "en")
-            speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name="en-US-ChristopherNeural")
-            return speech_pcm or b""
+
+        if "en" in self.voices:
+            logger.warning("[TTS FALLBACK] Diego unavailable; synthesizing English via local Piper (Bryce).")
+            return await asyncio.to_thread(self._synthesize_piper_local, clean_text, "en")
+
+        logger.warning("[TTS FALLBACK] Diego unavailable and local Piper English voice not loaded; trying ChristopherNeural.")
+        speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name="en-US-ChristopherNeural")
+        return speech_pcm or b""
 
     async def synthesize_bytes(
         self,
@@ -541,7 +641,7 @@ class PiperTTSEngine:
         voice_results = await asyncio.gather(
             *(
                 self._synthesize_voice_segment(
-                    self._normalize_text(segments[i][1]),
+                    self._normalize_text(segments[i][1], lang=target_lang),
                     target_lang,
                 )
                 for i in text_indices
@@ -608,7 +708,7 @@ class PiperTTSEngine:
                     items.append(("pcm", pcm))
                     has_previous_segment = True
             elif kind == "text":
-                clean = self._normalize_text(val)
+                clean = self._normalize_text(val, lang=target_lang)
                 sentences = self._split_sentences(clean)
                 if sentences:
                     if has_previous_segment:
