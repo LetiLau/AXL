@@ -13,6 +13,9 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -61,6 +64,9 @@ class AudioStreamService : Service() {
     // Audio In / Out
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
+    private var agc: AutomaticGainControl? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var echoCanceler: AcousticEchoCanceler? = null
 
     // OkHttp & Sockets
     private val okHttpClient = OkHttpClient.Builder()
@@ -232,6 +238,7 @@ class AudioStreamService : Service() {
             }
 
             if (record.state == AudioRecord.STATE_INITIALIZED) {
+                attachFarFieldAudioEffects(record.audioSessionId)
                 record.startRecording()
                 audioRecord = record
                 Log.i(TAG, "AudioRecord initialized and recording successfully.")
@@ -242,6 +249,43 @@ class AudioStreamService : Service() {
             Log.e(TAG, "Missing RECORD_AUDIO permission: ${e.message}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start AudioRecord: ${e.message}", e)
+        }
+    }
+
+    private fun attachFarFieldAudioEffects(audioSessionId: Int) {
+        try {
+            if (AutomaticGainControl.isAvailable()) {
+                agc = AutomaticGainControl.create(audioSessionId)?.apply {
+                    enabled = true
+                }
+                Log.i(TAG, "Hardware AGC attached (enabled=${agc?.enabled}).")
+            } else {
+                Log.i(TAG, "Hardware AGC not available on this device.")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to attach AGC: ${e.message}")
+        }
+
+        try {
+            if (NoiseSuppressor.isAvailable()) {
+                noiseSuppressor = NoiseSuppressor.create(audioSessionId)?.apply {
+                    enabled = true
+                }
+                Log.i(TAG, "Hardware NoiseSuppressor attached (enabled=${noiseSuppressor?.enabled}).")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to attach NoiseSuppressor: ${e.message}")
+        }
+
+        try {
+            if (AcousticEchoCanceler.isAvailable()) {
+                echoCanceler = AcousticEchoCanceler.create(audioSessionId)?.apply {
+                    enabled = true
+                }
+                Log.i(TAG, "Hardware AcousticEchoCanceler attached (enabled=${echoCanceler?.enabled}).")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to attach AcousticEchoCanceler: ${e.message}")
         }
     }
 
@@ -435,6 +479,15 @@ class AudioStreamService : Service() {
         streamJob?.cancel()
         streamJob = null
         streamScope = null
+
+        try {
+            agc?.release()
+            noiseSuppressor?.release()
+            echoCanceler?.release()
+        } catch (_: Exception) {}
+        agc = null
+        noiseSuppressor = null
+        echoCanceler = null
 
         try {
             audioRecord?.stop()

@@ -140,11 +140,28 @@ object IntentExecutor {
             context.startActivity(fallback)
         }
 
-        if (autoPlay && uri.isNotBlank()) {
-            // Dispatch a delayed media play key event in case Spotify opens paused on the URI
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                sendMediaKeyEvent(context, "play")
-            }, 1500L)
+        if (autoPlay) {
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            if (uri.isNotBlank()) {
+                // Dispatch a delayed media play key event in case Spotify opens paused on the URI
+                handler.postDelayed({
+                    sendMediaKeyEvent(context, "play")
+                }, 1400L)
+            }
+            // Bring A-X-L Kiosk UI back to foreground automatically after Spotify initializes
+            handler.postDelayed({
+                try {
+                    val returnIntent = Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    }
+                    context.startActivity(returnIntent)
+                    Log.i(TAG, "Returned A-X-L MainActivity to foreground after Spotify launch.")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not return MainActivity to foreground: ${e.message}")
+                }
+            }, 2200L)
         }
 
         Log.i(TAG, "Launched Spotify (query: '$query', uri: '$uri', autoPlay: $autoPlay)")

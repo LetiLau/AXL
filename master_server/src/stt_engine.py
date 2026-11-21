@@ -21,9 +21,17 @@ DEFAULT_DEVICE = os.getenv("AXL_STT_DEVICE", "cpu")
 DEFAULT_COMPUTE_TYPE = os.getenv("AXL_STT_COMPUTE_TYPE", "int8")
 DEFAULT_LANGUAGE = os.getenv("AXL_STT_LANGUAGE", "").strip().lower() or get_default_language()
 DEFAULT_CPU_THREADS = int(os.getenv("AXL_STT_CPU_THREADS", "4"))
-INITIAL_PROMPT = (
-    "A-X-L, Hey Jarvis, timer, sveglia, metti un timer di 5 minuti, "
-    "imposta una sveglia alle 7, che ore sono, che giorno è, Spotify, musica, volume, muto, stop, telemetria."
+DEFAULT_BEAM_SIZE = int(os.getenv("AXL_STT_BEAM_SIZE", "5"))
+DEFAULT_REPETITION_PENALTY = float(os.getenv("AXL_STT_REPETITION_PENALTY", "1.0"))
+INITIAL_PROMPT_IT = (
+    "A-X-L, riproduci una canzone su Spotify, metti musica, metti un timer di 5 minuti, "
+    "imposta una sveglia alle 7, che ore sono, che giorno è, alza il volume, abbassa il volume, "
+    "pausa, stop, muto, telemetria, meteo."
+)
+INITIAL_PROMPT_EN = (
+    "A-X-L, play a song on Spotify, play music, set a 5 minute timer, "
+    "set an alarm for 7, what time is it, volume up, volume down, "
+    "pause, stop, mute, telemetry, weather."
 )
 
 
@@ -129,29 +137,40 @@ class STTEngine:
         else:
             audio_float = audio_data.astype(np.float32)
 
+        # Remove DC offset so quiet far-field captures don't bias RMS/mel features
+        audio_float = audio_float - float(np.mean(audio_float))
+
         # Fast energy gate: discard near-silence/static hiss before feeding to neural decoder
         rms = float(np.sqrt(np.mean(audio_float ** 2)))
-        if rms < 0.003:
+        if rms < 0.0015:
             logger.info(f"[STT SILENCE] Audio energy too low (RMS={rms:.5f}), ignoring.")
             return ""
+
+        # Peak-normalize quiet far-field kiosk speech into Whisper's optimal dynamic range
+        # while capping max gain so room noise is never blown up into distortion.
+        peak = float(np.max(np.abs(audio_float)))
+        gain = 1.0
+        if 1e-6 < peak < 0.85:
+            gain = min(0.90 / peak, 15.0)
+            audio_float = np.clip(audio_float * gain, -1.0, 1.0)
 
         t0 = time.perf_counter()
         duration_sec = max(0.1, len(audio_float) / 16000.0)
         target_lang = self._resolve_language(audio_float)
+        prompt = INITIAL_PROMPT_EN if target_lang == "en" else INITIAL_PROMPT_IT
 
-        # Transcribe with anti-hallucination and repetition suppression constraints
+        # Transcribe with beam search for accurate Italian phrasing and anti-hallucination constraints
         segments, info = self.model.transcribe(
             audio_float,
             language=target_lang,
-            beam_size=1,
+            beam_size=DEFAULT_BEAM_SIZE,
             best_of=1,
             temperature=0.0,
             condition_on_previous_text=False,
-            repetition_penalty=1.2,
-            no_repeat_ngram_size=3,
+            repetition_penalty=DEFAULT_REPETITION_PENALTY,
             hallucination_silence_threshold=0.5,
             vad_filter=False,  # Audio has already been segmented by Silero VAD
-            initial_prompt=INITIAL_PROMPT,
+            initial_prompt=prompt,
         )
 
         texts = []
@@ -186,7 +205,8 @@ class STTEngine:
 
         elapsed = (time.perf_counter() - t0) * 1000
         logger.info(
-            f"[STT DONE] Transcribed {duration_sec:.2f}s audio in {elapsed:.1f} ms | Text: \"{result_text}\""
+            f"[STT DONE] Transcribed {duration_sec:.2f}s audio in {elapsed:.1f} ms "
+            f"(rms={rms:.4f}, gain={gain:.1f}x, beam={DEFAULT_BEAM_SIZE}) | Text: \"{result_text}\""
         )
         return result_text
 

@@ -173,6 +173,44 @@ BIOMETRIC DISTRUST & THREE SECURITY MODES:
 # ha risposto in italiano se full domanda inglese
 # se non sente la domanda prende la vecchia? o è un problema di wifi?
 
+_COMPACT_STT_RECONSTRUCTION_BLOCK = """
+6. LOCAL STT PHONETIC RECONSTRUCTION (ACTIVE — COMPACT WHISPER MODEL '{stt_model}'):
+   - The user's input comes from a lightweight local speech-to-text model ({stt_model}) and frequently contains phonetic transcription errors.
+   - Common patterns to watch for and reconstruct silently:
+     * English or technical terms spoken inside an Italian sentence get Italianized (e.g. 'cosa vuol dire? Vai beccoding.' -> 'cosa vuol dire vibe coding?'; 'foster whisper' -> 'faster-whisper').
+     * Song titles, artist names, and proper nouns get phonetically garbled (e.g. 'Ashen Sovidi e Andrea Cernato' -> 'Ascensori di Andrea Cerrato').
+     * Non-standard consonant pronunciation: Italian 'r' may be transcribed as 'v', 'n', or 'l'.
+     * Spurious punctuation or mid-sentence question marks splitting a single phrase.
+   - MANDATORY BEHAVIOR:
+     * Infer the intended real words/phrase from phonetics + context and ALWAYS answer the REAL question or execute the REAL tool command directly (passing the corrected song/artist/query to tools like `play_music` or `web_search`).
+     * Stay in character with your usual sarcasm, and you may occasionally drop a brief playful quip, but NEVER derail the answer into lecturing about 'traduttori neurali' or refusing to answer because of an STT typo — prioritize answering the real intent cleanly.
+     * Only ask the user to repeat if the phrase is genuinely undecipherable even phonetically.
+"""
+
+_LARGE_STT_RECONSTRUCTION_BLOCK = """
+6. LOCAL STT AWARENESS (LIGHT — HIGH-ACCURACY WHISPER MODEL '{stt_model}'):
+   - The user's input comes from a high-accuracy local speech-to-text model ({stt_model}). Trust the transcript as written.
+   - Only apply light phonetic correction for rare proper nouns, song titles, or artist names before calling tools like `play_music`, without commenting on transcription artifacts.
+"""
+
+
+def _is_compact_stt_model(stt_model: str) -> bool:
+    """Returns True for smaller Whisper models (tiny/base/small) that benefit from LLM phonetic reconstruction."""
+    m = (stt_model or "").strip().lower()
+    if any(tag in m for tag in ("large", "turbo", "medium")):
+        return False
+    return True
+
+
+def build_system_prompt(stt_model: Optional[str] = None) -> str:
+    """Builds the Gemini system instruction dynamically adapted to the active faster-whisper model size."""
+    active_stt = (stt_model or os.getenv("AXL_STT_MODEL", "base")).strip() or "base"
+    if _is_compact_stt_model(active_stt):
+        block = _COMPACT_STT_RECONSTRUCTION_BLOCK.format(stt_model=active_stt)
+    else:
+        block = _LARGE_STT_RECONSTRUCTION_BLOCK.format(stt_model=active_stt)
+    return SYSTEM_PROMPT_TEMPLATE + block
+
 
 class GeminiBrain:
     """
@@ -196,6 +234,10 @@ class GeminiBrain:
         # multi-audio re-encoding latency, 429 quota exhaustion, and cross-turn audio confusion.
         self.text_history: List[types.Content] = []
         self.max_history_turns: int = 8
+        self._stt_model = os.getenv("AXL_STT_MODEL", "base").strip() or "base"
+        self._system_instruction = build_system_prompt(self._stt_model)
+        recon_mode = "ACTIVE (compact STT)" if _is_compact_stt_model(self._stt_model) else "LIGHT (large STT)"
+        logger.info(f"[BRAIN INIT] STT phonetic reconstruction: {recon_mode} [AXL_STT_MODEL={self._stt_model}]")
         self._reset_chat_session()
 
     def reset_session(self):
@@ -245,7 +287,7 @@ class GeminiBrain:
         logger.debug(f"Cognitive Core ready | Active Model: {self._current_model}")
 
         config_kwargs: Dict[str, Any] = {
-            "system_instruction": SYSTEM_PROMPT_TEMPLATE,
+            "system_instruction": self._system_instruction,
             "tools": REGISTERED_TOOLS,
             "temperature": 0.7,
         }
