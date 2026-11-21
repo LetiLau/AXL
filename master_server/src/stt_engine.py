@@ -87,6 +87,27 @@ class STTEngine:
         except Exception as exc:
             logger.warning(f"[STT WARMUP] Pre-warmup skipped: {exc}")
 
+    def _resolve_language(self, audio_float: np.ndarray) -> str:
+        """
+        Returns the target STT language.
+        When AXL_STT_LANGUAGE='auto', restricts detection strictly to Italian ('it') or
+        English ('en') so short commands cannot be misclassified as Spanish/French/Latin.
+        """
+        if self.language != "auto":
+            return self.language
+
+        try:
+            _, _, all_probs = self.model.detect_language(audio_float)
+            probs_map = dict(all_probs)
+            it_prob = probs_map.get("it", 0.0)
+            en_prob = probs_map.get("en", 0.0)
+            chosen = "en" if en_prob > it_prob else "it"
+            logger.debug(f"[STT LANG] Auto-detected '{chosen}' (it={it_prob:.2f}, en={en_prob:.2f})")
+            return chosen
+        except Exception as exc:
+            logger.warning(f"[STT LANG] Language detection failed ({exc}), defaulting to 'it'.")
+            return "it"
+
     def _transcribe_sync(self, audio_data: np.ndarray) -> str:
         """
         Synchronous transcription executed within thread executor.
@@ -109,11 +130,12 @@ class STTEngine:
 
         t0 = time.perf_counter()
         duration_sec = max(0.1, len(audio_float) / 16000.0)
+        target_lang = self._resolve_language(audio_float)
 
         # Transcribe with anti-hallucination and repetition suppression constraints
         segments, info = self.model.transcribe(
             audio_float,
-            language=self.language if self.language != "auto" else None,
+            language=target_lang,
             beam_size=1,
             best_of=1,
             temperature=0.0,
