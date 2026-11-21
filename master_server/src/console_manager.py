@@ -233,6 +233,33 @@ class ConsoleManager:
             elif cmd_name in ["/clear", "/cls"]:
                 os.system("clear" if os.name != "nt" else "cls")
 
+            # 13. GEMINI MEMORY MANAGEMENT
+            elif cmd_name in ["/clear_memory", "/reset_memory", "/forget", "/dimentica", "/pulisci_memoria"]:
+                brain = self.stream_manager.brain
+                if not brain:
+                    print("[Console] Error: Gemini Brain is not initialized.")
+                else:
+                    prev_count = len(brain.text_history)
+                    brain.reset_session()
+                    print(f"[Console] Gemini conversational memory cleared ({prev_count} message(s) removed; session reset).")
+
+            elif cmd_name in ["/memory", "/memoria"]:
+                brain = self.stream_manager.brain
+                if not brain:
+                    print("[Console] Error: Gemini Brain is not initialized.")
+                else:
+                    sub = args_str.lower().strip()
+                    if sub in ["clear", "reset", "pulisci", "dimentica"]:
+                        prev_count = len(brain.text_history)
+                        brain.reset_session()
+                        print(f"[Console] Gemini conversational memory cleared ({prev_count} message(s) removed; session reset).")
+                    elif sub in ["", "status", "info", "stato"]:
+                        msg_count = len(brain.text_history)
+                        turns = msg_count // 2
+                        print(f"[Console] Gemini memory: {turns}/{brain.max_history_turns} turns ({msg_count} messages) in text_history.")
+                    else:
+                        print("[Console] Usage: /memory [status | clear]")
+
             else:
                 print(f"[Console] Unknown command '{cmd_name}'. Type /help for available commands.")
         except Exception as exc:
@@ -585,6 +612,7 @@ class ConsoleManager:
         print(" /audio <status|kick>     : Inspects or disconnects the active audio stream client")
         print(" /status                  : Shows system health, connected screens, and biometric profiles")
         print(" /stop                    : Stops A-X-L vocal speech immediately (/halt, /zitto)")
+        print(" /clear_memory            : Clears Gemini conversational memory & resets session (/forget, /memory clear)")
         print(" /clear                   : Clears the terminal screen")
         print(" /help                    : Displays this command manual")
         print("------------------------------------------------\n")

@@ -25,6 +25,7 @@ Chi digita in questa console ha accesso fisico o via SSH alla macchina Master (T
 | **Client Audio** | `/audio` | `/audio status` *(mostra sorgente PCM attiva)*<br>`/audio kick` *(disconnette client audio)* |
 | **Stato Sistema** | `/status`, `/info`, `/stato` | `/status` *(ispezione runtime e nodi connessi)* |
 | **Stop Voce** | `/stop`, `/halt`, `/zitto`, `/taci` | `/stop` *(interrompe l'altoparlante all'istante)* |
+| **Memoria Gemini** | `/clear_memory`, `/reset_memory`, `/forget`, `/dimentica`, `/pulisci_memoria`, `/memory`, `/memoria` | `/clear_memory` *(svuota la memoria conversazionale)*<br>`/memory status` *(mostra i turni in memoria)*<br>`/memory clear` *(svuota la memoria e resetta la chat)* |
 | **Pulisci Schermo** | `/clear`, `/cls` | `/clear` |
 | **Manuale Help** | `/help`, `/h`, `/?`, `/aiuto` | `/help` |
 
@@ -99,3 +100,17 @@ Gli eventi sono registrati su `master_server/data/calendar.json` e inoltrati al 
 2.  **Promemoria Samsung & Microsoft To Do**:
     *   L'app nativa Promemoria di Samsung si sincronizza con Microsoft To Do tramite Samsung Cloud.
     *   Nelle note post-sviluppo è predisposta l'integrazione delle API Microsoft Graph / To Do per leggere e aggiornare direttamente i promemoria del telefono.
+
+---
+
+### 5. Memoria Conversazionale di Gemini (`/clear_memory`, `/memory`)
+[`GeminiBrain`](master_server/src/brain_gemini.py) mantiene in RAM l'array `text_history` (fino a 8 turni / 16 messaggi) per dare contesto alle conversazioni successive:
+*   Ispezionare quanti turni sono attualmente in memoria:
+    ```bash
+    /memory status
+    ```
+*   Svuotare l'array `text_history` e resettare la sessione chat attiva di Gemini:
+    ```bash
+    /clear_memory
+    # oppure: /reset_memory, /forget, /dimentica, /memory clear
+    ```

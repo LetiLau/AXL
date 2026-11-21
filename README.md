@@ -238,6 +238,10 @@ SPOTIFY_DEVICE_ALIASES=
 In Phase 3, A-X-L adopts a **Two-Tiered Hybrid Intent & STT Architecture** to maximize responsiveness and minimize cloud API latency:
 - **Tier 1: On-Device Speech-to-Text (`stt_engine.py`) & Local Fast-Path Router:**
   - Utterances captured by VAD are transcribed directly on-device using **`faster-whisper`** (CTranslate2 INT8 AVX2). On CPU, inference completes in ~400–500 ms with high accuracy for conversational Italian and English technical terms.
+  - **STT Language Configuration (`AXL_STT_LANGUAGE`):**
+    - Default (`it`) forces the Italian decoder for lowest latency and works well for Italian speech mixed with common English keywords (`timer`, `Spotify`, `stop`).
+    - Setting `AXL_STT_LANGUAGE=auto` enables automatic bilingual detection strictly constrained to **`it` or `en`** (via `detect_language` probability filtering), preventing short commands like *"stop"*, *"apri"*, or *"timer"* from being misclassified as Spanish, French, or Latin while allowing natural full-sentence English queries.
+    - Note: if a specific language (`it` or `en`) is forced, Whisper skips language detection and assumes that language's phonetics (so non-native sentences need clearer articulation). On stronger CPUs, `AXL_STT_MODEL=small` + `AXL_STT_LANGUAGE=auto` is recommended for seamless bilingual speech.
   - **Local Fast-Path Intent Routing:** Deterministic operational queries are intercepted instantly in Python (< 5 ms) without querying Gemini:
     - `Timer`: e.g. *"metti un timer di 5 minuti per la pasta"* -> triggers `set_timer` and dispatches `AlarmClock.ACTION_SET_TIMER` Intent to Galaxy A33 kiosk.
     - `Alarms`: e.g. *"sveglia alle 07:30"* -> triggers `set_alarm` and dispatches `AlarmClock.ACTION_SET_ALARM` Intent to Galaxy A33 kiosk.
