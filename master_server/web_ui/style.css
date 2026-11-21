@@ -71,6 +71,13 @@ body.hud-subdued #pixel-shift-container {
     filter: brightness(0.55);
 }
 
+/* Keep HUD clearly legible in idle when Telemetry or Music Player is active */
+body.hud-subdued.telemetry-active #pixel-shift-container,
+body.hud-subdued.music-active #pixel-shift-container {
+    opacity: 0.85;
+    filter: brightness(0.88);
+}
+
 /* ==========================================================================
    HEADER HUD TELEMETRY BAR & MODERN ROUNDED BUTTONS
    3-Column Grid guarantees Clock stays physically in the center without overlap
