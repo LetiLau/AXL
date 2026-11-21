@@ -400,3 +400,61 @@ Spotify integra nativamente il protocollo **Spotify Connect**, accessibile via s
     - **Fish Speech / OpenAudio** — VRAM minima consigliata: ~4–6 GB (FP16 / quantizzato).
     - **Coqui XTTS-v2** — VRAM minima consigliata: ~4 GB (FP16, ~2–3 GB in streaming leggero).
     - **F5-TTS** (con checkpoint/fine-tuning italiano) — VRAM minima consigliata: ~4–6 GB.
+
+
+
+
+
+
+    Riepilogo pronto da incollare su AntigravityPuoi copiare direttamente questo blocco per far progettare il refactor di tts_engine.py:   Markdown## Obiettivo refactor TTS (AXL - `tts_engine.py`)
+    Sostituire/affiancare il TTS locale attuale (Kokoro `im_nicola` + doppia voce ITA/ENG) con un motore **100% locale, 0% VRAM (solo CPU)** che mantenga **la stessa voce maschile** con intonazione naturale sia in Italiano che in Inglese.
+    
+    ### Vincoli hardware
+    - **Vivobook (master a casa):** 16 GB RAM DDR4, GPU RTX 3050 Ti da lasciare libera (0 MB VRAM per il TTS).
+    - **ThinkPad (sentinella/fallback):** Intel i5-4300U, 8 GB RAM DDR3.
+    - **Requisito privacy:** nessun dato inviato a servizi TTS cloud.
+    
+    ### Opzioni candidate da valutare / integrare come backend selezionabile
+    
+    #### Opzione A — Supertonic 3 (Supertone) [Consigliata per semplicità e RAM]
+    - **Architettura:** ~99M parametri, runtime **ONNX su CPU** (niente PyTorch pesante, ~400 MB su disco).
+    - **Multilingua:** **modello unico** per 31 lingue (inclusi Italiano e Inglese).
+    - **Voci:** 5 preset maschili (`M1`–`M5`), stessa identità vocale su ITA e ENG con cambio lingua nativo.
+    - **Audio:** 44.1 kHz, molto veloce su CPU, nessuna dipendenza da `espeak-ng`.
+    - **Pro:** un solo modello in RAM (ottimo anche per gli 8 GB del ThinkPad), zero configurazione di voice cloning.
+    - **Contro:** niente voice cloning, solo preset fissi.
+    
+    #### Opzione B — Pocket TTS v2.0+ (Kyutai) [Consigliata per timbro personalizzato]
+    - **Architettura:** ~100M parametri su CPU (`pip install pocket-tts`, richiede PyTorch CPU 2.5+).
+    - **Multilingua:** supporta 6 lingue (inclusi `italian` e `english`), ma carica **pesi separati per lingua** (~600 MB RAM per modello → ~1.2 GB se tenuti entrambi caldi in RAM; gestibile sul Vivobook, da caricare on-demand sul ThinkPad).
+    - **Voci:** preset integrati (es. `Giovanni` per ITA) + **voice cloning zero-shot** da file `.wav` locale, con possibilità di pre-calcolare e cachare il `voice_state` (`export-voice`) e riutilizzarlo su entrambi i modelli ITA e ENG.
+    - **Pro:** permette di ottenere esattamente il timbro maschile desiderato in locale.
+    - **Contro:** leggermente più pesante in RAM per via dei due modelli separati; un sample solo italiano usato sul modello inglese potrebbe introdurre un leggero accento.
+    
+    ### Richiesta architetturale
+    Progettare `tts_engine.py` con un'interfaccia astratta (`TTSBackend`) configurabile da `.env`, supportando:
+    1. Selezione del backend (`supertonic3` | `pocket_tts` | `kokoro`).
+    2. Cache su disco in `.wav` per le risposte statiche delle regex (latenza zero sul ThinkPad).
+    3. Passaggio del parametro `lang` (`it` / `en`) mantenendo coerente la stessa voce.
+    Un piccolo consiglio prima di scrivere codice: sia Supertonic 3 che Pocket TTS hanno demo web ufficiali gratuite — fai una prova di 30 secondi con una frase mista italiano/inglese su entrambi, così scegli a orecchio quale dei due ha l'intonazione che ti convince di più prima di farlo integrare ad Antigravity.
+
+
+
+
+Mettere i sample audio e i file `voice_state` nel `.gitignore` è esattamente la mossa giusta: nella repo pubblica non finisce nessun asset proprietario.
+
+Per quanto riguarda le istruzioni nel `README`, conviene fare una piccola distinzione per tenere la repo del tutto pulita:
+
+-   **Istruzioni generiche (via libera al 100%):** documentare come funziona il tuo sistema di voice cloning è perfettamente lecito ed è lo standard di quasi tutti i progetti open-source. Nel README puoi scrivere tranquillamente una guida del tipo: _"Per usare una voce personalizzata con Pocket TTS, registra o procurati un file `.wav` pulito di 10–15 secondi (di tua proprietà o con licenza libera), salvalo in `master_server/models/voices/` e imposta il percorso nel `.env`."_
+    
+-   **Istruzioni esplicite su Diego (meglio evitarle in pubblico):** evita di scrivere nel README pubblico _"genera un audio da Microsoft Diego con `edge-tts` per clonarlo"_ o di includere uno script che lo faccia in automatico. Anche se su un progetto personale il rischio pratico è quasi zero, pubblicare una guida esplicita per clonare una voce commerciale viola i loro termini di servizio e non ti serve davvero per far funzionare la repo.
+    
+
+**Per passare comodamente tra ThinkPad e Vivobook senza perdere il tuo setup:**
+
+1.  **Su GitHub (pubblico):** lasci il codice, il `.env.example` e come default una voce libera (`Supertonic 3` o il preset `Giovanni` di Pocket TTS, più eventuale fallback `edge-tts` attivabile a scelta).
+    
+2.  **In locale (ignorato da Git):** aggiungi al `.gitignore` una cartella dedicata (es. `master_server/models/custom_voices/`). Il tuo file `.wav` / `voice_state` di Diego te lo copi una volta sola tra ThinkPad e Vivobook (chiavetta, SCP/Tailscale o cartella privata su Drive) e lo punti dal tuo `.env` locale.
+    
+
+Così chi clona la repo pubblica ha tutto funzionante out-of-the-box e in regola, e tu quando fai `git pull` tra i due portatili hai comunque la tua configurazione pronta in due secondi.

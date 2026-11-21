@@ -7,6 +7,7 @@ import datetime
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -26,8 +27,29 @@ load_dotenv(dotenv_path=ENV_PATH)
 DEFAULT_FLASH_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 DEFAULT_PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-4-hydrogen")
 DEFAULT_THINKING_LEVEL = os.getenv("GEMINI_THINKING_LEVEL", "").strip().upper()
-DEFAULT_PRO_THINKING_LEVEL = os.getenv("GEMINI_PRO_THINKING_LEVEL", "HIGH").strip().upper()
+DEFAULT_PRO_THINKING_LEVEL = os.getenv("GEMINI_PRO_THINKING_LEVEL", "MEDIUM").strip().upper()
 ENABLE_AUTO_MODEL_ROUTING = os.getenv("GEMINI_AUTO_ROUTING", "true").strip().lower() in ("1", "true", "yes", "on")
+
+SMART_LANE_FALLBACKS = [
+    DEFAULT_PRO_MODEL,
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
+]
+FAST_LANE_FALLBACKS = [
+    DEFAULT_FLASH_MODEL,
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+]
+SMART_MODELS_SET = {
+    DEFAULT_PRO_MODEL,
+    "gemini-4-hydrogen",
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
+    "gemini-4-neon",
+    "gemini-4-argon",
+    "gemini-3.1-pro-preview",
+}
+MODEL_COOLDOWN_SECONDS = float(os.getenv("GEMINI_MODEL_COOLDOWN_SEC", "60"))
 
 # Compiled regex rules for zero-cost Easy vs Deep/Coding/Exam model escalation
 _FORCE_PRO_RE = re.compile(
@@ -165,6 +187,7 @@ class GeminiBrain:
         self.active_chat = None
         self._current_model = DEFAULT_FLASH_MODEL
         self._manual_model_override: Optional[str] = None
+        self._model_cooldowns: Dict[str, float] = {}
         # Conversational memory kept strictly in lightweight text format to prevent
         # multi-audio re-encoding latency, 429 quota exhaustion, and cross-turn audio confusion.
         self.text_history: List[types.Content] = []
@@ -307,24 +330,36 @@ class GeminiBrain:
 
         if self._manual_model_override:
             routed_model = self._manual_model_override
-            routed_level = DEFAULT_PRO_THINKING_LEVEL if routed_model == DEFAULT_PRO_MODEL else DEFAULT_THINKING_LEVEL
+            lane = "smart" if routed_model in SMART_MODELS_SET else "fast"
+            routed_level = DEFAULT_PRO_THINKING_LEVEL if lane == "smart" else DEFAULT_THINKING_LEVEL
             route_reason = "manual_override"
         else:
             routed_model, routed_level, route_reason = self.select_model_for_query(user_text)
+            lane = "smart" if routed_model in SMART_MODELS_SET and route_reason != "auto_routing_disabled" else "fast"
 
         logger.info(
-            f"[AXL-Brain]: Route -> Model: {routed_model} | Thinking: {routed_level or 'default'} | Reason: {route_reason}"
+            f"[AXL-Brain]: Route -> Lane: {lane.upper()} | Model: {routed_model} | Thinking: {routed_level or 'default'} | Reason: {route_reason}"
         )
 
-        models_to_try = [routed_model]
-        for fallback in [DEFAULT_FLASH_MODEL, "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]:
-            if fallback not in models_to_try:
-                models_to_try.append(fallback)
+        lane_fallbacks = SMART_LANE_FALLBACKS if lane == "smart" else FAST_LANE_FALLBACKS
+        candidate_models = [routed_model]
+        for fallback in lane_fallbacks:
+            if fallback and fallback not in candidate_models:
+                candidate_models.append(fallback)
 
-        last_error = None
+        now_mono = time.monotonic()
+        models_to_try = [m for m in candidate_models if now_mono >= self._model_cooldowns.get(m, 0.0)]
+
+        last_error: Optional[Exception] = None
+        if not models_to_try:
+            logger.warning(
+                f"[BRAIN COOLDOWN] All models in '{lane}' lane are currently in cooldown: {candidate_models}"
+            )
+            last_error = RuntimeError(f"All models in {lane} lane are in cooldown due to rate/quota limits.")
+
         for model_name in models_to_try:
             try:
-                cfg_level = routed_level if model_name == routed_model else DEFAULT_THINKING_LEVEL
+                cfg_level = routed_level if lane == "smart" else DEFAULT_THINKING_LEVEL
                 self._reset_chat_session(model=model_name, thinking_level=cfg_level)
                 logger.info(f"[AXL-Brain]: Text ingestion started | Model: {model_name} | Query: '{user_text}'")
                 response = await self.active_chat.send_message([text_part])
@@ -369,26 +404,34 @@ class GeminiBrain:
                 last_error = exc
                 err_str = str(exc)
                 if "429" in err_str or "503" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    self._model_cooldowns[model_name] = time.monotonic() + MODEL_COOLDOWN_SECONDS
                     logger.warning(
-                        f"[BRAIN FAILOVER] Model '{model_name}' hit quota or capacity spike (429/503). Retrying fallback..."
+                        f"[BRAIN FAILOVER] Model '{model_name}' hit quota/rate limit (429/503). "
+                        f"Cooldown {MODEL_COOLDOWN_SECONDS:.0f}s; trying next model in '{lane}' lane..."
                     )
                     continue
                 else:
                     logger.error(f"[BRAIN ERROR] Gemini text inference failed on {model_name}: {exc}", exc_info=True)
                     break
 
-        logger.error(f"[BRAIN EXHAUSTED] All candidate models failed. Last error: {last_error}")
-        if lang == "en":
+        logger.error(f"[BRAIN EXHAUSTED] All '{lane}' lane models failed. Last error: {last_error}")
+        if is_stranger:
             fallback_text = (
-                "Neural connection hiccup. Try again in a second."
-                if not is_stranger
-                else "System interference. Either way, I do not take orders from strangers."
+                "System interference. Either way, I do not take orders from strangers."
+                if lang == "en"
+                else "Interferenza di sistema. In ogni caso, non prendo ordini da sconosciuti."
+            )
+        elif lane == "smart":
+            fallback_text = (
+                "*growl* All smart Gemini API quotas are exhausted right now. Try again shortly or ask a simpler question."
+                if lang == "en"
+                else "*growl* Le API dei modelli intelligenti Gemini sono esaurite al momento. Riprova tra poco o fai una domanda più semplice."
             )
         else:
             fallback_text = (
-                "Piccolo problema di connessione neurale. Riprova tra un secondo."
-                if not is_stranger
-                else "Interferenza di sistema. In ogni caso, non prendo ordini da sconosciuti."
+                "Neural connection hiccup. Try again in a second."
+                if lang == "en"
+                else "Piccolo problema di connessione neurale. Riprova tra un secondo."
             )
         return {
             "status": "error",
