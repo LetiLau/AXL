@@ -416,9 +416,9 @@ class PiperTTSEngine:
         return raw_pcm
 
     @staticmethod
-    def _cache_key(clean_text: str, target_lang: str) -> str:
+    def _cache_key(clean_text: str, target_lang: str, voice_id: str = "edge:it-IT-DiegoNeural") -> str:
         """Stable hash key for pre-generated and runtime cached TTS segments."""
-        return hashlib.sha256(f"{target_lang}:{clean_text}".encode("utf-8")).hexdigest()[:16]
+        return hashlib.sha256(f"{voice_id}:{target_lang}:{clean_text}".encode("utf-8")).hexdigest()[:16]
 
     def _load_voice_cache(self):
         """Pre-loads 16kHz PCM16 Mono cached phrases from assets/tts_cache and data/tts_cache."""
@@ -434,12 +434,13 @@ class PiperTTSEngine:
                         break
                     text = meta["text"] if isinstance(meta, dict) else str(meta)
                     lang = meta.get("lang", "it") if isinstance(meta, dict) else "it"
+                    voice_id = meta.get("voice_id", "edge:it-IT-DiegoNeural") if isinstance(meta, dict) else "edge:it-IT-DiegoNeural"
                     wav_path = self.static_cache_dir / filename
                     if not wav_path.exists():
                         continue
                     with wave.open(str(wav_path), "rb") as wf:
                         if wf.getnchannels() == 1 and wf.getsampwidth() == 2 and wf.getframerate() == 16000:
-                            key = self._cache_key(text, lang)
+                            key = self._cache_key(text, lang, voice_id=voice_id)
                             self.voice_cache[key] = wf.readframes(wf.getnframes())
                             loaded += 1
             except Exception as exc:
@@ -491,12 +492,12 @@ class PiperTTSEngine:
         if not clean_text:
             return b""
 
-        cache_key = self._cache_key(clean_text, target_lang)
-        cached = self.voice_cache.get(cache_key)
-        if cached:
-            return cached
-
         if target_lang == "it":
+            cache_key = self._cache_key(clean_text, target_lang, voice_id="edge:it-IT-DiegoNeural")
+            cached = self.voice_cache.get(cache_key)
+            if cached:
+                return cached
+
             speech_pcm = await self._synthesize_edge_tts(clean_text, voice_name="it-IT-DiegoNeural")
             if speech_pcm:
                 if len(clean_text) <= 220:

@@ -53,7 +53,7 @@ android_kiosk/.cxx/
 *.tmp
 *.wav
 !master_server/assets/sfx/*.wav
-!master_server/assets/tts_cache/*.wav
+master_server/assets/tts_cache/*.wav
 master_server/data/tts_cache/
 
 # Personal files from user
