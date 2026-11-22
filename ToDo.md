@@ -458,3 +458,13 @@ Per quanto riguarda le istruzioni nel `README`, conviene fare una piccola distin
     
 
 Così chi clona la repo pubblica ha tutto funzionante out-of-the-box e in regola, e tu quando fai `git pull` tra i due portatili hai comunque la tua configurazione pronta in due secondi.
+
+---
+
+### Upgrade Hardware Futuro — Audio Far-Field Kiosk (~30–60€)
+
+Per portare la cattura vocale del Galaxy A33 al livello di un Amazon Echo / Google Nest (senza saldature):
+- [ ] **Speakerphone USB-C da conferenza** (es. *Anker PowerConf S3*, *Jabra Speak*, *Poly Sync* o simili con **array di 4–6 microfoni a 360°**, **chip DSP con beamforming**, **AGC far-field** e **cancellazione dell'eco hardware**).
+  - Android lo riconosce plug & play via USB-C a 16–48 kHz (evitare microfoni Bluetooth per l'ascolto continuo perché il profilo HFP/SCO scende a 8 kHz).
+  - Bonus: migliora drasticamente anche la qualità e il volume dello speaker di risposta di A-X-L.
+- [ ] **Mini Hub USB-C con Power Delivery (PD pass-through)** per collegare lo speakerphone al Galaxy A33 mantenendo il telefono sempre in carica 24/7.

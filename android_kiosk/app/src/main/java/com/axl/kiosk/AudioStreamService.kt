@@ -217,31 +217,36 @@ class AudioStreamService : Service() {
         val recordBufSize = maxOf(minRecordBuf, CHUNK_SIZE_BYTES * 8)
 
         try {
-            // First attempt: VOICE_RECOGNITION (prefers clean beamformed speech without echo)
-            var record = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                recordBufSize
+            // Try CAMCORDER first (far-field room mic gain), then VOICE_RECOGNITION, then MIC
+            val audioSources = listOf(
+                MediaRecorder.AudioSource.CAMCORDER to "CAMCORDER",
+                MediaRecorder.AudioSource.VOICE_RECOGNITION to "VOICE_RECOGNITION",
+                MediaRecorder.AudioSource.MIC to "MIC"
             )
-            if (record.state != AudioRecord.STATE_INITIALIZED) {
-                Log.w(TAG, "VOICE_RECOGNITION not initialized, falling back to MIC source.")
-                record.release()
-                record = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
+            var record: AudioRecord? = null
+            var activeSourceName = ""
+            for ((source, label) in audioSources) {
+                val candidate = AudioRecord(
+                    source,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
                     recordBufSize
                 )
+                if (candidate.state == AudioRecord.STATE_INITIALIZED) {
+                    record = candidate
+                    activeSourceName = label
+                    break
+                }
+                Log.w(TAG, "$label audio source not initialized, trying next fallback.")
+                candidate.release()
             }
 
-            if (record.state == AudioRecord.STATE_INITIALIZED) {
+            if (record != null) {
                 attachFarFieldAudioEffects(record.audioSessionId)
                 record.startRecording()
                 audioRecord = record
-                Log.i(TAG, "AudioRecord initialized and recording successfully.")
+                Log.i(TAG, "AudioRecord initialized ($activeSourceName) and recording successfully.")
             } else {
                 Log.e(TAG, "AudioRecord failed to initialize in any audio source mode.")
             }

@@ -123,6 +123,27 @@ class STTEngine:
             logger.warning(f"[STT LANG] Language detection failed ({exc}), defaulting to '{default_lang}'.")
             return default_lang
 
+    @staticmethod
+    def _apply_highpass_filter(
+        audio_float: np.ndarray, sample_rate: int = 16000, cutoff_hz: float = 85.0
+    ) -> np.ndarray:
+        """
+        Zero-phase FFT high-pass filter with a smooth raised-cosine roll-off around cutoff_hz.
+        Removes low-frequency room rumble, AC hum, and desk vibrations before RMS gating & gain.
+        """
+        n = len(audio_float)
+        if n < 64:
+            return audio_float
+        freqs = np.fft.rfftfreq(n, d=1.0 / sample_rate)
+        low = cutoff_hz * 0.7
+        high = cutoff_hz * 1.3
+        gain = np.ones_like(freqs, dtype=np.float32)
+        gain[freqs <= low] = 0.0
+        trans = (freqs > low) & (freqs < high)
+        gain[trans] = 0.5 * (1.0 - np.cos(np.pi * (freqs[trans] - low) / (high - low)))
+        filtered = np.fft.irfft(np.fft.rfft(audio_float) * gain, n=n)
+        return filtered.astype(np.float32)
+
     def _transcribe_sync(self, audio_data: np.ndarray) -> str:
         """
         Synchronous transcription executed within thread executor.
@@ -137,8 +158,9 @@ class STTEngine:
         else:
             audio_float = audio_data.astype(np.float32)
 
-        # Remove DC offset so quiet far-field captures don't bias RMS/mel features
+        # Remove DC offset and sub-85Hz room rumble before energy gating & peak normalization
         audio_float = audio_float - float(np.mean(audio_float))
+        audio_float = self._apply_highpass_filter(audio_float, sample_rate=16000, cutoff_hz=85.0)
 
         # Fast energy gate: discard near-silence/static hiss before feeding to neural decoder
         rms = float(np.sqrt(np.mean(audio_float ** 2)))
