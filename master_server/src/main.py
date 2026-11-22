@@ -367,7 +367,9 @@ class StreamManager:
 
             if changed:
                 self.last_music_state = pb
-                if pb.get("playing") and not self.music_player_visible:
+                if not pb.get("track") and self.music_player_visible:
+                    self.music_player_visible = False
+                elif pb.get("playing") and not self.music_player_visible:
                     self.music_player_visible = True
                     if self.ui_clients:
                         await self.broadcast_ui({

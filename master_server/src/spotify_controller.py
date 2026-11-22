@@ -1861,7 +1861,22 @@ class SpotifyController:
         """Fetches the currently playing track, repeat/shuffle state, and active Spotify Connect device."""
         resp = self._api_request("GET", "/me/player")
         if resp.status_code == 204:
-            return {"playing": False, "repeat_state": "off", "shuffle_state": False, "message": "Nessuna riproduzione Spotify attiva al momento."}
+            return {
+                "playing": False,
+                "track": "",
+                "track_uri": "",
+                "artists": "",
+                "album": "",
+                "album_art": "",
+                "device_id": "",
+                "device_name": "",
+                "device_type": "",
+                "progress_ms": 0,
+                "duration_ms": 0,
+                "repeat_state": "off",
+                "shuffle_state": False,
+                "message": "Nessuna riproduzione Spotify attiva al momento.",
+            }
         if resp.status_code != 200:
             raise RuntimeError(f"Spotify playback query failed ({resp.status_code}): {resp.text}")
 
