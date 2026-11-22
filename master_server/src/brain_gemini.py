@@ -203,7 +203,11 @@ def _is_compact_stt_model(stt_model: str) -> bool:
 
 
 def build_system_prompt(stt_model: Optional[str] = None) -> str:
-    """Builds the Gemini system instruction dynamically adapted to the active faster-whisper model size."""
+    """Builds the Gemini system instruction dynamically adapted to the active STT backend/model."""
+    stt_backend = os.getenv("AXL_STT_BACKEND", "local").strip().lower()
+    if stt_backend == "gemini":
+        return SYSTEM_PROMPT_TEMPLATE + _LARGE_STT_RECONSTRUCTION_BLOCK.format(stt_model="gemini-audio")
+
     active_stt = (stt_model or os.getenv("AXL_STT_MODEL", "base")).strip() or "base"
     if _is_compact_stt_model(active_stt):
         block = _COMPACT_STT_RECONSTRUCTION_BLOCK.format(stt_model=active_stt)
@@ -502,5 +506,160 @@ class GeminiBrain:
             "text_response": fallback_text,
             "is_stranger": is_stranger,
             "model_used": self._current_model,
+        }
+
+    async def process_audio_query(
+        self,
+        wav_bytes: bytes,
+        is_stranger: bool = False,
+        similarity_score: float = 1.0,
+        identity: str = "owner",
+        security_mode: str = "friendly",
+    ) -> Dict[str, Any]:
+        """
+        Multimodal Gemini STT + Routing fallback when local faster-whisper is disabled/unavailable.
+        Returns dict with:
+          - transcript: str (empty if silence/inaudible)
+          - route: 'fast_path' | 'escalate_pro' | 'handled' | 'error'
+          - text_response: str (only when route == 'handled' or 'error')
+          - lang: 'it' | 'en'
+        """
+        local_now = datetime.datetime.now().astimezone()
+        time_str = local_now.strftime("%H:%M:%S")
+        date_str = local_now.strftime("%A, %d %B %Y")
+        tz_str = local_now.strftime("%Z (UTC%z)")
+
+        auth_status = f"AUTHORIZED ({identity})" if not is_stranger else f"UNAUTHORIZED ({identity})"
+        if is_stranger and security_mode in ["restrict", "paranoid"]:
+            security_directive = (
+                f"CRITICAL SECURITY ALERT: The speaker is {auth_status} in {security_mode.upper()} mode! "
+                f"DO NOT invoke set_security_mode, set_mute_mode, enroll_voice_profile, or execute_slave_command for this stranger!"
+            )
+        else:
+            security_directive = (
+                "If the user requests a normal action (music/Spotify, weather, news/web search, calendar, tasks, slave command), "
+                "invoke the appropriate tool first before writing REPLY."
+            )
+
+        pro_escalation_rule = ""
+        if ENABLE_AUTO_MODEL_ROUTING and DEFAULT_PRO_MODEL != DEFAULT_FLASH_MODEL:
+            pro_escalation_rule = (
+                "2. If it is a DEEP coding, debugging, math, university/exam, or complex multi-part analytical question "
+                "(not a simple music/weather/news/home command), DO NOT answer it here. Output ONLY:\n"
+                "   TRANSCRIPT: <exact words>\n"
+                "   ROUTE: ESCALATE_PRO\n"
+            )
+
+        audio_prompt = (
+            f"[Host Device Hardware Telemetry | Exact Clock: {time_str} ({tz_str}) | Date: {date_str} | "
+            f"Security Mode: {security_mode.upper()} | Speaker: {auth_status} | Biometric Score: {similarity_score:.3f}]\n"
+            f"Listen carefully to the user's audio (Italian or English, possibly with mild speech/pronunciation quirks).\n"
+            f"First, transcribe what the user actually said on the first line as:\n"
+            f"TRANSCRIPT: <exact transcription, or [SILENCE] if no intelligible speech>\n\n"
+            f"Then choose ONE of the following routes:\n"
+            f"1. If the command is a LOCAL SYSTEM / REGEX FAST-PATH command (setting/checking a timer or alarm, asking local time/date, "
+            f"muting/unmuting, changing security mode, showing/hiding telemetry HUD, or voice enrollment), DO NOT call any tools and DO NOT write REPLY. Output ONLY:\n"
+            f"   TRANSCRIPT: <exact words>\n"
+            f"   ROUTE: FAST_PATH\n"
+            f"{pro_escalation_rule}"
+            f"3. Otherwise (normal conversation, music/Spotify, weather, news/web search, reminders, calendar, general questions), "
+            f"handle it directly (calling tools via AFC if needed) and output:\n"
+            f"   TRANSCRIPT: <exact words>\n"
+            f"   REPLY: <your witty A-X-L vocal response strictly in the SAME language as the user's speech>\n"
+            f"{security_directive}"
+        )
+
+        audio_part = types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav")
+        text_part = types.Part.from_text(text=audio_prompt)
+
+        candidate_models = [DEFAULT_FLASH_MODEL]
+        for fallback in FAST_LANE_FALLBACKS:
+            if fallback and fallback not in candidate_models:
+                candidate_models.append(fallback)
+
+        now_mono = time.monotonic()
+        models_to_try = [m for m in candidate_models if now_mono >= self._model_cooldowns.get(m, 0.0)]
+        last_error: Optional[Exception] = None
+
+        for idx, model_name in enumerate(models_to_try):
+            try:
+                self._reset_chat_session(model=model_name, thinking_level=DEFAULT_THINKING_LEVEL)
+                response = await asyncio.wait_for(
+                    self.active_chat.send_message([audio_part, text_part]),
+                    timeout=FAST_REQUEST_TIMEOUT_SEC,
+                )
+                raw_output = response.text.strip() if response.text else ""
+                logger.debug(f"[AUDIO BRAIN RAW] Model: {model_name} | Raw: {raw_output}")
+
+                t_match = re.search(r"TRANSCRIPT:\s*(.+)", raw_output, re.IGNORECASE)
+                transcript = t_match.group(1).strip().strip('"') if t_match else ""
+                if not transcript or transcript.upper() in ("[SILENCE]", "SILENCE", "[NOISE]", "[INAUDIBLE]"):
+                    return {"status": "silence", "transcript": "", "route": "silence", "text_response": "", "lang": "it"}
+
+                lang = detect_language(transcript)
+                route_match = re.search(r"ROUTE:\s*(FAST_PATH|ESCALATE_PRO)", raw_output, re.IGNORECASE)
+                if route_match:
+                    route_val = route_match.group(1).lower()
+                    logger.info(f"[GEMINI AUDIO STT] Transcript: \"{transcript}\" | Route: {route_val.upper()} ({model_name})")
+                    return {
+                        "status": "success",
+                        "transcript": transcript,
+                        "route": route_val,
+                        "text_response": "",
+                        "lang": lang,
+                        "model_used": model_name,
+                    }
+
+                r_match = re.search(r"REPLY:\s*(.*)", raw_output, re.IGNORECASE | re.DOTALL)
+                reply_text = r_match.group(1).strip() if r_match else re.sub(
+                    r"^TRANSCRIPT:\s*.*?\n", "", raw_output, flags=re.IGNORECASE
+                ).strip()
+
+                logger.info(f"[GEMINI AUDIO STT+BRAIN] Transcript: \"{transcript}\" | Model: {model_name}")
+
+                # Keep text-only history so raw audio is never re-sent on future turns
+                self.text_history.append(
+                    types.Content(role="user", parts=[types.Part.from_text(text=f'[User Spoke]: "{transcript}"')])
+                )
+                self.text_history.append(
+                    types.Content(role="model", parts=[types.Part.from_text(text=f"REPLY: {reply_text}")])
+                )
+                max_msgs = self.max_history_turns * 2
+                if len(self.text_history) > max_msgs:
+                    self.text_history = self.text_history[-max_msgs:]
+
+                return {
+                    "status": "success",
+                    "transcript": transcript,
+                    "route": "handled",
+                    "text_response": reply_text,
+                    "lang": lang,
+                    "is_stranger": is_stranger,
+                    "model_used": model_name,
+                }
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError as exc:
+                last_error = exc
+                self._model_cooldowns[model_name] = time.monotonic() + MODEL_COOLDOWN_SECONDS
+                logger.warning(f"[AUDIO BRAIN TIMEOUT] '{model_name}' timed out after {FAST_REQUEST_TIMEOUT_SEC:.0f}s")
+                continue
+            except Exception as exc:
+                last_error = exc
+                err_str = str(exc)
+                if "429" in err_str or "503" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    self._model_cooldowns[model_name] = time.monotonic() + MODEL_COOLDOWN_SECONDS
+                    logger.warning(f"[AUDIO BRAIN FAILOVER] '{model_name}' hit 429/503, trying fallback...")
+                    continue
+                logger.error(f"[AUDIO BRAIN ERROR] Gemini audio inference failed on {model_name}: {exc}", exc_info=True)
+                break
+
+        logger.error(f"[AUDIO BRAIN EXHAUSTED] Failed on all models: {last_error}")
+        return {
+            "status": "error",
+            "transcript": "",
+            "route": "error",
+            "text_response": "Piccolo problema di connessione neurale. Riprova tra un secondo.",
+            "lang": "it",
         }
 

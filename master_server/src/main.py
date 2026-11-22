@@ -28,7 +28,7 @@ import numpy as np
 import uvicorn
 
 from audio_pipeline import AudioPipeline
-from audio_utils import pcm_to_wav_bytes
+from audio_utils import normalize_pcm_for_stt, pcm_to_wav_bytes
 from brain_gemini import GeminiBrain
 from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
@@ -150,7 +150,18 @@ class StreamManager:
             max_command_duration_sec=10.0,
         )
         self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
-        self.stt = STTEngine()
+        stt_backend = os.getenv("AXL_STT_BACKEND", "local").strip().lower()
+        if stt_backend == "gemini":
+            self.stt = None
+            logger.info("[STT INIT] Bypassing local faster-whisper (AXL_STT_BACKEND=gemini); using Gemini multimodal STT.")
+        elif stt_backend == "auto":
+            try:
+                self.stt = STTEngine()
+            except Exception as exc:
+                self.stt = None
+                logger.warning(f"[STT INIT] Local faster-whisper unavailable ({exc}); falling back to Gemini multimodal STT.")
+        else:
+            self.stt = STTEngine()
         self.brain = GeminiBrain()
         self.tts = PiperTTSEngine(models_dir=MODELS_DIR)
 
@@ -732,10 +743,31 @@ class StreamManager:
             "authorized": bool(is_authorized),
         })
 
-        # 3. Local Speech-to-Text via faster-whisper (CPU INT8 AVX2)
+        # 3. Speech-to-Text: Local faster-whisper OR Gemini multimodal fallback (AXL_STT_BACKEND)
         transcript = ""
+        precomputed_reply: Optional[str] = None
+        detected_lang: Optional[str] = None
+
         if self.stt:
             transcript = await self.stt.transcribe(pcm_samples)
+        elif self.brain:
+            norm_float, rms, gain, is_silence = normalize_pcm_for_stt(pcm_samples)
+            if is_silence:
+                logger.info(f"[GEMINI STT SILENCE] Audio energy too low (RMS={rms:.5f}), ignoring.")
+            else:
+                norm_int16 = np.clip(norm_float * 32767.0, -32768, 32767).astype(np.int16)
+                stt_wav_bytes = pcm_to_wav_bytes(norm_int16, sample_rate=16000)
+                audio_res = await self.brain.process_audio_query(
+                    wav_bytes=stt_wav_bytes,
+                    is_stranger=not is_authorized,
+                    similarity_score=sim_score,
+                    identity=identity,
+                    security_mode=sec_mode,
+                )
+                transcript = audio_res.get("transcript", "")
+                detected_lang = audio_res.get("lang")
+                if audio_res.get("route") in ("handled", "error") and audio_res.get("text_response"):
+                    precomputed_reply = audio_res["text_response"]
 
         if my_gen != self._command_generation or self.stop_speech_requested:
             logger.debug("[COMMAND ABORT] Utterance dropped after STT (superseded or stopped).")
@@ -757,6 +789,8 @@ class StreamManager:
                 is_authorized=is_authorized,
                 sec_mode=sec_mode,
                 sim_score=sim_score,
+                lang=detected_lang,
+                precomputed_reply=precomputed_reply,
             )
 
     async def process_text_command(
@@ -767,6 +801,7 @@ class StreamManager:
         sec_mode: Optional[str] = None,
         sim_score: float = 1.0,
         lang: Optional[str] = None,
+        precomputed_reply: Optional[str] = None,
     ) -> str:
         """
         Executes a user command string through the complete two-tiered cognitive pipeline:
@@ -805,20 +840,25 @@ class StreamManager:
             "authorized": bool(is_authorized),
         })
 
-        # 1. Tier-1 Local Fast Path Router (Timer, Sveglia, Ora, Data, Muto, Telemetria, Sicurezza)
-        fast_path_result = handle_local_fast_path(
-            transcript,
-            is_authorized=is_authorized,
-            identity=identity,
-            security_mode=sec_mode,
-            similarity_score=sim_score,
-            lang=lang,
-        )
+        fast_path_result = None
+        if precomputed_reply is not None:
+            vocal_reply = ensure_dog_sound(precomputed_reply)
+        else:
+            # 1. Tier-1 Local Fast Path Router (Timer, Sveglia, Ora, Data, Muto, Telemetria, Sicurezza)
+            fast_path_result = handle_local_fast_path(
+                transcript,
+                is_authorized=is_authorized,
+                identity=identity,
+                security_mode=sec_mode,
+                similarity_score=sim_score,
+                lang=lang,
+            )
 
-        if fast_path_result is not None:
-            vocal_reply = fast_path_result.get("reply", "")
-            logger.info(f"[LOCAL FAST PATH] Executed: {fast_path_result.get('type')} ({lang.upper()}) -> '{vocal_reply}'")
-        elif self.brain:
+            if fast_path_result is not None:
+                vocal_reply = fast_path_result.get("reply", "")
+                logger.info(f"[LOCAL FAST PATH] Executed: {fast_path_result.get('type')} ({lang.upper()}) -> '{vocal_reply}'")
+
+        if precomputed_reply is None and fast_path_result is None and self.brain:
             if self.stop_speech_requested:
                 logger.info("[COMMAND ABORT] Processing aborted before brain query by user STOP.")
                 return ""
