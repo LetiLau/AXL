@@ -4,9 +4,16 @@ Model provisioning utility for A-X-L Master Server.
 Downloads required ONNX checkpoints for VAD, Speaker Verification, Wake-Word, and TTS.
 """
 
+import os
 import sys
 import urllib.request
 from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
+except ImportError:
+    pass
 
 # Paths configuration
 BASE_DIR = Path(__file__).resolve().parent
@@ -85,7 +92,12 @@ def sync_openwakeword_models() -> None:
 
 
 def sync_faster_whisper_model() -> None:
-    """Pre-cache faster-whisper base checkpoint to prevent cold-start delays on startup."""
+    """Pre-cache faster-whisper base checkpoint only when local STT backend is enabled."""
+    stt_backend = os.getenv("AXL_STT_BACKEND", "groq").strip().lower()
+    if stt_backend not in ("local", "auto"):
+        print(f"\n[SKIP] faster-whisper model download skipped (AXL_STT_BACKEND={stt_backend}).")
+        return
+
     print("\n[SYNC] Pre-caching faster-whisper 'base' model...")
     try:
         from faster_whisper import WhisperModel

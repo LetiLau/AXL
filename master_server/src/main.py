@@ -34,7 +34,7 @@ from ring_buffer import AudioRingBuffer
 from speaker_verifier import SpeakerVerifier
 from spotify_controller import spotify_controller
 from tts_engine import PiperTTSEngine, detect_language
-from stt_engine import STTEngine
+from stt_engine import STTBackendError, STTEngine
 from telemetry_utils import collect_system_telemetry
 from console_manager import ConsoleManager
 from commands import (
@@ -150,18 +150,34 @@ class StreamManager:
             max_command_duration_sec=10.0,
         )
         self.verifier = SpeakerVerifier(models_dir=MODELS_DIR, threshold=THRESHOLD_VAR)
-        stt_backend = os.getenv("AXL_STT_BACKEND", "local").strip().lower()
+        stt_backend = os.getenv("AXL_STT_BACKEND", "groq").strip().lower()
+        groq_key = os.getenv("GROQ_API_KEY", "").strip()
+        has_groq_key = bool(groq_key) and not groq_key.startswith("your_")
+
         if stt_backend == "gemini":
             self.stt = None
             logger.info("[STT INIT] Bypassing local faster-whisper (AXL_STT_BACKEND=gemini); using Gemini multimodal STT.")
-        elif stt_backend == "auto":
-            try:
-                self.stt = STTEngine()
-            except Exception as exc:
+        elif stt_backend == "groq":
+            if has_groq_key:
+                self.stt = STTEngine(backend="groq")
+            else:
                 self.stt = None
-                logger.warning(f"[STT INIT] Local faster-whisper unavailable ({exc}); falling back to Gemini multimodal STT.")
+                logger.warning(
+                    "[STT INIT] GROQ_API_KEY not set yet; falling back to Gemini multimodal STT until configured."
+                )
+        elif stt_backend == "auto":
+            if has_groq_key:
+                self.stt = STTEngine(backend="groq")
+            else:
+                try:
+                    self.stt = STTEngine(backend="local")
+                except Exception as exc:
+                    self.stt = None
+                    logger.warning(
+                        f"[STT INIT] Local faster-whisper unavailable ({exc}); falling back to Gemini multimodal STT."
+                    )
         else:
-            self.stt = STTEngine()
+            self.stt = STTEngine(backend="local")
         self.brain = GeminiBrain()
         self.tts = PiperTTSEngine(models_dir=MODELS_DIR)
 
@@ -758,14 +774,20 @@ class StreamManager:
             "authorized": bool(is_authorized),
         })
 
-        # 3. Speech-to-Text: Local faster-whisper OR Gemini multimodal fallback (AXL_STT_BACKEND)
+        # 3. Speech-to-Text: Groq / Local faster-whisper OR Gemini multimodal fallback (AXL_STT_BACKEND)
         transcript = ""
         precomputed_reply: Optional[str] = None
         detected_lang: Optional[str] = None
+        stt_succeeded = False
 
         if self.stt:
-            transcript = await self.stt.transcribe(pcm_samples)
-        elif self.brain:
+            try:
+                transcript = await self.stt.transcribe(pcm_samples)
+                stt_succeeded = True
+            except STTBackendError as exc:
+                logger.warning(f"[STT FAILOVER] {exc}; falling back to Gemini multimodal STT.")
+
+        if not stt_succeeded and self.brain:
             norm_float, rms, gain, is_silence = normalize_pcm_for_stt(pcm_samples)
             if is_silence:
                 logger.info(f"[GEMINI STT SILENCE] Audio energy too low (RMS={rms:.5f}), ignoring.")

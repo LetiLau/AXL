@@ -303,6 +303,12 @@ Spotify integra nativamente il protocollo **Spotify Connect**, accessibile via s
     * **Integrazione con Tasto STOP:** Se premuto durante l'enrollment, il tasto rosso STOP interrompe all'istante l'acquisizione audio e ripristina la macchina a stati finiti su `IDLE`.
     * **Evoluzione Futura (Opzione C - Modal HUD Touchscreen):** Predisposta interfaccia visiva con barra di caricamento Take (0-100%) da integrare nel Visore una volta riorganizzato il layout responsive dei bottoni sul Kiosk.
 
+#### Setup & Installazione Intelligente (Pre-Deploy ThinkPad / Python 3.13)
+
+- [ ] **Script di Setup Automatico (`install_deps.py` / `setup.py`):** legge `.env` / file di configurazione, installa il core leggero (gestendo `openwakeword --no-deps` per compatibilità Python 3.13) e installa le dipendenze opzionali (`requirements-local-stt.txt` e in futuro `requirements-local-tts.txt` per `pocket-tts`/`torch`) **solo** se selezionate.
+- [ ] **File di Configurazione / Profili Portabili:** file di configurazione dedicato con le proprie scelte personali (es. profilo ThinkPad leggero vs profilo Vivobook potente) per spostare rapidamente il progetto tra sistemi diversi senza riconfigurare ogni volta.
+- [ ] *(Evoluzione futura successiva)* **Configuratore UI per il Master Server:** interfaccia grafica opzionale dedicata alle sole impostazioni del Master Server, lasciando libera scelta all'utente tra configurazione tramite UI o modifica manuale dei file da terminale/IDE.
+
 #### FASE 8: Deploy su ThinkPad Debian 12
 
 19. [ ] **Provisioning e Systemd:** `git clone` della repo sul ThinkPad, creazione del servizio `axl-master.service` su `systemd` per l'avvio automatico al boot, assegnazione di IP statico sul router e test di stress end-to-end.
@@ -484,7 +490,7 @@ Per portare la cattura vocale del Galaxy A33 al livello di un Amazon Echo / Goog
 ---
 
 ### STT Cloud Leggero con Groq (`whisper-large-v3-turbo`) & Lingua UI
-- [ ] **Backend STT configurabile in `stt_engine.py` (`.env`: `AXL_STT_BACKEND=groq | local`):**
+- [x] **Backend STT configurabile in `stt_engine.py` (`.env`: `AXL_STT_BACKEND=groq | local | gemini | auto`):**
   - Usare **Groq API (`whisper-large-v3-turbo`)** di default sulle macchine con poca RAM/CPU (es. ThinkPad 8 GB), evitando di caricare `faster-whisper` in memoria (0 MB RAM, wake-word `openWakeWord` sempre locale).
-  - Prevedere una catena di **fallback** (da definire in seguito) nel caso Groq non sia raggiungibile.
+  - Prevedere una catena di **fallback** automatica (fallback immediato su Gemini multimodal già attivo se Groq fallisce o manca la chiave; eventuali ulteriori fallback da definire in seguito).
 - [ ] **Integrazione con il selettore Lingua UI (`IT` / `EN`):** collegare la lingua scelta nell'interfaccia come lingua di default del server (per guidare il `prompt` iniziale di Whisper/Groq e le risposte di fallback in caso di errore/ambiguità, pur lasciando il riconoscimento bilingue ITA/ENG).

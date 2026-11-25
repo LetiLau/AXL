@@ -1,20 +1,29 @@
 """
-A-X-L Local Speech-to-Text (STT) Engine powered by faster-whisper (CTranslate2).
-Optimized for low-latency CPU inference (INT8 AVX2) on ThinkPad (Haswell i5) and modern workstations.
+A-X-L Speech-to-Text (STT) Engine supporting:
+- Groq Cloud Whisper (`whisper-large-v3-turbo`) for 0-RAM lightweight deployments
+- Local `faster-whisper` (CTranslate2 INT8 AVX2) for offline workstations
 """
 
 import asyncio
+import io
 import logging
 import os
 import time
+import wave
 from pathlib import Path
 from typing import Optional, Union
 
 import numpy as np
+import requests
 
 from tts_engine import get_default_language
 
 logger = logging.getLogger("AXL-STT")
+
+DEFAULT_STT_BACKEND = os.getenv("AXL_STT_BACKEND", "local").strip().lower()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_STT_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3-turbo").strip()
+GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
 DEFAULT_MODEL_SIZE = os.getenv("AXL_STT_MODEL", "base")
 DEFAULT_DEVICE = os.getenv("AXL_STT_DEVICE", "cpu")
@@ -35,10 +44,14 @@ INITIAL_PROMPT_EN = (
 )
 
 
+class STTBackendError(RuntimeError):
+    """Raised when an external STT backend fails (network, auth, quota, HTTP error)."""
+
+
 class STTEngine:
     """
-    Asynchronous, non-blocking wrapper around faster-whisper WhisperModel.
-    Runs transcription inside an executor thread to preserve FastAPI's event loop.
+    Asynchronous, non-blocking Speech-to-Text engine supporting Groq Cloud Whisper
+    and local faster-whisper WhisperModel.
     """
 
     def __init__(
@@ -49,7 +62,11 @@ class STTEngine:
         cpu_threads: int = DEFAULT_CPU_THREADS,
         language: str = DEFAULT_LANGUAGE,
         download_root: Optional[Union[str, Path]] = None,
+        backend: str = DEFAULT_STT_BACKEND,
     ):
+        self.backend = (backend or "local").strip().lower()
+        self.groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+        self.groq_model = os.getenv("GROQ_STT_MODEL", "whisper-large-v3-turbo").strip()
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
@@ -58,12 +75,19 @@ class STTEngine:
         self.download_root = str(download_root) if download_root else None
         self.model = None
 
-        logger.info(
-            f"[STT INIT] Loading faster-whisper model '{self.model_size}' "
-            f"(device: {self.device}, compute: {self.compute_type}, threads: {self.cpu_threads})..."
-        )
-        self._load_model()
-        self._warmup()
+        if self.backend == "groq":
+            logger.info(
+                f"[STT INIT] Groq cloud STT ready (model: {self.groq_model}, 0 MB local Whisper RAM)."
+            )
+            if not self.groq_api_key or self.groq_api_key.startswith("your_"):
+                logger.warning("[STT INIT] GROQ_API_KEY is not yet configured in .env.")
+        else:
+            logger.info(
+                f"[STT INIT] Loading faster-whisper model '{self.model_size}' "
+                f"(device: {self.device}, compute: {self.compute_type}, threads: {self.cpu_threads})..."
+            )
+            self._load_model()
+            self._warmup()
 
     def _load_model(self):
         from faster_whisper import WhisperModel
@@ -144,6 +168,78 @@ class STTEngine:
         filtered = np.fft.irfft(np.fft.rfft(audio_float) * gain, n=n)
         return filtered.astype(np.float32)
 
+    @staticmethod
+    def _float_to_wav_bytes(audio_float: np.ndarray, sample_rate: int = 16000) -> bytes:
+        """Encodes normalized float32 [-1.0, 1.0] mono audio to 16-bit PCM WAV bytes in memory."""
+        pcm_int16 = np.clip(audio_float * 32767.0, -32768, 32767).astype(np.int16)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(pcm_int16.tobytes())
+        return buf.getvalue()
+
+    @staticmethod
+    def _filter_hallucinated_rate(text: str, duration_sec: float) -> str:
+        """Drops transcripts exceeding physically plausible human speech rate (6.0 words/sec)."""
+        words = text.split()
+        if len(words) / duration_sec > 6.0:
+            logger.warning(
+                f"[STT HALLUCINATION FILTER] Dropped utterance exceeding 6 words/sec "
+                f"({len(words)} words in {duration_sec:.2f}s: \"{text[:60]}...\")"
+            )
+            return ""
+        return text
+
+    def _transcribe_groq_sync(self, audio_float: np.ndarray, rms: float, gain: float) -> str:
+        """Transcribes preprocessed 16kHz float32 audio via Groq Cloud Whisper API."""
+        if not self.groq_api_key or self.groq_api_key.startswith("your_"):
+            raise STTBackendError("GROQ_API_KEY is not configured.")
+
+        t0 = time.perf_counter()
+        duration_sec = max(0.1, len(audio_float) / 16000.0)
+        wav_bytes = self._float_to_wav_bytes(audio_float, sample_rate=16000)
+
+        use_en_prompt = self.language == "en" or (self.language == "auto" and get_default_language() == "en")
+        prompt = INITIAL_PROMPT_EN if use_en_prompt else INITIAL_PROMPT_IT
+
+        data = {
+            "model": self.groq_model,
+            "temperature": "0",
+            "response_format": "json",
+            "prompt": prompt,
+        }
+        if self.language in ("it", "en"):
+            data["language"] = self.language
+
+        try:
+            resp = requests.post(
+                GROQ_STT_URL,
+                headers={"Authorization": f"Bearer {self.groq_api_key}"},
+                files={"file": ("utterance.wav", wav_bytes, "audio/wav")},
+                data=data,
+                timeout=10.0,
+            )
+        except requests.RequestException as exc:
+            raise STTBackendError(f"Groq STT request failed: {exc}") from exc
+
+        if resp.status_code != 200:
+            raise STTBackendError(f"Groq STT HTTP {resp.status_code}: {resp.text[:200]}")
+
+        try:
+            result_text = (resp.json().get("text") or "").strip()
+        except ValueError as exc:
+            raise STTBackendError(f"Groq STT invalid JSON response: {exc}") from exc
+
+        result_text = self._filter_hallucinated_rate(result_text, duration_sec)
+        elapsed = (time.perf_counter() - t0) * 1000
+        logger.info(
+            f"[STT GROQ DONE] Transcribed {duration_sec:.2f}s audio in {elapsed:.1f} ms "
+            f"(rms={rms:.4f}, gain={gain:.1f}x, model={self.groq_model}) | Text: \"{result_text}\""
+        )
+        return result_text
+
     def _transcribe_sync(self, audio_data: np.ndarray) -> str:
         """
         Synchronous transcription executed within thread executor.
@@ -175,6 +271,9 @@ class STTEngine:
         if 1e-6 < peak < 0.85:
             gain = min(0.90 / peak, 15.0)
             audio_float = np.clip(audio_float * gain, -1.0, 1.0)
+
+        if self.backend == "groq":
+            return self._transcribe_groq_sync(audio_float, rms, gain)
 
         t0 = time.perf_counter()
         duration_sec = max(0.1, len(audio_float) / 16000.0)
@@ -214,16 +313,7 @@ class STTEngine:
             if clean_text:
                 texts.append(clean_text)
 
-        result_text = " ".join(texts).strip()
-
-        # 3. Sanity check: humans cannot physically speak more than 6.0 words per second
-        words = result_text.split()
-        if len(words) / duration_sec > 6.0:
-            logger.warning(
-                f"[STT HALLUCINATION FILTER] Dropped utterance exceeding 6 words/sec "
-                f"({len(words)} words in {duration_sec:.2f}s: \"{result_text[:60]}...\")"
-            )
-            result_text = ""
+        result_text = self._filter_hallucinated_rate(" ".join(texts).strip(), duration_sec)
 
         elapsed = (time.perf_counter() - t0) * 1000
         logger.info(

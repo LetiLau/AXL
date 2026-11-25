@@ -1664,11 +1664,11 @@ body.music-active.telemetry-active .telemetry-panel {
     }
     body.music-active .music-player-panel {
         order: 1 !important;
-        width: min(37vw, 290px);
+        width: min(32vw, 252px);
         max-height: 100%;
-        padding: 7px 10px;
-        gap: 5px;
-        border-radius: 18px;
+        padding: 9px 12px;
+        gap: 6px;
+        border-radius: 22px;
         overflow: hidden;
     }
     body.music-active .visor-wrapper {
@@ -1682,9 +1682,9 @@ body.music-active.telemetry-active .telemetry-panel {
         height: min(26vw, calc(100vh - 205px), 160px);
     }
     body.music-active.telemetry-active .music-player-panel {
-        width: min(31vw, 240px);
-        padding: 6px 8px;
-        gap: 4px;
+        width: min(28vw, 226px);
+        padding: 8px 11px;
+        gap: 5px;
     }
     body.music-active.telemetry-active .telemetry-panel {
         width: min(39vw, 315px) !important;
@@ -1767,17 +1767,17 @@ body.music-active.telemetry-active .telemetry-panel {
         font-size: 0.68rem;
     }
     body.music-active .music-icon-mini {
-        width: 22px;
-        height: 22px;
-        font-size: 0.65rem;
+        width: 25px;
+        height: 25px;
+        font-size: 0.72rem;
     }
     body.music-active .music-hero-row {
-        gap: 9px;
+        gap: 10px;
     }
     body.music-active .music-art-wrap {
-        width: 40px;
-        height: 40px;
-        border-radius: 11px;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
     }
     body.music-active .music-track-title {
         font-size: 0.88rem;
@@ -1796,30 +1796,30 @@ body.music-active.telemetry-active .telemetry-panel {
         font-size: 0.62rem;
     }
     body.music-active .music-controls-row {
-        gap: 4px;
+        gap: 5px;
         padding: 0 2px;
     }
     body.music-active .music-ctrl-btn {
-        width: 28px;
-        height: 28px;
-        border-radius: 10px;
+        width: 32px;
+        height: 32px;
+        border-radius: 11px;
     }
     body.music-active .music-ctrl-btn svg {
-        width: 14px;
-        height: 14px;
+        width: 15px;
+        height: 15px;
     }
     body.music-active .music-play-squircle {
-        width: 38px;
-        height: 34px;
-        border-radius: 13px;
+        width: 42px;
+        height: 38px;
+        border-radius: 14px;
     }
     body.music-active .music-play-squircle svg {
-        width: 18px;
-        height: 18px;
+        width: 20px;
+        height: 20px;
     }
     body.music-active .music-volume-row {
-        padding: 3px 8px;
-        gap: 6px;
+        padding: 4px 10px;
+        gap: 7px;
         border-radius: 12px;
     }
     body.music-active .music-vol-pct {
