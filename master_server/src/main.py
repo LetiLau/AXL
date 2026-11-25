@@ -357,6 +357,10 @@ class StreamManager:
             return
         try:
             pb = await asyncio.to_thread(spotify_controller.get_current_playback)
+            if not pb.get("track"):
+                sonos_pb = await asyncio.to_thread(spotify_controller.get_sonos_now_playing)
+                if sonos_pb:
+                    pb = sonos_pb
             prev = self.last_music_state or {}
             changed = (
                 force
@@ -368,12 +372,13 @@ class StreamManager:
                 or pb.get("repeat_state") != prev.get("repeat_state")
                 or pb.get("shuffle_state") != prev.get("shuffle_state")
                 or pb.get("volume_percent") != prev.get("volume_percent")
+                or pb.get("supports_volume") != prev.get("supports_volume")
             )
-            # Detect external timeline jump/seek on another device or periodic drift sync (>5s)
+            # Detect external timeline jump/seek on another device or tighter periodic drift sync
             if not changed and pb.get("playing"):
                 elapsed = (pb.get("timestamp", 0) - prev.get("timestamp", 0))
                 expected_prog = (prev.get("progress_ms") or 0) + max(0, elapsed)
-                if abs((pb.get("progress_ms") or 0) - expected_prog) > 3500 or elapsed >= 5000:
+                if abs((pb.get("progress_ms") or 0) - expected_prog) > 1200 or elapsed >= 2500:
                     changed = True
 
             if changed:
@@ -419,8 +424,18 @@ class StreamManager:
             while True:
                 if self.ui_clients and spotify_controller.is_configured() and spotify_controller.is_authenticated():
                     await self.push_music_snapshot(force=False)
-                is_active = bool((self.last_music_state or {}).get("playing") or (self.last_music_state or {}).get("track"))
-                await asyncio.sleep(2.5 if is_active else 5.0)
+                last = self.last_music_state or {}
+                is_sonos_lan = last.get("source") == "sonos_lan"
+                is_playing = bool(last.get("playing"))
+                has_track = bool(last.get("track"))
+                if is_sonos_lan and is_playing:
+                    await asyncio.sleep(1.0)
+                elif is_playing:
+                    await asyncio.sleep(1.2)
+                elif has_track:
+                    await asyncio.sleep(2.5)
+                else:
+                    await asyncio.sleep(4.5)
         except asyncio.CancelledError:
             pass
         finally:
@@ -1529,11 +1544,33 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         logger.info("[ASK BUTTON] Ignored: pipeline busy.")
                 elif mtype == "MUSIC_COMMAND":
                     action = str(msg.get("action", "")).lower().strip()
+                    last_music = stream_manager.last_music_state or {}
+                    sonos_ip = last_music.get("sonos_ip")
                     if action == "refresh":
                         await stream_manager.push_music_snapshot(force=True)
+                    elif last_music.get("source") == "sonos_lan" and sonos_ip:
+                        if action == "toggle":
+                            is_playing = bool(last_music.get("playing"))
+                            action = "pause" if is_playing else "play"
+                        vol_val = msg.get("volume")
+                        rep_mode = str(msg.get("repeat_mode", "") or "").strip()
+                        pos_ms = msg.get("position_ms")
+                        try:
+                            ok_lan = await asyncio.to_thread(
+                                spotify_controller.control_sonos_upnp,
+                                sonos_ip,
+                                action,
+                                int(vol_val) if vol_val is not None else None,
+                                rep_mode or None,
+                                int(pos_ms) if pos_ms is not None else None,
+                            )
+                            logger.info(f"[UI MUSIC CMD LAN] action='{action}' ip={sonos_ip} ok={ok_lan}")
+                        except Exception as exc:
+                            logger.warning(f"[UI MUSIC CMD LAN] Failed '{action}': {exc}")
+                        await stream_manager.push_music_snapshot(delay=0.15, force=True)
                     elif spotify_controller.is_configured() and spotify_controller.is_authenticated():
                         if action == "toggle":
-                            is_playing = bool((stream_manager.last_music_state or {}).get("playing"))
+                            is_playing = bool(last_music.get("playing"))
                             action = "pause" if is_playing else "play"
                         target_dev = str(msg.get("target", "") or "").strip()
                         vol_val = msg.get("volume")
@@ -1552,6 +1589,7 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         except Exception as exc:
                             logger.warning(f"[UI MUSIC CMD] Failed '{action}': {exc}")
                         await stream_manager.push_music_snapshot(delay=0.25, force=True)
+                        asyncio.create_task(stream_manager.push_music_snapshot(delay=0.9, force=False))
                 elif mtype in ("REQUEST_SERVER_TELEMETRY", "REQUEST_TELEMETRY"):
                     req_target = msg.get("target", "server" if mtype == "REQUEST_SERVER_TELEMETRY" else stream_manager.telemetry_target)
                     req_norm = str(req_target).lower().strip()

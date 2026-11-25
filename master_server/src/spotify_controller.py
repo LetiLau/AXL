@@ -292,7 +292,7 @@ class SpotifyController:
         Retrieves room names, model names, and group coordinator topology.
         """
         now = time.time()
-        if not force_refresh and self._sonos_cache and (now - self._sonos_cache_ts) < self._sonos_cache_ttl:
+        if not force_refresh and self._sonos_cache_ts > 0 and (now - self._sonos_cache_ts) < self._sonos_cache_ttl:
             return list(self._sonos_cache)
 
         ssdp_msg = (
@@ -466,12 +466,134 @@ class SpotifyController:
             logger.debug(f"Sonos UPnP GetVolume failed on {ip}: {exc}")
         return None
 
+    @staticmethod
+    def _parse_hhmmss_to_ms(ts: str) -> int:
+        """Converts Sonos UPnP HH:MM:SS string to milliseconds."""
+        if not ts:
+            return 0
+        parts = ts.strip().split(":")
+        try:
+            if len(parts) == 3:
+                return (int(parts[0]) * 3600 + int(parts[1]) * 60 + int(float(parts[2]))) * 1000
+            if len(parts) == 2:
+                return (int(parts[0]) * 60 + int(float(parts[1]))) * 1000
+        except ValueError:
+            return 0
+        return 0
+
+    def get_sonos_now_playing(self) -> Optional[Dict[str, Any]]:
+        """
+        Reads live playback state directly from an active Sonos coordinator on the Wi-Fi LAN
+        via UPnP (`GetTransportInfo` + `GetPositionInfo` + `GetVolume`).
+        Returns a normalized payload matching `get_current_playback()` or None if idle/unreachable.
+        """
+        sonos_list = self.discover_sonos_speakers(timeout=0.9, force_refresh=False)
+        coordinators = [s for s in sonos_list if s.get("is_coordinator", True)] or sonos_list
+        if not coordinators:
+            return None
+
+        def _soap(ip: str, action: str) -> Optional[str]:
+            env = (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+                's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
+                "<s:Body>"
+                f'<u:{action} xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">'
+                "<InstanceID>0</InstanceID>"
+                f"</u:{action}>"
+                "</s:Body></s:Envelope>"
+            )
+            r = requests.post(
+                f"http://{ip}:1400/MediaRenderer/AVTransport/Control",
+                data=env.encode("utf-8"),
+                headers={
+                    "Content-Type": 'text/xml; charset="utf-8"',
+                    "SOAPACTION": f'"urn:schemas-upnp-org:service:AVTransport:1#{action}"',
+                },
+                timeout=1.2,
+            )
+            return r.text if r.status_code == 200 else None
+
+        for sp in coordinators:
+            ip = sp.get("ip")
+            if not ip:
+                continue
+            try:
+                ti_xml = _soap(ip, "GetTransportInfo")
+                if not ti_xml:
+                    continue
+                m_state = re.search(r"<CurrentTransportState>([^<]+)</CurrentTransportState>", ti_xml)
+                t_state = (m_state.group(1) if m_state else "").strip().upper()
+                if t_state not in ("PLAYING", "TRANSITIONING", "PAUSED_PLAYBACK"):
+                    continue
+
+                pi_xml = _soap(ip, "GetPositionInfo")
+                if not pi_xml:
+                    continue
+                m_meta = re.search(r"<TrackMetaData>(.*?)</TrackMetaData>", pi_xml, re.DOTALL)
+                m_dur = re.search(r"<TrackDuration>([^<]+)</TrackDuration>", pi_xml)
+                m_rel = re.search(r"<RelTime>([^<]+)</RelTime>", pi_xml)
+                m_uri = re.search(r"<TrackURI>([^<]+)</TrackURI>", pi_xml)
+
+                title, artist, album, art_url = "", "", "", ""
+                if m_meta and m_meta.group(1):
+                    didl_raw = html.unescape(m_meta.group(1)).strip()
+                    if didl_raw and didl_raw != "NOT_IMPLEMENTED":
+                        try:
+                            droot = ET.fromstring(didl_raw)
+                            for el in droot.iter():
+                                tag = el.tag.split("}")[-1]
+                                txt = (el.text or "").strip()
+                                if not txt:
+                                    continue
+                                if tag == "title" and not title:
+                                    title = txt
+                                elif tag == "creator" and not artist:
+                                    artist = txt
+                                elif tag == "album" and not album:
+                                    album = txt
+                                elif tag == "albumArtURI" and not art_url:
+                                    art_url = txt
+                        except Exception:
+                            pass
+
+                if not title:
+                    continue
+                if art_url.startswith("/"):
+                    art_url = f"http://{ip}:1400{art_url}"
+
+                vol = self.get_sonos_volume(ip)
+                return {
+                    "playing": t_state in ("PLAYING", "TRANSITIONING"),
+                    "track": title,
+                    "track_uri": html.unescape(m_uri.group(1)) if m_uri else "",
+                    "artists": artist or "Sonos LAN",
+                    "album": album,
+                    "album_art": art_url,
+                    "device_id": sp.get("uuid", ip),
+                    "device_name": sp.get("room_name", "Sonos"),
+                    "device_type": "Speaker",
+                    "supports_volume": True,
+                    "volume_percent": vol if vol is not None else 50,
+                    "repeat_state": "off",
+                    "shuffle_state": False,
+                    "progress_ms": self._parse_hhmmss_to_ms(m_rel.group(1) if m_rel else ""),
+                    "duration_ms": self._parse_hhmmss_to_ms(m_dur.group(1) if m_dur else ""),
+                    "timestamp": int(time.time() * 1000),
+                    "source": "sonos_lan",
+                    "sonos_ip": ip,
+                }
+            except Exception as exc:
+                logger.debug(f"[Sonos LAN] get_sonos_now_playing failed on {ip}: {exc}")
+        return None
+
     def control_sonos_upnp(
         self,
         ip: str,
         action: str,
         volume: Optional[int] = None,
         repeat_mode: Optional[str] = None,
+        position_ms: Optional[int] = None,
     ) -> bool:
         """Executes basic UPnP AVTransport/RenderingControl actions directly on a Sonos speaker."""
         action_norm = action.lower().strip()
@@ -496,6 +618,14 @@ class SpotifyController:
                 service = "AVTransport"
                 soap_action = "Seek"
                 inner = "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>00:00:00</Target>"
+            elif action_norm == "seek" and position_ms is not None:
+                service = "AVTransport"
+                soap_action = "Seek"
+                total_sec = max(0, int(position_ms) // 1000)
+                hh = total_sec // 3600
+                mm = (total_sec % 3600) // 60
+                ss = total_sec % 60
+                inner = f"<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>{hh:02d}:{mm:02d}:{ss:02d}</Target>"
             elif action_norm in ("shuffle", "random"):
                 service = "AVTransport"
                 soap_action = "SetPlayMode"
@@ -1664,15 +1794,27 @@ class SpotifyController:
     ) -> Dict[str, Any]:
         """Controls playback (play, pause, next, previous, restart, seek, loop/repeat, volume) on Spotify Connect or Sonos LAN."""
         act = (action or "").lower().strip()
-        sonos_speakers = self.discover_sonos_speakers()
-        devices = self.get_spotify_devices()
-        matched_dev, _, norm_target = self.resolve_device(target, devices=devices, sonos_speakers=sonos_speakers)
+        fast_transport_acts = (
+            "play", "resume", "pause", "stop", "next", "skip",
+            "prev", "previous", "back", "restart", "rewind", "seek",
+        )
+        if not target and act in fast_transport_acts:
+            # Fast-path active Spotify Connect transport controls without slow SSDP + /devices lookups
+            sonos_speakers: Optional[List[Dict[str, Any]]] = None
+            matched_dev = None
+            norm_target = ""
+            params: Dict[str, Any] = {}
+            dev_label = "dispositivo attivo"
+        else:
+            sonos_speakers = self.discover_sonos_speakers()
+            devices = self.get_spotify_devices()
+            matched_dev, _, norm_target = self.resolve_device(target, devices=devices, sonos_speakers=sonos_speakers)
 
-        params: Dict[str, Any] = {}
-        if matched_dev and matched_dev.get("id"):
-            params["device_id"] = matched_dev["id"]
+            params = {}
+            if matched_dev and matched_dev.get("id"):
+                params["device_id"] = matched_dev["id"]
 
-        dev_label = matched_dev.get("name") if matched_dev else (target or "dispositivo attivo")
+            dev_label = matched_dev.get("name") if matched_dev else (target or "dispositivo attivo")
 
         if act in ("play", "resume"):
             resp = self._api_request("PUT", "/me/player/play", params=params)
@@ -1825,7 +1967,9 @@ class SpotifyController:
             return {"ok": True, "message": f"Comando '{act}' eseguito su {dev_label}."}
 
         # Fallback to direct Sonos UPnP if Spotify Connect failed for a Sonos speaker
-        if self._try_sonos_upnp_fallback(norm_target, sonos_speakers, act):
+        if sonos_speakers is None:
+            sonos_speakers = self.discover_sonos_speakers()
+        if self._try_sonos_upnp_fallback(norm_target, sonos_speakers, act, position_ms=position_ms):
             return {"ok": True, "message": f"Comando '{act}' eseguito direttamente su Sonos."}
 
         return {
@@ -1840,6 +1984,7 @@ class SpotifyController:
         action: str,
         volume: Optional[int] = None,
         repeat_mode: Optional[str] = None,
+        position_ms: Optional[int] = None,
     ) -> bool:
         """Attempts direct local UPnP control if the target refers to a discovered Sonos speaker."""
         if not sonos_speakers:
@@ -1855,7 +2000,13 @@ class SpotifyController:
                     break
         if not target_sp:
             return False
-        return self.control_sonos_upnp(target_sp["ip"], action, volume=volume, repeat_mode=repeat_mode)
+        return self.control_sonos_upnp(
+            target_sp["ip"],
+            action,
+            volume=volume,
+            repeat_mode=repeat_mode,
+            position_ms=position_ms,
+        )
 
     def get_current_playback(self) -> Dict[str, Any]:
         """Fetches the currently playing track, repeat/shuffle state, and active Spotify Connect device."""

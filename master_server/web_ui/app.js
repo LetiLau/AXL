@@ -2383,6 +2383,15 @@
     let wsDisconnectCount = 0;
     let musicMinimized = false;
     let musicPausePendingUntil = 0;
+    let musicOptPlayUntil = 0;
+    let musicOptPlayVal = null;
+    let musicOptVolUntil = 0;
+    let musicOptVolVal = null;
+    let musicOptShuffleUntil = 0;
+    let musicOptShuffleVal = null;
+    let musicOptRepeatUntil = 0;
+    let musicOptRepeatVal = null;
+    let musicOptSeekUntil = 0;
     let musicLocalSyncAt = performance.now();
     let isSeekingMusic = false;
     let isAdjustingMusicVol = false;
@@ -2413,21 +2422,75 @@
         if (musicTimeTot) musicTimeTot.textContent = formatMusicMs(dur);
     }
 
+    function getEstimatedMusicProgressMs() {
+        const dur = Math.max(0, Number(currentMusicData.duration_ms) || 0);
+        const base = Math.max(0, Number(currentMusicData.progress_ms) || 0);
+        if (!currentMusicData.playing) return dur > 0 ? Math.min(dur, base) : base;
+        const delta = Math.min(4000, Math.max(0, performance.now() - musicLocalSyncAt));
+        const est = base + delta;
+        return dur > 0 ? Math.min(dur, est) : est;
+    }
+
     function updateMusicPlayerUI(patch) {
         if (!musicPanel || !patch) return;
         const wasTrack = Boolean(currentMusicData.track);
         const prevPlaying = Boolean(currentMusicData.playing);
+        const isOptimistic = Boolean(patch._optimistic);
         const effectivePatch = Object.assign({}, patch);
+        delete effectivePatch._optimistic;
+
+        const nowMs = Date.now();
         if (effectivePatch.playing === false) {
             musicPausePendingUntil = 0;
-        } else if (Date.now() < musicPausePendingUntil && effectivePatch.playing === true) {
+        } else if (nowMs < musicPausePendingUntil && effectivePatch.playing === true) {
             // Ignore in-flight playing=true poll briefly after user clicked X to pause & close
             effectivePatch.playing = false;
         }
+
+        if (!isOptimistic) {
+            // Prevent in-flight polls from bouncing back UI state right after a click
+            if (typeof effectivePatch.playing === "boolean" && nowMs < musicOptPlayUntil) {
+                if (effectivePatch.playing === musicOptPlayVal) {
+                    musicOptPlayUntil = 0;
+                } else {
+                    effectivePatch.playing = musicOptPlayVal;
+                }
+            }
+            if (typeof effectivePatch.volume_percent === "number" && nowMs < musicOptVolUntil) {
+                if (Math.abs(effectivePatch.volume_percent - musicOptVolVal) <= 1) {
+                    musicOptVolUntil = 0;
+                } else {
+                    effectivePatch.volume_percent = musicOptVolVal;
+                }
+            }
+            if (typeof effectivePatch.shuffle_state === "boolean" && nowMs < musicOptShuffleUntil) {
+                if (effectivePatch.shuffle_state === musicOptShuffleVal) {
+                    musicOptShuffleUntil = 0;
+                } else {
+                    effectivePatch.shuffle_state = musicOptShuffleVal;
+                }
+            }
+            if (typeof effectivePatch.repeat_state === "string" && nowMs < musicOptRepeatUntil) {
+                if (effectivePatch.repeat_state.toLowerCase() === musicOptRepeatVal) {
+                    musicOptRepeatUntil = 0;
+                } else {
+                    effectivePatch.repeat_state = musicOptRepeatVal;
+                }
+            }
+            if (typeof effectivePatch.progress_ms === "number" && nowMs < musicOptSeekUntil) {
+                delete effectivePatch.progress_ms;
+            }
+        }
+
+        // Freeze estimated playback position when transitioning into pause if no exact progress was provided
+        if (prevPlaying && effectivePatch.playing === false && typeof effectivePatch.progress_ms !== "number") {
+            effectivePatch.progress_ms = getEstimatedMusicProgressMs();
+        }
+
         const hasProgressUpdate = typeof effectivePatch.progress_ms === "number";
         currentMusicData = Object.assign({}, currentMusicData, effectivePatch);
-        if (hasProgressUpdate || (!prevPlaying && currentMusicData.playing)) {
-            // Anchor interpolation strictly to local monotonic clock to avoid server-client clock skew
+        if (hasProgressUpdate || prevPlaying !== Boolean(currentMusicData.playing)) {
+            // Anchor interpolation strictly to local monotonic clock on progress sync or play/pause flip
             musicLocalSyncAt = performance.now();
         }
 
@@ -2511,11 +2574,27 @@
             musicLoopBadge.hidden = rep !== "track";
         }
 
-        if (typeof currentMusicData.volume_percent === "number" && musicVolSlider && !isAdjustingMusicVol) {
-            const v = Math.max(0, Math.min(100, currentMusicData.volume_percent));
-            musicVolSlider.value = String(v);
-            musicVolSlider.style.setProperty("--slider-pct", `${v}%`);
-            if (musicVolPct) musicVolPct.textContent = `${v}%`;
+        const volSupported = currentMusicData.supports_volume !== false;
+        const volRow = musicVolSlider ? musicVolSlider.closest(".music-volume-row") : null;
+        if (volRow) {
+            volRow.hidden = !volSupported;
+            volRow.classList.toggle("vol-disabled", !volSupported);
+            volRow.title = volSupported
+                ? "Volume dispositivo"
+                : "Volume remoto bloccato da questo dispositivo (es. smartphone/cuffie)";
+        }
+        if (musicVolSlider) {
+            musicVolSlider.disabled = !volSupported;
+            if (!volSupported) {
+                musicVolSlider.value = "0";
+                musicVolSlider.style.setProperty("--slider-pct", "0%");
+                if (musicVolPct) musicVolPct.textContent = "N/A";
+            } else if (typeof currentMusicData.volume_percent === "number" && !isAdjustingMusicVol) {
+                const v = Math.max(0, Math.min(100, currentMusicData.volume_percent));
+                musicVolSlider.value = String(v);
+                musicVolSlider.style.setProperty("--slider-pct", `${v}%`);
+                if (musicVolPct) musicVolPct.textContent = `${v}%`;
+            }
         }
 
         renderMusicProgress(currentMusicData.progress_ms, currentMusicData.duration_ms);
@@ -2617,11 +2696,27 @@
         if (musicBtnPlay) {
             musicBtnPlay.addEventListener("click", () => {
                 musicPausePendingUntil = 0;
-                sendMusicCommand({ action: "toggle" });
+                const nextPlaying = !Boolean(currentMusicData.playing);
+                const optPatch = { playing: nextPlaying, _optimistic: true };
+                if (!nextPlaying) {
+                    optPatch.progress_ms = getEstimatedMusicProgressMs();
+                }
+                musicOptPlayVal = nextPlaying;
+                musicOptPlayUntil = Date.now() + 1800;
+                musicOptSeekUntil = Date.now() + 1800;
+                updateMusicPlayerUI(optPatch);
+                sendMusicCommand({ action: nextPlaying ? "play" : "pause" });
             });
         }
         if (musicBtnNext) {
-            musicBtnNext.addEventListener("click", () => sendMusicCommand({ action: "next" }));
+            musicBtnNext.addEventListener("click", () => {
+                musicPausePendingUntil = 0;
+                musicOptSeekUntil = Date.now() + 1800;
+                currentMusicData.progress_ms = 0;
+                musicLocalSyncAt = performance.now();
+                renderMusicProgress(0, currentMusicData.duration_ms);
+                sendMusicCommand({ action: "next" });
+            });
         }
         if (musicBtnPrev) {
             musicBtnPrev.addEventListener("click", () => {
@@ -2629,10 +2724,11 @@
                 const now = performance.now();
                 const delta = currentMusicData.playing ? Math.max(0, now - musicLocalSyncAt) : 0;
                 const estProgress = (Number(currentMusicData.progress_ms) || 0) + delta;
+                musicOptSeekUntil = Date.now() + 1800;
+                currentMusicData.progress_ms = 0;
+                musicLocalSyncAt = now;
+                renderMusicProgress(0, currentMusicData.duration_ms);
                 if (estProgress > 3500) {
-                    currentMusicData.progress_ms = 0;
-                    musicLocalSyncAt = now;
-                    renderMusicProgress(0, currentMusicData.duration_ms);
                     sendMusicCommand({ action: "restart" });
                 } else {
                     sendMusicCommand({ action: "previous" });
@@ -2640,10 +2736,23 @@
             });
         }
         if (musicBtnShuffle) {
-            musicBtnShuffle.addEventListener("click", () => sendMusicCommand({ action: "shuffle" }));
+            musicBtnShuffle.addEventListener("click", () => {
+                const nextShuffle = !Boolean(currentMusicData.shuffle_state);
+                musicOptShuffleVal = nextShuffle;
+                musicOptShuffleUntil = Date.now() + 1800;
+                updateMusicPlayerUI({ shuffle_state: nextShuffle, _optimistic: true });
+                sendMusicCommand({ action: "shuffle" });
+            });
         }
         if (musicBtnLoop) {
-            musicBtnLoop.addEventListener("click", () => sendMusicCommand({ action: "loop", repeat_mode: "toggle" }));
+            musicBtnLoop.addEventListener("click", () => {
+                const curRep = (currentMusicData.repeat_state || "off").toLowerCase();
+                const nextRep = curRep === "off" ? "context" : (curRep === "context" ? "track" : "off");
+                musicOptRepeatVal = nextRep;
+                musicOptRepeatUntil = Date.now() + 1800;
+                updateMusicPlayerUI({ repeat_state: nextRep, _optimistic: true });
+                sendMusicCommand({ action: "loop", repeat_mode: "toggle" });
+            });
         }
         if (musicSeekSlider) {
             musicSeekSlider.addEventListener("input", () => {
@@ -2656,6 +2765,7 @@
             musicSeekSlider.addEventListener("change", () => {
                 const targetMs = Math.max(0, Math.floor(Number(musicSeekSlider.value) || 0));
                 isSeekingMusic = false;
+                musicOptSeekUntil = Date.now() + 1800;
                 currentMusicData.progress_ms = targetMs;
                 musicLocalSyncAt = performance.now();
                 sendMusicCommand({ action: "seek", position_ms: targetMs });
@@ -2663,14 +2773,19 @@
         }
         if (musicVolSlider) {
             musicVolSlider.addEventListener("input", () => {
+                if (musicVolSlider.disabled) return;
                 isAdjustingMusicVol = true;
                 const v = Math.max(0, Math.min(100, Number(musicVolSlider.value) || 0));
                 musicVolSlider.style.setProperty("--slider-pct", `${v}%`);
                 if (musicVolPct) musicVolPct.textContent = `${v}%`;
             });
             musicVolSlider.addEventListener("change", () => {
+                if (musicVolSlider.disabled) return;
                 const v = Math.max(0, Math.min(100, Math.floor(Number(musicVolSlider.value) || 0)));
                 isAdjustingMusicVol = false;
+                musicOptVolVal = v;
+                musicOptVolUntil = Date.now() + 1800;
+                currentMusicData.volume_percent = v;
                 sendMusicCommand({ action: "set_volume", volume: v });
             });
         }
@@ -2680,9 +2795,7 @@
             if (!currentMusicData.playing || !currentMusicData.track || isSeekingMusic) return;
             const dur = Number(currentMusicData.duration_ms) || 0;
             if (dur <= 0) return;
-            const delta = Math.max(0, performance.now() - musicLocalSyncAt);
-            const estProgress = Math.min(dur, (Number(currentMusicData.progress_ms) || 0) + delta);
-            renderMusicProgress(estProgress, dur);
+            renderMusicProgress(getEstimatedMusicProgressMs(), dur);
         }, 250);
     }
 
