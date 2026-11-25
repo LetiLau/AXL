@@ -468,3 +468,23 @@ Per portare la cattura vocale del Galaxy A33 al livello di un Amazon Echo / Goog
   - Android lo riconosce plug & play via USB-C a 16–48 kHz (evitare microfoni Bluetooth per l'ascolto continuo perché il profilo HFP/SCO scende a 8 kHz).
   - Bonus: migliora drasticamente anche la qualità e il volume dello speaker di risposta di A-X-L.
 - [ ] **Mini Hub USB-C con Power Delivery (PD pass-through)** per collegare lo speakerphone al Galaxy A33 mantenendo il telefono sempre in carica 24/7.
+
+---
+
+### Selettore Manuale Brain Mode (`AUTO` / `SMART` / `FAST`)
+- [ ] **Web UI (`index.html` / `app.js`):** aggiungere selettore a 3 modalità (`AUTO`, `SMART`, `FAST`) nel menu ⚙️ (o nell'header) sincronizzato via WebSocket tra tutti i client.
+- [ ] **Console Admin (`console_manager.py`):** aggiungere comando `/model auto | smart | fast` (o nome modello specifico) collegato a `GeminiBrain.set_model()`.
+- [ ] **Backend (`main.py` / `brain_gemini.py`):** gestire il messaggio WebSocket `SET_BRAIN_MODE` e inviare lo stato corrente `brain_mode` all'apertura della UI.
+
+---
+
+### Modalità "Solo PC" (All-in-One su `localhost`)
+- [ ] **Avvio unificato PC (`test_mic_client.py` + `main.py`):** permettere di usare A-X-L interamente sullo stesso PC senza telefono Android Kiosk, catturando il microfono locale con `test_mic_client` e aprendo la Web UI su `localhost:8000` dal browser (gestendo eventuali conflitti audio/eco tra mic e casse dello stesso PC).
+
+---
+
+### STT Cloud Leggero con Groq (`whisper-large-v3-turbo`) & Lingua UI
+- [ ] **Backend STT configurabile in `stt_engine.py` (`.env`: `AXL_STT_BACKEND=groq | local`):**
+  - Usare **Groq API (`whisper-large-v3-turbo`)** di default sulle macchine con poca RAM/CPU (es. ThinkPad 8 GB), evitando di caricare `faster-whisper` in memoria (0 MB RAM, wake-word `openWakeWord` sempre locale).
+  - Prevedere una catena di **fallback** (da definire in seguito) nel caso Groq non sia raggiungibile.
+- [ ] **Integrazione con il selettore Lingua UI (`IT` / `EN`):** collegare la lingua scelta nell'interfaccia come lingua di default del server (per guidare il `prompt` iniziale di Whisper/Groq e le risposte di fallback in caso di errore/ambiguità, pur lasciando il riconoscimento bilingue ITA/ENG).
